@@ -1,0 +1,13 @@
+model:
+  provider: anthropic
+  model_id: claude-sonnet-4-6
+
+workspace:
+  path: ~/blueclaw/workspace/
+
+tools:
+  - web
+  - github
+  - pdf
+
+allowlist_domains: []

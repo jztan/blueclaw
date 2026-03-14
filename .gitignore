@@ -1,5 +1,6 @@
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Python
 .venv/
@@ -12,6 +13,8 @@ __pycache__/
 .eggs/
 dist/
 build/
+.pytest_cache/
+.coverage
 
 # blueclaw workspace (user data, not source)
 workspace/

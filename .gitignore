@@ -1,0 +1,36 @@
+# Claude Code
+.claude/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# blueclaw workspace (user data, not source)
+workspace/
+
+# blueclaw runtime
+*.jsonl
+pending.json
+blueclaw.db
+
+# Logs
+*.log
+
+# Config with potential secrets
+*.env
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml

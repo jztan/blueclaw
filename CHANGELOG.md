@@ -20,6 +20,7 @@ All notable changes to blueclaw will be documented in this file.
 - `blueclaw trace list` — list recent execution traces
 - `blueclaw trace show <run_id>` — display detailed step table for a run
 - Tool output truncation (12k char limit, head+tail preservation)
+- Test coverage for trace models, workspace trace I/O, observer step accumulation, and CLI trace commands (44 new tests)
 - flake8 and black dev dependencies with `.flake8` config
 - Domain allowlist with conversational approval hooks
 - Persistent context: `CONTEXT.md` updated via LLM summarization on session exit

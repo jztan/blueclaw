@@ -76,8 +76,11 @@ class TestInitThenRun:
             with patch("blueclaw.cli.console", Console(file=StringIO())):
                 # Need to also patch the config path
                 import os
+
                 yaml_path = tmp_path / "blueclaw.yaml"
-                yaml_path.write_text("model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\ntools: []\n")
+                yaml_path.write_text(
+                    "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\ntools: []\n"
+                )
                 with patch("blueclaw.session.Path") as mock_path_cls:
                     # This is complex; let's test the pipeline more directly
                     pass
@@ -149,14 +152,18 @@ class TestHistoryAccumulation:
 class TestModelSwitching:
     def test_switch_model_via_flag(self, tmp_path):
         yaml_path = tmp_path / "blueclaw.yaml"
-        yaml_path.write_text("model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n")
+        yaml_path.write_text(
+            "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n"
+        )
         config = load_config(yaml_path, model_override="ollama/llama3")
         assert config.provider == "ollama"
         assert config.model_id == "llama3"
 
     def test_switch_model_via_yaml(self, tmp_path):
         yaml_path = tmp_path / "blueclaw.yaml"
-        yaml_path.write_text("model:\n  provider: litellm\n  model_id: gemini/gemini-2.0-flash\n")
+        yaml_path.write_text(
+            "model:\n  provider: litellm\n  model_id: gemini/gemini-2.0-flash\n"
+        )
         config = load_config(yaml_path)
         assert config.provider == "litellm"
         assert config.model_id == "gemini/gemini-2.0-flash"
@@ -178,7 +185,11 @@ class TestObserverSessionHistoryPipeline:
             before.cancel_tool = False
             after = MagicMock()
             after.tool_use = before.tool_use
-            after.result = {"toolUseId": f"id_{i}", "status": "success", "content": [{"text": "ok"}]}
+            after.result = {
+                "toolUseId": f"id_{i}",
+                "status": "success",
+                "content": [{"text": "ok"}],
+            }
             after.exception = None
             observer.before_tool(before)
             observer.after_tool(after)

@@ -1,5 +1,6 @@
 """Tests for blueclaw.cli — commands, welcome banner, pixel art."""
 
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -10,7 +11,7 @@ from typer.testing import CliRunner
 
 from blueclaw import __version__
 from blueclaw.cli import app, render_pixel_art, render_welcome_banner
-from blueclaw.models import SessionConfig
+from blueclaw.models import RunTrace, SessionConfig, TraceStep
 from blueclaw.workspace import Workspace
 
 runner = CliRunner()
@@ -254,3 +255,104 @@ class TestPixelArt:
         text = output.getvalue()
         # ANSI escape codes should be present
         assert "\x1b[" in text
+
+
+# --- Trace commands ---
+
+
+def _write_test_trace(ws_path, run_id="20260315-101201", goal="test goal"):
+    ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+    step = TraceStep(
+        index=1,
+        tool_name="web_search",
+        status="success",
+        start_time=ts,
+        end_time=ts,
+        duration_ms=842,
+        input_summary={"query": "test"},
+        output_summary="results",
+    )
+    trace = RunTrace(
+        run_id=run_id,
+        goal=goal,
+        start_time=ts,
+        end_time=ts,
+        model_id="claude-sonnet-4-6",
+        steps=[step],
+        total_tokens=2847,
+        total_cost=0.0042,
+        status="success",
+    )
+    ws = Workspace(ws_path)
+    ws.write_trace(trace)
+    return trace
+
+
+class TestTraceCommands:
+    def test_trace_list_command_exists(self):
+        result = runner.invoke(app, ["trace", "list", "--help"])
+        assert result.exit_code == 0
+
+    def test_trace_show_command_exists(self):
+        result = runner.invoke(app, ["trace", "show", "--help"])
+        assert result.exit_code == 0
+
+    def test_trace_list_empty(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "list"])
+            assert result.exit_code == 0
+            assert "no" in result.output.lower()
+
+    def test_trace_list_shows_traces(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, goal="research MCP ecosystem")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "list"])
+            assert result.exit_code == 0
+            assert "20260315-101201" in result.output
+            assert "research MCP ecosystem" in result.output
+            assert "success" in result.output
+
+    def test_trace_list_truncates_long_goal(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        long_goal = "x" * 80
+        _write_test_trace(ws_path, goal=long_goal)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "list"])
+            assert "..." in result.output
+
+    def test_trace_show_displays_trace(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, goal="research MCP")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "20260315-101201"])
+            assert result.exit_code == 0
+            assert "20260315-101201" in result.output
+            assert "research MCP" in result.output
+            assert "web_search" in result.output
+            assert "842ms" in result.output
+
+    def test_trace_show_not_found(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "nonexistent"])
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_trace_show_displays_model(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "20260315-101201"])
+            assert "claude-sonnet-4-6" in result.output
+
+    def test_trace_show_displays_totals(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "20260315-101201"])
+            assert "2847" in result.output
+            assert "$0.0042" in result.output

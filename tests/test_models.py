@@ -10,10 +10,11 @@ from pydantic import ValidationError
 from blueclaw.models import (
     MODEL_PRICING,
     RunRecord,
+    RunTrace,
     SessionConfig,
+    TraceStep,
     calculate_cost,
 )
-
 
 # --- SessionConfig ---
 
@@ -149,3 +150,153 @@ class TestCostCalculation:
     def test_model_pricing_is_dict(self):
         assert isinstance(MODEL_PRICING, dict)
         assert len(MODEL_PRICING) > 0
+
+
+# --- TraceStep ---
+
+
+class TestTraceStep:
+    def test_trace_step_creation(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+            input_summary={"query": "MCP protocol"},
+            output_summary="Found 5 results...",
+        )
+        assert step.tool_name == "web_search"
+        assert step.duration_ms == 842
+        assert step.error is None
+
+    def test_trace_step_error(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_fetch",
+            status="error",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=100,
+            error="Connection refused",
+        )
+        assert step.status == "error"
+        assert step.error == "Connection refused"
+        assert step.output_summary is None
+
+    def test_trace_step_defaults(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="t",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=0,
+        )
+        assert step.input_summary == {}
+        assert step.output_summary is None
+        assert step.error is None
+
+
+# --- RunTrace ---
+
+
+class TestRunTrace:
+    def _make_trace(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+            input_summary={"query": "test"},
+            output_summary="results",
+        )
+        return RunTrace(
+            run_id="20260315-101201",
+            goal="research MCP",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[step],
+            total_tokens=2847,
+            total_cost=0.0042,
+            status="success",
+        )
+
+    def test_run_trace_creation(self):
+        trace = self._make_trace()
+        assert trace.run_id == "20260315-101201"
+        assert trace.goal == "research MCP"
+        assert len(trace.steps) == 1
+        assert trace.total_tokens == 2847
+
+    def test_run_trace_to_json(self):
+        trace = self._make_trace()
+        text = trace.to_json()
+        data = json.loads(text)
+        assert data["run_id"] == "20260315-101201"
+        assert data["steps"][0]["tool_name"] == "web_search"
+
+    def test_run_trace_from_json(self):
+        trace = self._make_trace()
+        text = trace.to_json()
+        restored = RunTrace.from_json(text)
+        assert restored.run_id == trace.run_id
+        assert restored.goal == trace.goal
+        assert len(restored.steps) == 1
+        assert restored.steps[0].tool_name == "web_search"
+
+    def test_run_trace_roundtrip(self):
+        trace = self._make_trace()
+        restored = RunTrace.from_json(trace.to_json())
+        assert restored == trace
+
+    def test_run_trace_no_steps(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="simple question",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=100,
+            status="success",
+        )
+        assert trace.total_cost is None
+        restored = RunTrace.from_json(trace.to_json())
+        assert restored.steps == []
+
+    def test_run_trace_multiple_steps(self):
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        steps = [
+            TraceStep(
+                index=i,
+                tool_name=f"tool_{i}",
+                status="success",
+                start_time=ts,
+                end_time=ts,
+                duration_ms=i * 100,
+            )
+            for i in range(5)
+        ]
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="multi-step",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=steps,
+            total_tokens=5000,
+            status="success",
+        )
+        restored = RunTrace.from_json(trace.to_json())
+        assert len(restored.steps) == 5
+        assert restored.steps[3].tool_name == "tool_3"

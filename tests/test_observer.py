@@ -12,9 +12,10 @@ from blueclaw.observer import (
     TAIL_SIZE,
     TRUNCATION_LIMIT,
     ObserverHooks,
+    _summarize_input,
+    _summarize_output,
     truncate_tool_result,
 )
-
 
 # --- Construction ---
 
@@ -281,3 +282,132 @@ class TestQuietMode:
         obs.before_tool(mock_before_event)
         obs.after_tool(mock_after_event)
         assert "tool_name" in obs.tools_called
+
+
+# --- Input/output summarization ---
+
+
+class TestSummarizeInput:
+    def test_summarize_short_input(self):
+        result = _summarize_input({"query": "hello"})
+        assert result == {"query": "hello"}
+
+    def test_summarize_long_input_truncates(self):
+        result = _summarize_input({"query": "x" * 500})
+        assert result["query"].endswith("...")
+        assert len(result["query"]) == 203  # 200 + "..."
+
+    def test_summarize_empty_input(self):
+        result = _summarize_input({})
+        assert result == {}
+
+    def test_summarize_multiple_keys(self):
+        result = _summarize_input({"a": "short", "b": "y" * 500})
+        assert result["a"] == "short"
+        assert result["b"].endswith("...")
+
+
+class TestSummarizeOutput:
+    def test_summarize_dict_with_text(self):
+        result = _summarize_output({"content": [{"text": "hello world"}]})
+        assert result == "hello world"
+
+    def test_summarize_long_text_truncates(self):
+        result = _summarize_output({"content": [{"text": "x" * 500}]})
+        assert result.endswith("...")
+        assert len(result) == 203
+
+    def test_summarize_none(self):
+        assert _summarize_output(None) is None
+
+    def test_summarize_empty_content(self):
+        assert _summarize_output({"content": []}) is None
+
+    def test_summarize_non_dict(self):
+        assert _summarize_output("not a dict") is None
+
+    def test_summarize_no_text_entries(self):
+        assert _summarize_output({"content": [{"image": "data"}]}) is None
+
+    def test_summarize_first_text_entry(self):
+        result = _summarize_output({"content": [{"text": "first"}, {"text": "second"}]})
+        assert result == "first"
+
+
+# --- Trace step accumulation ---
+
+
+class TestTraceStepAccumulation:
+    def test_after_tool_creates_trace_step(self, mock_before_event, mock_after_event):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs.before_tool(mock_before_event)
+        obs.after_tool(mock_after_event)
+        assert len(obs.trace_steps) == 1
+        step = obs.trace_steps[0]
+        assert step.tool_name == "tool_name"
+        assert step.status == "success"
+        assert step.index == 1
+        assert step.duration_ms >= 0
+
+    def test_trace_step_captures_input_summary(
+        self, mock_before_event, mock_after_event
+    ):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs.before_tool(mock_before_event)
+        obs.after_tool(mock_after_event)
+        step = obs.trace_steps[0]
+        assert step.input_summary == {"key": "value"}
+
+    def test_trace_step_captures_output_summary(
+        self, mock_before_event, mock_after_event
+    ):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs.before_tool(mock_before_event)
+        obs.after_tool(mock_after_event)
+        step = obs.trace_steps[0]
+        assert step.output_summary == "output"
+
+    def test_trace_step_error(self, mock_before_event, mock_after_event):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs.before_tool(mock_before_event)
+        mock_after_event.exception = RuntimeError("boom")
+        obs.after_tool(mock_after_event)
+        step = obs.trace_steps[0]
+        assert step.status == "error"
+        assert "boom" in step.error
+        assert step.output_summary is None
+
+    def test_multiple_steps_indexed(self):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        for i in range(3):
+            before = Mock()
+            before.tool_use = {
+                "name": f"tool_{i}",
+                "input": {"i": i},
+                "toolUseId": f"id_{i}",
+            }
+            after = Mock()
+            after.tool_use = before.tool_use
+            after.result = {"content": [{"text": f"result_{i}"}]}
+            after.exception = None
+            obs.before_tool(before)
+            obs.after_tool(after)
+        assert len(obs.trace_steps) == 3
+        assert obs.trace_steps[0].index == 1
+        assert obs.trace_steps[1].index == 2
+        assert obs.trace_steps[2].index == 3
+        assert obs.trace_steps[1].tool_name == "tool_1"
+
+    def test_reset_clears_trace_steps(self, mock_before_event, mock_after_event):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs.before_tool(mock_before_event)
+        obs.after_tool(mock_after_event)
+        assert len(obs.trace_steps) == 1
+        obs.reset()
+        assert obs.trace_steps == []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from rich.console import Console
@@ -13,9 +14,12 @@ from strands.hooks import (
     HookRegistry,
 )
 
+from blueclaw.models import TraceStep
+
 TRUNCATION_LIMIT = 12_000
 HEAD_SIZE = 8_000
 TAIL_SIZE = 4_000
+INPUT_SUMMARY_MAX = 200
 
 
 def truncate_tool_result(result: dict) -> dict:
@@ -33,6 +37,31 @@ def truncate_tool_result(result: dict) -> dict:
     return result
 
 
+def _summarize_input(tool_input: dict) -> dict:
+    """Create a truncated summary of tool input."""
+    summary = {}
+    for key, value in tool_input.items():
+        s = str(value)
+        if len(s) > INPUT_SUMMARY_MAX:
+            s = s[:INPUT_SUMMARY_MAX] + "..."
+        summary[key] = s
+    return summary
+
+
+def _summarize_output(result: Any, max_len: int = 200) -> str | None:
+    """Extract a short summary from a tool result."""
+    if result is None:
+        return None
+    content = result.get("content", []) if isinstance(result, dict) else []
+    if not isinstance(content, list):
+        return None
+    for entry in content:
+        text = entry.get("text", "") if isinstance(entry, dict) else ""
+        if text:
+            return text[:max_len] + ("..." if len(text) > max_len else "")
+    return None
+
+
 class ObserverHooks(HookProvider):
     """Hook provider for tool tracing and output truncation."""
 
@@ -40,7 +69,8 @@ class ObserverHooks(HookProvider):
         self.console = console
         self.quiet = quiet
         self.tools_called: list[str] = []
-        self._start_times: dict[str, float] = {}
+        self.trace_steps: list[TraceStep] = []
+        self._step_starts: dict[str, tuple[float, int, dict]] = {}
         self.mcp_clients: list = []  # Track MCP clients for cleanup
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
@@ -51,10 +81,14 @@ class ObserverHooks(HookProvider):
         tool_use = event.tool_use
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]
-        self._start_times[tool_id] = time.time()
+        tool_input = tool_use.get("input", {})
+
+        step_index = len(self.trace_steps) + 1
+        input_summary = _summarize_input(tool_input)
+        self._step_starts[tool_id] = (time.time(), step_index, input_summary)
 
         if not self.quiet:
-            input_str = str(tool_use.get("input", {}))
+            input_str = str(tool_input)
             if len(input_str) > 60:
                 input_str = input_str[:57] + "..."
             self.console.print(f"\u25cf {tool_name}({input_str})")
@@ -64,9 +98,24 @@ class ObserverHooks(HookProvider):
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]
 
-        elapsed = 0.0
-        if tool_id in self._start_times:
-            elapsed = time.time() - self._start_times.pop(tool_id)
+        start_ts = 0.0
+        step_index = len(self.trace_steps) + 1
+        input_summary: dict = {}
+
+        if tool_id in self._step_starts:
+            start_ts, step_index, input_summary = self._step_starts.pop(tool_id)
+
+        end_ts = time.time()
+        elapsed = end_ts - start_ts if start_ts else 0.0
+        duration_ms = int(elapsed * 1000)
+
+        status = "error" if event.exception else "success"
+        error_msg = str(event.exception)[:200] if event.exception else None
+
+        # Extract output summary before truncation
+        output_summary = (
+            _summarize_output(event.result) if not event.exception else None
+        )
 
         if event.exception:
             if not self.quiet:
@@ -81,9 +130,22 @@ class ObserverHooks(HookProvider):
             if event.result:
                 truncate_tool_result(event.result)
 
+        step = TraceStep(
+            index=step_index,
+            tool_name=tool_name,
+            status=status,
+            start_time=datetime.fromtimestamp(start_ts, tz=timezone.utc),
+            end_time=datetime.fromtimestamp(end_ts, tz=timezone.utc),
+            duration_ms=duration_ms,
+            input_summary=input_summary,
+            output_summary=output_summary,
+            error=error_msg,
+        )
+        self.trace_steps.append(step)
         self.tools_called.append(tool_name)
 
     def reset(self) -> None:
         """Clear accumulated state between agent turns."""
         self.tools_called.clear()
-        self._start_times.clear()
+        self.trace_steps.clear()
+        self._step_starts.clear()

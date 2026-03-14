@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 # Load .env before anything reads os.environ
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import typer
@@ -31,7 +32,7 @@ DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
 
 # --- Pixel art ---
 
-# 22×18 color grid: BL=blue body, DB=dark outline, YL=yellow/gold, _=transparent
+# 22×18 color grid: BL=slate blue body, DB=dark outline, YL=gold accents, _=transparent
 _BL = "#4A7FAF"
 _DB = "#2D4F73"
 _YL = "#D4A843"
@@ -39,33 +40,33 @@ ___ = None
 
 # fmt: off
 PIXEL_GRID: list[list[str | None]] = [
-    # Row 0-1: ears
-    [___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, ___],
-    [___, ___, ___, _DB, _YL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _YL, _DB, ___, ___, ___, ___, ___],
-    # Row 2-3: head top
-    [___, ___, _DB, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, _DB, _BL, _BL, _DB, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
-    # Row 4-5: eyes
-    [___, ___, _DB, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _DB, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
-    # Row 6-7: mouth + cheeks
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _DB, _DB, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___],
-    [___, ___, ___, ___, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___, ___, ___, ___],
-    # Row 8-9: body top + claw arm
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___],
-    # Row 10-11: arms + claw
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _DB, _YL, _YL, _YL, _DB, ___, ___, ___, ___, ___],
-    # Row 12-13: body + claw tool
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _DB, _YL, ___, ___, _YL, _DB, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, _YL, ___, ___, _YL, ___, ___, ___, ___, ___, ___],
-    # Row 14-15: lower body + tail
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___],
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
-    # Row 16-17: paws + tail
+    # Row 0-1: ear tips
+    [___, ___, ___, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, ___, ___, ___, ___],
+    [___, ___, _DB, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _BL, _DB, ___, ___, ___],
+    # Row 2-3: ears widen (gold inner) + head top
+    [___, _DB, _BL, _YL, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _BL, _YL, _BL, _DB, ___, ___],
+    [___, _DB, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _BL, _DB, ___, ___],
+    # Row 4-5: forehead + eyes (simple dark dots)
+    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
+    [___, _DB, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
+    # Row 6-7: nose + gold cheeks + mouth
+    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
+    [___, _DB, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _DB, _BL, _DB, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _DB, ___, ___],
+    # Row 8-9: chin + neck
+    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___],
+    [___, ___, ___, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___],
+    # Row 10-11: upper body
+    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
+    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
+    # Row 12-13: body + claw arm extending
+    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___],
+    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _YL, _YL, _YL, _DB, ___, ___, ___, ___, ___],
+    # Row 14-15: lower body + claw prongs + tail start
+    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _YL, ___, ___, _YL, ___, ___, ___, ___, ___, ___],
+    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
+    # Row 16-17: gold paws + tail tip
     [___, ___, _DB, _YL, _YL, _DB, _BL, _BL, _DB, _YL, _YL, _DB, ___, ___, ___, ___, _DB, _BL, _BL, _DB, ___, ___],
-    [___, ___, _DB, _DB, _DB, _DB, ___, ___, _DB, _DB, _DB, _DB, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
+    [___, ___, ___, _DB, _DB, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
 ]
 # fmt: on
 
@@ -232,7 +233,11 @@ def run(
         config, workspace, observer, model=model_instance, scripted=True
     )
     try:
+        import time as _time
+
+        start = _time.time()
         result = agent(prompt)
+        elapsed = _time.time() - start
 
         # Strands streams the response via callback — don't reprint
 
@@ -243,6 +248,8 @@ def run(
             workspace=workspace,
             config=config,
             console=console,
+            elapsed=elapsed,
+            start_time=start,
         )
     finally:
         update_context_on_exit(agent, workspace)
@@ -290,3 +297,81 @@ def history(
             f"{rec.goal} "
             f"[dim]({', '.join(rec.tools)}) \u00b7 {rec.tokens} tokens{cost_str}[/dim]"
         )
+
+
+# --- Trace commands ---
+
+trace_app = typer.Typer(add_completion=False, help="Inspect execution traces.")
+app.add_typer(trace_app, name="trace")
+
+
+@trace_app.command("list")
+def trace_list(
+    limit: int = typer.Option(20, "--limit", "-n", help="Max traces to show"),
+) -> None:
+    """List recent execution traces."""
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    traces = workspace.list_traces(limit=limit)
+
+    if not traces:
+        console.print("No traces yet.")
+        return
+
+    for t in traces:
+        goal = t.goal[:50] + "..." if len(t.goal) > 50 else t.goal
+        cost = f"${t.total_cost:.4f}" if t.total_cost is not None else "n/a"
+        style = "red" if t.status == "error" else ""
+        console.print(
+            f"[dim]{t.run_id}[/dim]  {t.status:<7}  "
+            f"{len(t.steps)} steps  {t.total_tokens} tokens  "
+            f"{cost}  {goal}",
+            style=style,
+        )
+
+
+@trace_app.command("show")
+def trace_show(
+    run_id: str = typer.Argument(..., help="Run ID to display"),
+) -> None:
+    """Show detailed trace for a run."""
+    from rich.table import Table
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    trace = workspace.read_trace(run_id)
+
+    if trace is None:
+        console.print(f"Trace not found: {run_id}")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]Run:[/bold] {trace.run_id}")
+    console.print(f"[bold]Task:[/bold] {trace.goal}")
+    console.print(f"[bold]Model:[/bold] {trace.model_id}")
+    console.print(f"[bold]Status:[/bold] {trace.status}")
+    console.print(
+        f"[bold]Time:[/bold] "
+        f"{trace.start_time.strftime('%Y-%m-%d %H:%M:%S')} \u2192 "
+        f"{trace.end_time.strftime('%H:%M:%S')}"
+    )
+    console.print()
+
+    table = Table(show_edge=False, pad_edge=False)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Tool", min_width=15)
+    table.add_column("Duration", justify="right", width=10)
+    table.add_column("Status", width=8)
+
+    for step in trace.steps:
+        dur = f"{step.duration_ms}ms"
+        row_style = "red" if step.status == "error" else ""
+        table.add_row(
+            str(step.index), step.tool_name, dur, step.status, style=row_style
+        )
+
+    console.print(table)
+
+    total_dur = sum(s.duration_ms for s in trace.steps)
+    cost = f"${trace.total_cost:.4f}" if trace.total_cost is not None else "n/a"
+    console.print(
+        f"\nTotal: {len(trace.steps)} steps \u00b7 {total_dur}ms "
+        f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
+    )

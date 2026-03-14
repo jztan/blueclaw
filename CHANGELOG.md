@@ -15,8 +15,12 @@ All notable changes to blueclaw will be documented in this file.
 - API key validation for Anthropic and OpenAI providers
 - `.env` file support via python-dotenv
 - Workspace sandbox with path validation and destructive command deny-list
-- Tool tracing via Strands hooks (BeforeToolCallEvent / AfterToolCallEvent)
+- Structured execution tracing: per-run JSON traces in `.blueclaw/traces/`
+- `TraceStep` / `RunTrace` models with input/output summaries, timing, and error capture
+- `blueclaw trace list` — list recent execution traces
+- `blueclaw trace show <run_id>` — display detailed step table for a run
 - Tool output truncation (12k char limit, head+tail preservation)
+- flake8 and black dev dependencies with `.flake8` config
 - Domain allowlist with conversational approval hooks
 - Persistent context: `CONTEXT.md` updated via LLM summarization on session exit
 - Append-only run history: `.blueclaw/history.jsonl`

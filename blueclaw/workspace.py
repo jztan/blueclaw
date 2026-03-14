@@ -6,7 +6,7 @@ import logging
 import re
 from pathlib import Path
 
-from blueclaw.models import RunRecord
+from blueclaw.models import RunRecord, RunTrace
 
 logger = logging.getLogger(__name__)
 
@@ -145,3 +145,36 @@ class Workspace:
         """Delete latest crash-recovery checkpoint if present."""
         if self.last_turn_path.exists():
             self.last_turn_path.unlink()
+
+    # --- Trace storage ---
+
+    @property
+    def traces_dir(self) -> Path:
+        return self.root / ".blueclaw" / "traces"
+
+    def write_trace(self, trace: RunTrace) -> Path:
+        """Write a trace file. Returns the path."""
+        self.traces_dir.mkdir(parents=True, exist_ok=True)
+        path = self.traces_dir / f"{trace.run_id}.json"
+        path.write_text(trace.to_json())
+        return path
+
+    def read_trace(self, run_id: str) -> RunTrace | None:
+        """Read a trace by run_id."""
+        path = self.traces_dir / f"{run_id}.json"
+        if not path.exists():
+            return None
+        return RunTrace.from_json(path.read_text())
+
+    def list_traces(self, limit: int = 20) -> list[RunTrace]:
+        """List recent traces, newest first."""
+        if not self.traces_dir.exists():
+            return []
+        files = sorted(self.traces_dir.glob("*.json"), reverse=True)
+        traces = []
+        for f in files[:limit]:
+            try:
+                traces.append(RunTrace.from_json(f.read_text()))
+            except Exception:
+                continue
+        return traces

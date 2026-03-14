@@ -58,8 +58,9 @@ class TestBeforeTool:
         console = Console(file=StringIO())
         obs = ObserverHooks(console=console)
         obs.before_tool(mock_before_event)
-        assert "id123" in obs._start_times
-        assert isinstance(obs._start_times["id123"], float)
+        assert "id123" in obs._step_starts
+        start_ts, step_index, input_summary = obs._step_starts["id123"]
+        assert isinstance(start_ts, float)
 
 
 # --- After tool call (success) ---
@@ -254,10 +255,12 @@ class TestAccumulator:
         console = Console(file=StringIO())
         obs = ObserverHooks(console=console)
         obs.tools_called.append("test")
-        obs._start_times["abc"] = time.time()
+        obs._step_starts["abc"] = (time.time(), 1, {})
+        obs.trace_steps.append(None)
         obs.reset()
         assert obs.tools_called == []
-        assert obs._start_times == {}
+        assert obs._step_starts == {}
+        assert obs.trace_steps == []
 
 
 # --- Quiet mode ---

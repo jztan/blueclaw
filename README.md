@@ -55,7 +55,7 @@ blueclaw run "summarize the latest Python 3.13 release notes"
 - **Persistent memory** — `CONTEXT.md` carries facts across sessions, `history.jsonl` logs every run
 - **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
 - **Workspace sandbox** — path validation + destructive command deny-list
-- **Tool tracing** — see every tool call with timing
+- **Execution tracing** — structured JSON traces with per-step timing, input/output summaries, and CLI viewer
 - **Output truncation** — 12k char limit prevents context blowout
 - **Domain allowlist** — conversational approval for web requests
 - **Crash recovery** — per-turn checkpoints in `.blueclaw/last_turn.md`
@@ -93,6 +93,8 @@ OPENAI_API_KEY=sk-...
 | `blueclaw run "..."` | Execute a single prompt and exit |
 | `blueclaw init` | Initialize workspace directory |
 | `blueclaw history` | View past run history |
+| `blueclaw trace list` | List recent execution traces |
+| `blueclaw trace show <run_id>` | Show detailed trace for a run |
 | `blueclaw --version` | Print version |
 | `blueclaw --model provider/model` | Override model for this session |
 
@@ -127,11 +129,11 @@ Terminal input → cli.py → session.py → Strands Agent → Tools → workspa
 
 | Module | Purpose | Lines |
 |---|---|---|
-| `cli.py` | Typer entrypoints, welcome banner, pixel art | ~290 |
-| `session.py` | Config, model factory, agent, chat loop | ~400 |
-| `workspace.py` | Sandbox enforcement, context/history I/O | ~150 |
-| `observer.py` | Hook-based tool tracing + output truncation | ~90 |
-| `models.py` | Pydantic models, cost calculation | ~65 |
+| `cli.py` | Typer entrypoints, welcome banner, trace viewer | ~375 |
+| `session.py` | Config, model factory, agent, chat loop | ~420 |
+| `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~180 |
+| `observer.py` | Structured tool tracing + output truncation | ~150 |
+| `models.py` | Pydantic models, trace schema, cost calculation | ~100 |
 | `tools/` | Web tools (factory pattern) + MCP wiring | ~100 |
 | `approval.py` | Domain allowlist hooks | ~50 |
 
@@ -142,7 +144,9 @@ Terminal input → cli.py → session.py → Strands Agent → Tools → workspa
 ├── CONTEXT.md                    # Persistent agent knowledge (human-editable)
 └── .blueclaw/
     ├── history.jsonl             # Append-only run log
-    └── last_turn.md              # Crash recovery checkpoint
+    ├── last_turn.md              # Crash recovery checkpoint
+    └── traces/                   # Structured execution traces
+        └── 20260315-101201.json  # One JSON file per run
 ```
 
 ## Development
@@ -154,8 +158,9 @@ pip install -e ".[dev]"
 # Run tests
 pytest
 
-# Run a single test file
-pytest tests/test_workspace.py -v
+# Lint
+flake8 blueclaw/ tests/
+black --check blueclaw/ tests/
 ```
 
 ## License

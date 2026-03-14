@@ -20,8 +20,7 @@ AnthropicModel = None
 OllamaModel = None
 LiteLLMModel = None
 
-from blueclaw.models import RunRecord, SessionConfig, calculate_cost
-from blueclaw.observer import ObserverHooks
+from blueclaw.models import RunRecord, RunTrace, SessionConfig, calculate_cost
 from blueclaw.tools import get_tools, get_mcp_servers
 from blueclaw.workspace import Workspace
 from blueclaw.approval import ApprovalHooks
@@ -317,6 +316,7 @@ def run_chat_loop(
                 config=config,
                 console=console,
                 elapsed=elapsed,
+                start_time=start,
             )
     except Exception:
         pass
@@ -335,8 +335,10 @@ def print_run_summary(
     config: SessionConfig,
     console: Console,
     elapsed: float = 0.0,
+    start_time: float | None = None,
 ) -> None:
-    """Print end-of-run summary and record to history."""
+    """Print end-of-run summary and record to history + trace."""
+    now = datetime.now(timezone.utc)
     usage = result.metrics.accumulated_usage
     input_tokens = usage.get("inputTokens", 0)
     output_tokens = usage.get("outputTokens", 0)
@@ -353,9 +355,27 @@ def print_run_summary(
         parts.append(f"{elapsed:.1f}s")
     console.print(" \u00b7 ".join(parts))
 
+    # Build and write trace
+    run_start = (
+        datetime.fromtimestamp(start_time, tz=timezone.utc) if start_time else now
+    )
+    run_id = run_start.strftime("%Y%m%d-%H%M%S")
+    trace = RunTrace(
+        run_id=run_id,
+        goal=goal,
+        start_time=run_start,
+        end_time=now,
+        model_id=config.model_id,
+        steps=list(observer.trace_steps),
+        total_tokens=total_tokens,
+        total_cost=cost,
+        status="success",
+    )
+    workspace.write_trace(trace)
+
     # Record to history
     record = RunRecord(
-        ts=datetime.now(timezone.utc),
+        ts=now,
         goal=goal,
         tools=list(observer.tools_called),
         tokens=total_tokens,

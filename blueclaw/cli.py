@@ -32,43 +32,38 @@ DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
 
 # --- Pixel art ---
 
-# 22×18 color grid: BL=slate blue body, DB=dark outline, YL=gold accents, _=transparent
+# 24×18 color grid: BL=slate blue body, DB=dark outline, YL=gold accents.
+# The stencil is shaped to better match the logo mascot: upright ears, close-set
+# face, left claw, round body, and a curled tail on the right.
 _BL = "#4A7FAF"
 _DB = "#2D4F73"
 _YL = "#D4A843"
-___ = None
 
-# fmt: off
-PIXEL_GRID: list[list[str | None]] = [
-    # Row 0-1: ear tips (gold inner)
-    [___, ___, ___, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, ___, ___, ___, ___],
-    [___, ___, _DB, _YL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _YL, _DB, ___, ___, ___],
-    # Row 2-3: ears widen (2px gold inner) + head top
-    [___, _DB, _BL, _YL, _YL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _YL, _YL, _BL, _DB, ___, ___],
-    [___, _DB, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    # Row 4-5: forehead + eyes (closer: cols 8 & 12)
-    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    # Row 6-7: nose (col 10) + gold cheeks (2px each) + mouth
-    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    [___, _DB, _BL, _BL, _YL, _YL, _BL, _BL, _BL, _DB, _BL, _DB, _BL, _BL, _BL, _YL, _YL, _BL, _BL, _DB, ___, ___],
-    # Row 8-9: chin + neck
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___],
-    [___, ___, ___, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___],
-    # Row 10-11: upper body
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
-    # Row 12-13: claw arm extending LEFT + body
-    [___, ___, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
-    [___, ___, _DB, _YL, _YL, _YL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
-    # Row 14-15: claw prongs LEFT + body + tail
-    [___, _YL, ___, ___, _YL, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
-    [___, ___, ___, ___, ___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, _DB, _DB, ___, ___],
-    # Row 16-17: gold paws + tail tip
-    [___, ___, ___, ___, ___, ___, _DB, _YL, _YL, _DB, _BL, _BL, _DB, _YL, _YL, _DB, ___, _DB, _BL, _BL, _DB, ___],
-    [___, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, _DB, _DB, ___, ___],
+_PIXEL_ROWS = [
+    "........D......D........",
+    ".......DYD....DYD.......",
+    "......DBYYD..DYYBD......",
+    ".....DBBBBBDDBBBBBD.....",
+    ".....DBBBBBBBBBBBBBD....",
+    "....DBBBDBBBBBDBBBBBD...",
+    "....DBBBBBDBDBBBBBBBD...",
+    "....DBBYYBBBBBBYYBBBD...",
+    "....DBBBBBBDBBBBBBBBD...",
+    ".....DBBBBBBBBBBBBBD....",
+    "..YYYDDBBBBBBBBBBBDD....",
+    ".YD...DYBBBBBBBBBBD.....",
+    "Y..YDDDBBBBBBBBBBBBDD...",
+    ".YDDBBBBBBBBBBBBBBBBBD..",
+    "...DBBBBBBBYYBBBBBBBBDD.",
+    "...DBBBBBBBDDBBBBBBBD.BD",
+    "....DYYD..D..DYYD..DDBD.",
+    ".....DD........DD....DD.",
 ]
-# fmt: on
+
+_PIXEL_COLORS = {".": None, "B": _BL, "D": _DB, "Y": _YL}
+PIXEL_GRID: list[list[str | None]] = [
+    [_PIXEL_COLORS[cell] for cell in row] for row in _PIXEL_ROWS
+]
 
 
 def render_pixel_art() -> Text:
@@ -76,10 +71,12 @@ def render_pixel_art() -> Text:
     from rich.style import Style
 
     text = Text()
-    for row_idx in range(0, 18, 2):
+    row_count = len(PIXEL_GRID)
+    col_count = max((len(row) for row in PIXEL_GRID), default=0)
+    for row_idx in range(0, row_count, 2):
         top_row = PIXEL_GRID[row_idx]
-        bot_row = PIXEL_GRID[row_idx + 1] if row_idx + 1 < 18 else [None] * 22
-        for col in range(22):
+        bot_row = PIXEL_GRID[row_idx + 1] if row_idx + 1 < row_count else [None] * col_count
+        for col in range(col_count):
             fg = top_row[col] if col < len(top_row) else None
             bg = bot_row[col] if col < len(bot_row) else None
             if fg and bg:
@@ -90,7 +87,7 @@ def render_pixel_art() -> Text:
                 text.append("\u2584", style=Style(color=bg))
             else:
                 text.append(" ")
-        if row_idx < 16:
+        if row_idx + 2 < row_count:
             text.append("\n")
     return text
 

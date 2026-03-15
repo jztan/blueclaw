@@ -248,13 +248,8 @@ class TestPixelArt:
         assert len(lines) == 9
 
     def test_render_pixel_art_has_colors(self):
-        output = StringIO()
-        console = Console(file=output, force_terminal=True)
         art = render_pixel_art()
-        console.print(art)
-        text = output.getvalue()
-        # ANSI escape codes should be present
-        assert "\x1b[" in text
+        assert art.spans
 
 
 # --- Trace commands ---

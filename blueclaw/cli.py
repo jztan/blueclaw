@@ -40,33 +40,33 @@ ___ = None
 
 # fmt: off
 PIXEL_GRID: list[list[str | None]] = [
-    # Row 0-1: ear tips
+    # Row 0-1: ear tips (gold inner)
     [___, ___, ___, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _BL, _DB, ___, ___, ___],
-    # Row 2-3: ears widen (gold inner) + head top
-    [___, _DB, _BL, _YL, _BL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _BL, _YL, _BL, _DB, ___, ___],
+    [___, ___, _DB, _YL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _YL, _DB, ___, ___, ___],
+    # Row 2-3: ears widen (2px gold inner) + head top
+    [___, _DB, _BL, _YL, _YL, _DB, ___, ___, ___, ___, ___, ___, ___, ___, ___, _DB, _YL, _YL, _BL, _DB, ___, ___],
     [___, _DB, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    # Row 4-5: forehead + eyes (simple dark dots)
+    # Row 4-5: forehead + eyes (closer: cols 8 & 12)
     [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    [___, _DB, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    # Row 6-7: nose + gold cheeks + mouth
+    [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
+    # Row 6-7: nose (col 10) + gold cheeks (2px each) + mouth
     [___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___],
-    [___, _DB, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _DB, _BL, _DB, _BL, _BL, _BL, _YL, _BL, _BL, _BL, _DB, ___, ___],
+    [___, _DB, _BL, _BL, _YL, _YL, _BL, _BL, _BL, _DB, _BL, _DB, _BL, _BL, _BL, _YL, _YL, _BL, _BL, _DB, ___, ___],
     # Row 8-9: chin + neck
     [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___],
     [___, ___, ___, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___],
     # Row 10-11: upper body
     [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
     [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
-    # Row 12-13: body + claw arm extending
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _DB, _DB, _DB, _DB, ___, ___, ___, ___],
-    [___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _YL, _YL, _YL, _DB, ___, ___, ___, ___, ___],
-    # Row 14-15: lower body + claw prongs + tail start
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, _YL, ___, ___, _YL, ___, ___, ___, ___, ___, ___],
-    [___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
+    # Row 12-13: claw arm extending LEFT + body
+    [___, ___, _DB, _DB, _DB, _DB, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
+    [___, ___, _DB, _YL, _YL, _YL, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___],
+    # Row 14-15: claw prongs LEFT + body + tail
+    [___, _YL, ___, ___, _YL, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, ___, ___, ___, ___],
+    [___, ___, ___, ___, ___, ___, ___, _DB, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _BL, _DB, ___, _DB, _DB, ___, ___],
     # Row 16-17: gold paws + tail tip
-    [___, ___, _DB, _YL, _YL, _DB, _BL, _BL, _DB, _YL, _YL, _DB, ___, ___, ___, ___, _DB, _BL, _BL, _DB, ___, ___],
-    [___, ___, ___, _DB, _DB, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___],
+    [___, ___, ___, ___, ___, ___, _DB, _YL, _YL, _DB, _BL, _BL, _DB, _YL, _YL, _DB, ___, _DB, _BL, _BL, _DB, ___],
+    [___, ___, ___, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, ___, _DB, _DB, ___, ___, ___, _DB, _DB, ___, ___],
 ]
 # fmt: on
 

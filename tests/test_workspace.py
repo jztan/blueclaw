@@ -333,3 +333,90 @@ class TestTraceStorage:
         traces = ws.list_traces()
         assert len(traces) == 1
         assert traces[0].goal == "good"
+
+
+class TestListTracesSince:
+    """v1.2: list_traces with since filter."""
+
+    def _write_traces(self, tmp_path):
+        """Write 3 traces with different dates."""
+        ws = Workspace(tmp_path)
+        ts_old = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts_old,
+            end_time=ts_old,
+            duration_ms=100,
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id="20260310-100000",
+                goal="old run",
+                start_time=ts_old,
+                end_time=ts_old,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=100,
+                status="success",
+            )
+        )
+        ts_mid = datetime(2026, 3, 13, 10, 0, 0, tzinfo=timezone.utc)
+        ws.write_trace(
+            RunTrace(
+                run_id="20260313-100000",
+                goal="mid run",
+                start_time=ts_mid,
+                end_time=ts_mid,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=200,
+                status="success",
+            )
+        )
+        ts_new = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-100000",
+                goal="new run",
+                start_time=ts_new,
+                end_time=ts_new,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=300,
+                status="success",
+            )
+        )
+        return ws
+
+    def test_no_since_returns_all(self, tmp_path):
+        ws = self._write_traces(tmp_path)
+        traces = ws.list_traces(limit=100)
+        assert len(traces) == 3
+
+    def test_since_filters_old(self, tmp_path):
+        ws = self._write_traces(tmp_path)
+        since = datetime(2026, 3, 12, 0, 0, 0, tzinfo=timezone.utc)
+        traces = ws.list_traces(limit=100, since=since)
+        assert len(traces) == 2
+        assert all(t.start_time >= since for t in traces)
+
+    def test_since_future_returns_empty(self, tmp_path):
+        ws = self._write_traces(tmp_path)
+        since = datetime(2026, 4, 1, 0, 0, 0, tzinfo=timezone.utc)
+        traces = ws.list_traces(limit=100, since=since)
+        assert len(traces) == 0
+
+    def test_since_with_limit(self, tmp_path):
+        ws = self._write_traces(tmp_path)
+        since = datetime(2026, 3, 12, 0, 0, 0, tzinfo=timezone.utc)
+        traces = ws.list_traces(limit=1, since=since)
+        assert len(traces) == 1
+        assert traces[0].run_id == "20260315-100000"
+
+    def test_since_exact_boundary(self, tmp_path):
+        ws = self._write_traces(tmp_path)
+        since = datetime(2026, 3, 13, 10, 0, 0, tzinfo=timezone.utc)
+        traces = ws.list_traces(limit=100, since=since)
+        assert len(traces) == 2

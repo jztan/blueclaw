@@ -1,17 +1,39 @@
 [project]
 name = "blueclaw"
-version = "1.1.0"
+version = "1.2.2"
+description = "Terminal AI agent with built-in execution tracing and observability"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [{name = "Kevin Tan"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Shells",
+]
 dependencies = [
     "strands-agents>=1.28.0",
     "strands-agents-tools",
-    "pdf-mcp @ git+https://github.com/jztan/pdf-mcp@develop",
+    "pdf-mcp>=1.3.0",
     "typer>=0.9",
     "rich>=13",
     "prompt-toolkit>=3",
     "pydantic>=2",
     "pyyaml>=6",
+    "ddgs>=9",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jztan/blueclaw"
+Repository = "https://github.com/jztan/blueclaw"
+Issues = "https://github.com/jztan/blueclaw/issues"
 
 [project.scripts]
 blueclaw = "blueclaw.__main__:main"

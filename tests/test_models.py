@@ -14,6 +14,7 @@ from blueclaw.models import (
     SessionConfig,
     TraceStep,
     calculate_cost,
+    classify_error,
 )
 
 # --- SessionConfig ---
@@ -300,3 +301,165 @@ class TestRunTrace:
         restored = RunTrace.from_json(trace.to_json())
         assert len(restored.steps) == 5
         assert restored.steps[3].tool_name == "tool_3"
+
+
+# --- v1.2: TraceStep token/cost fields ---
+
+
+class TestTraceStepTokenFields:
+    """v1.2: optional per-step token/cost fields."""
+
+    def test_defaults_to_none(self):
+        """New fields default to None when not provided."""
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+        )
+        assert step.tokens is None
+        assert step.cost is None
+
+    def test_explicit_values(self):
+        """Tokens and cost can be set explicitly."""
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+            tokens=500,
+            cost=0.0015,
+        )
+        assert step.tokens == 500
+        assert step.cost == 0.0015
+
+    def test_backward_compat_from_json(self):
+        """Existing JSON without tokens/cost deserializes correctly."""
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+        )
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="test",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[step],
+            total_tokens=100,
+            status="success",
+        )
+        # Serialize, strip tokens/cost keys to simulate old format
+        data = json.loads(trace.to_json())
+        for s in data["steps"]:
+            s.pop("tokens", None)
+            s.pop("cost", None)
+        restored = RunTrace.from_json(json.dumps(data))
+        assert restored.steps[0].tokens is None
+        assert restored.steps[0].cost is None
+
+    def test_roundtrip_with_values(self):
+        """tokens/cost survive to_json() -> from_json() roundtrip."""
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
+            tokens=500,
+            cost=0.0015,
+        )
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="test",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[step],
+            total_tokens=500,
+            total_cost=0.0015,
+            status="success",
+        )
+        restored = RunTrace.from_json(trace.to_json())
+        assert restored.steps[0].tokens == 500
+        assert restored.steps[0].cost == 0.0015
+
+
+# --- v1.2: classify_error ---
+
+
+class TestClassifyError:
+    """v1.2: heuristic error classification."""
+
+    def test_none_returns_unknown(self):
+        assert classify_error(None) == "unknown"
+
+    def test_empty_string_returns_unknown(self):
+        assert classify_error("") == "unknown"
+
+    def test_no_match_returns_unknown(self):
+        assert classify_error("something went wrong") == "unknown"
+
+    def test_timeout(self):
+        assert classify_error("Request timed out after 30s") == "timeout"
+
+    def test_timeout_deadline(self):
+        assert classify_error("deadline exceeded") == "timeout"
+
+    def test_rate_limit(self):
+        assert classify_error("rate limit exceeded, retry after 60s") == "rate_limit"
+
+    def test_rate_limit_429(self):
+        assert classify_error("HTTP 429: too many requests") == "rate_limit"
+
+    def test_auth_401(self):
+        assert classify_error("HTTP 401 Unauthorized") == "auth"
+
+    def test_auth_forbidden(self):
+        assert classify_error("403 Forbidden: insufficient permissions") == "auth"
+
+    def test_not_found(self):
+        assert classify_error("404 Not Found") == "not_found"
+
+    def test_not_found_no_such(self):
+        assert classify_error("No such file or directory") == "not_found"
+
+    def test_schema(self):
+        assert classify_error("Validation error: field 'name' required") == "schema"
+
+    def test_schema_invalid(self):
+        assert classify_error("Invalid parameter type") == "schema"
+
+    def test_network(self):
+        assert classify_error("Connection refused by host") == "network"
+
+    def test_network_dns(self):
+        assert classify_error("DNS resolution failed") == "network"
+
+    def test_sandbox(self):
+        assert classify_error("Command denied by workspace policy") == "sandbox"
+
+    def test_sandbox_blocked(self):
+        assert classify_error("Path blocked: outside workspace") == "sandbox"
+
+    def test_case_insensitive(self):
+        assert classify_error("TIMEOUT EXCEEDED") == "timeout"
+        assert classify_error("CONNECTION REFUSED") == "network"
+
+    def test_first_match_wins(self):
+        # "connection timeout" matches both timeout and network
+        # timeout comes first in FAILURE_PATTERNS
+        assert classify_error("connection timeout") == "timeout"

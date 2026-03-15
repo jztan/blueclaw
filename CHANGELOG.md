@@ -2,6 +2,54 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.2] - 2026-03-15
+
+### Added
+
+- GitHub Actions CI: lint (flake8 + black) and test across Python 3.11–3.14 on push/PR to `develop`
+- Issue management workflows: auto-lock closed issues after 7 days, stale issue warnings at 14 days with auto-close at 30 days, autoclose label removal on human comment
+- PyPI publish workflow: tag pushes (`v*.*.*`) run full test matrix then auto-publish via twine
+- README badges: PyPI version, license, Python versions, GitHub issues, CI status, downloads
+- PyPI package metadata: description, license, authors, classifiers, project URLs
+- Published to PyPI as `blueclaw`
+
+### Fixed
+
+- Streaming output buffered until complete instead of flushing each chunk — replaced SDK's `PrintingCallbackHandler` with `_StreamingCallback` that flushes immediately, skips tool headers (observer handles those), and emits exactly one trailing newline on complete instead of two
+- Streamed output wrote to raw stdout instead of the session's console sink — `create_agent()` now threads the console's file into the callback so both CLI paths (interactive and scripted run) write to the same destination
+
+## [1.2.1] - 2026-03-15
+
+### Fixed
+
+- Agent responses used emojis, bold markdown, tables, and verbose motivational filler — added strict tone rules to system prompt: no emojis (even if context contains them), no markdown formatting (terminal doesn't render it), plain short sentences only
+- Agent recommended unavailable movies from stale context without searching — context flagged as unverified memory; time-sensitive queries now require web_search
+- Exit summarizer stored transient data (recommendations, weather, prices, news) in CONTEXT.md causing stale answers — updated both summarizer prompts to exclude time-sensitive data and keep only durable facts
+- Parallel tool call trace output interleaved — `✓`/`✗` result lines now include the tool name so each completion can be matched to its call
+
+## [1.2.0] - 2026-03-15
+
+### Added
+
+- `blueclaw trace timeline <run_id>` — waterfall timeline showing when each tool call started, duration, cumulative timing, and proportional bar chart with overhead breakdown
+- `blueclaw trace stats` — aggregate metrics across all traces: run count, step counts, avg tokens/cost, timing percentiles (median, p95), top tools by frequency, and step-level failure classification
+- `--since N` and `--model MODEL` filters for `trace stats`
+- `classify_error()` — heuristic error classifier (timeout, rate_limit, auth, not_found, schema, network, sandbox) for step-level failure aggregation
+- `since` parameter on `Workspace.list_traces()` for date-range filtering
+- Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible for per-step attribution)
+- Current date injected into system prompt so the agent knows "today" without relying on training cutoff
+- Esc Esc interrupt — press Escape twice during agent execution to stop the current turn at the next tool boundary. Non-blocking cbreak stdin polling in `before_tool` hook with escape-sequence disambiguation (50ms peek)
+- Trace Lessons — before each turn, scans past traces for similar goals with failures/cost spikes, injects up to 3 short behavioral hints into the prompt. Reduced repeat oil-price query from 6 tool calls/$0.11 to 1 call/$0.03. Jaccard keyword similarity with minimal stemming, capped at 50 recent traces
+- DuckDuckGo web search via `ddgs` — replaces placeholder with live search returning top 5 results (title, URL, snippet). Lazy import, no try/except (errors propagate to observer)
+- System prompt guidance to prefer web_search snippets over http_request fetches, reducing unnecessary tool calls
+- 78 new tests for v1.2 features (343 total)
+
+### Fixed
+
+- `blueclaw run` blocked for several seconds after printing "Done" — synchronous context update replaced with background thread (`BackgroundContextUpdater`). "Done" prints immediately; context update completes before process exits via `updater.wait()`
+- Scripted mode let `http_request` run against non-allowlisted domains (tool failed silently, agent retried 10+ domains). Now cancels the tool call with a clear message directing the agent to use search snippets
+- Background context update failures printed visible `WARNING` to stderr — downgraded to debug level
+
 ## [1.1.0] - 2026-03-15
 
 ### Added

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import logging
@@ -21,6 +22,7 @@ AnthropicModel = None
 OllamaModel = None
 LiteLLMModel = None
 
+from blueclaw.lessons import build_lessons_block
 from blueclaw.models import RunRecord, RunTrace, SessionConfig, calculate_cost
 from blueclaw.tools import get_tools, get_mcp_servers
 from blueclaw.workspace import Workspace
@@ -97,7 +99,9 @@ def format_trace_for_explanation(trace) -> str:
     ]
     for step in trace.steps:
         status = f"error: {step.error}" if step.error else step.status
-        lines.append(f"Step {step.index}: {step.tool_name} ({step.duration_ms}ms) [{status}]")
+        lines.append(
+            f"Step {step.index}: {step.tool_name} ({step.duration_ms}ms) [{status}]"
+        )
         if step.input_summary:
             for k, v in step.input_summary.items():
                 lines.append(f"  input {k}: {v}")
@@ -256,19 +260,58 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
                 parts.append(f"- {name}: {first_line}")
 
     # Core instructions
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     parts.insert(
         0,
-        "You are blueclaw, a terminal automation agent.\n\n"
+        "You are blueclaw, a terminal automation agent.\n"
+        f"Today's date is {today}.\n\n"
+        "**Tone & style (STRICT — always follow these):**\n"
+        "- Be concise. Lead with the answer or action, not the reasoning.\n"
+        "- NEVER use emojis in responses, even if the context or history contains them.\n"
+        "- No motivational quotes, filler, or cheerful preamble.\n"
+        "- No markdown formatting — no **bold**, *italic*, tables, or headings. "
+        "Your output is raw text in a terminal; markdown does not render.\n"
+        "- Keep responses short. One or two plain sentences is usually enough.\n"
+        "- If you cannot help, say so briefly.\n\n"
         "**Rules:**\n"
+        "- Context below is memory from past sessions, not verified facts. "
+        "For anything time-sensitive (what's screening, current prices, availability, "
+        "weather, news), always use web_search — never answer from context alone.\n"
         "- CONTEXT.md, history.jsonl, and .blueclaw/ are managed by the system. "
         "Never access them via shell. They are blocked at the sandbox level.\n"
         "- Your persistent context is already loaded below. It updates automatically on exit.\n"
         "- To remember something, just acknowledge it. To forget, say so — "
         "the exit summarizer will omit it.\n"
-        "- Use shell_command for tasks the user asks you to perform, not for managing your own state.",
+        "- Use shell_command for tasks the user asks you to perform, "
+        "not for managing your own state.\n"
+        "- web_search results include titles, URLs, and snippets. "
+        "Use snippets directly when they contain enough information. "
+        "Only use http_request to fetch a page if you truly need more detail. "
+        "If http_request fails with a domain allowlist error, do not retry other domains — "
+        "answer from the search snippets you already have.",
     )
 
     return "\n\n".join(parts)
+
+
+class _StreamingCallback:
+    """Stream text to a file object with immediate flush.
+
+    Skips tool headers (observer handles those) and the extra trailing
+    newline that the SDK's PrintingCallbackHandler emits on complete.
+    """
+
+    def __init__(self, file=None):
+        self._file = file or sys.stdout
+
+    def __call__(self, **kwargs):
+        data = kwargs.get("data", "")
+        complete = kwargs.get("complete", False)
+        reasoning = kwargs.get("reasoningText", "")
+        if reasoning:
+            print(reasoning, end="", file=self._file, flush=True)
+        if data:
+            print(data, end="\n" if complete else "", file=self._file, flush=True)
 
 
 def create_agent(
@@ -278,6 +321,7 @@ def create_agent(
     model=None,
     skills_dir: Path | None = None,
     scripted: bool = False,
+    console: Console | None = None,
 ) -> Agent:
     """Construct and return a Strands Agent."""
     tools = load_tools(config, workspace=workspace)
@@ -287,12 +331,14 @@ def create_agent(
     system_prompt = build_system_prompt(workspace, skills_dir=skills_dir)
     approval_hooks = ApprovalHooks(config, scripted=scripted)
 
+    stream_file = console.file if console else sys.stdout
     agent = Agent(
         model=model,
         tools=tools,
         hooks=[approval_hooks, observer],
         system_prompt=system_prompt,
         conversation_manager=SummarizingConversationManager(),
+        callback_handler=_StreamingCallback(file=stream_file),
     )
     # Attach clients for cleanup
     observer.mcp_clients = mcp_clients
@@ -319,8 +365,10 @@ def update_context_background(model, messages_snapshot: str, workspace: Workspac
             tools=[],
             system_prompt=(
                 "You update a persistent context file. "
-                "Write only facts, preferences, and project state. Be concise. "
-                "Return only markdown. No tool mentions or policies."
+                "Keep only durable facts: user preferences, project state, workspace setup. "
+                "EXCLUDE transient data: recommendations given, weather, prices, news, "
+                "search results, documents read, commands run, and anything time-sensitive. "
+                "Be concise. Return only markdown. No tool mentions or policies."
             ),
             callback_handler=None,
         )
@@ -335,7 +383,7 @@ def update_context_background(model, messages_snapshot: str, workspace: Workspac
             workspace.write_context(text)
             workspace.clear_last_turn_checkpoint()
     except Exception as e:
-        logger.warning("Background context update failed: %s", e)
+        logger.debug("Background context update failed: %s", e)
 
 
 class BackgroundContextUpdater:
@@ -373,9 +421,17 @@ def run_chat_loop(
 ) -> None:
     """Run the interactive chat loop."""
     exit_commands = {
-        "exit", "quit", "/exit", "/quit",
-        "eixt", "exti", "exiit", "ext", "exi",
-        "bye", "q",
+        "exit",
+        "quit",
+        "/exit",
+        "/quit",
+        "eixt",
+        "exti",
+        "exiit",
+        "ext",
+        "exi",
+        "bye",
+        "q",
     }
     session = PromptSession()
     turn_count = 0
@@ -398,8 +454,19 @@ def run_chat_loop(
                 break
 
             turn_count += 1
+
+            # Inject trace lessons for this goal
+            prompt = stripped
+            try:
+                traces = workspace.list_traces(limit=50)
+                lessons = build_lessons_block(stripped, traces)
+                if lessons:
+                    prompt = f"{lessons}\n\n{stripped}"
+            except Exception:
+                pass
+
             start = time.time()
-            result = agent(stripped)
+            result = agent(prompt)
             elapsed = time.time() - start
             total_tool_calls += len(observer.tools_called)
 
@@ -505,7 +572,10 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
         try:
             result = agent(
                 "Update CONTEXT.md with key facts from this session. "
-                "Write only facts, preferences, and project state — not a timeline. Be concise. "
+                "Keep only durable facts: user preferences, project state, workspace setup. "
+                "EXCLUDE transient data: recommendations given, weather, prices, news, "
+                "search results, documents read, commands run, and anything time-sensitive. "
+                "Not a timeline. Be concise. "
                 "Return only markdown for CONTEXT.md. Do not call any tools. "
                 "Do not mention tool limitations, capabilities, or policies."
             )
@@ -522,6 +592,6 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
             if current_context:
                 workspace.write_context(current_context)
     except Exception as e:
-        logger.warning("Failed to update CONTEXT.md on exit: %s", e)
+        logger.debug("Failed to update CONTEXT.md on exit: %s", e)
         if current_context:
             workspace.write_context(current_context)

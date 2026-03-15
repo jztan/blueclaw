@@ -52,7 +52,7 @@ class TestCommands:
         result = runner.invoke(app, ["history", "--help"])
         assert result.exit_code == 0
 
-    @patch("blueclaw.session.update_context_on_exit")
+    @patch("blueclaw.session.BackgroundContextUpdater")
     @patch("blueclaw.session.cleanup_mcp_clients")
     @patch("blueclaw.session.Agent")
     @patch("blueclaw.session.build_model")
@@ -61,7 +61,7 @@ class TestCommands:
         mock_build_model,
         mock_agent_cls,
         mock_cleanup,
-        mock_update_context,
+        mock_updater_cls,
         tmp_path,
     ):
         mock_build_model.return_value = MagicMock()
@@ -91,7 +91,7 @@ class TestCommands:
             result = runner.invoke(app, ["run", "hello"])
 
         assert result.exit_code == 0
-        assert mock_update_context.called
+        mock_updater_cls.return_value.trigger.assert_called_once()
         assert mock_cleanup.called
 
 
@@ -248,13 +248,8 @@ class TestPixelArt:
         assert len(lines) == 9
 
     def test_render_pixel_art_has_colors(self):
-        output = StringIO()
-        console = Console(file=output, force_terminal=True)
         art = render_pixel_art()
-        console.print(art)
-        text = output.getvalue()
-        # ANSI escape codes should be present
-        assert "\x1b[" in text
+        assert art.spans
 
 
 # --- Trace commands ---
@@ -600,3 +595,439 @@ class TestTraceReplay:
                 app, ["trace", "replay", "20260315-101201"], input="\n\n"
             )
             assert "2847" in result.output
+
+
+# --- v1.2: trace timeline ---
+
+
+class TestTraceTimeline:
+    """v1.2: blueclaw trace timeline <run_id>."""
+
+    def test_not_found(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "nonexistent"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_basic_rendering(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "web_search" in result.output
+        assert "842" in result.output
+
+    def test_shows_goal(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "test goal" in result.output.lower()
+
+    def test_shows_overhead(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "overhead" in result.output.lower() or "wall" in result.output.lower()
+
+    def test_single_step_trace(self, tmp_path):
+        """Single step should not cause division errors."""
+        ws_path = tmp_path / "workspace"
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=500,
+        )
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="single step",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[step],
+            total_tokens=100,
+            status="success",
+        )
+        ws = Workspace(ws_path)
+        ws.write_trace(trace)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "web_search" in result.output
+
+    def test_empty_trace(self, tmp_path):
+        """Zero steps should not crash."""
+        ws_path = tmp_path / "workspace"
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="empty",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=0,
+            status="success",
+        )
+        ws = Workspace(ws_path)
+        ws.write_trace(trace)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+
+    def test_bar_scaling(self, tmp_path):
+        """Bars should appear, with longest getting the most blocks."""
+        ws_path = tmp_path / "workspace"
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 3, 15, 10, 12, 2, tzinfo=timezone.utc)
+        steps = [
+            TraceStep(
+                index=1,
+                tool_name="fast",
+                status="success",
+                start_time=ts,
+                end_time=ts,
+                duration_ms=100,
+            ),
+            TraceStep(
+                index=2,
+                tool_name="slow",
+                status="success",
+                start_time=ts,
+                end_time=ts2,
+                duration_ms=1000,
+            ),
+        ]
+        trace = RunTrace(
+            run_id="20260315-101201",
+            goal="bar test",
+            start_time=ts,
+            end_time=ts2,
+            model_id="claude-sonnet-4-6",
+            steps=steps,
+            total_tokens=100,
+            status="success",
+        )
+        ws = Workspace(ws_path)
+        ws.write_trace(trace)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "timeline", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "\u2588" in result.output
+
+
+# --- v1.2: trace stats ---
+
+
+class TestTraceStats:
+    """v1.2: blueclaw trace stats."""
+
+    def _write_traces(self, ws_path, count=3):
+        """Write multiple traces for stats testing."""
+        ws = Workspace(ws_path)
+        for i in range(count):
+            ts = datetime(2026, 3, 10 + i, 10, 0, 0, tzinfo=timezone.utc)
+            ts_end = datetime(2026, 3, 10 + i, 10, 0, 5, tzinfo=timezone.utc)
+            steps = [
+                TraceStep(
+                    index=1,
+                    tool_name="web_search",
+                    status="success",
+                    start_time=ts,
+                    end_time=ts,
+                    duration_ms=400 + i * 100,
+                ),
+                TraceStep(
+                    index=2,
+                    tool_name="shell_command",
+                    status="success",
+                    start_time=ts,
+                    end_time=ts,
+                    duration_ms=200,
+                ),
+            ]
+            run_id = f"202603{10 + i:02d}-100000"
+            ws.write_trace(
+                RunTrace(
+                    run_id=run_id,
+                    goal=f"run {i}",
+                    start_time=ts,
+                    end_time=ts_end,
+                    model_id="claude-sonnet-4-6",
+                    steps=steps,
+                    total_tokens=1000 + i * 500,
+                    total_cost=0.003 + i * 0.001,
+                    status="success",
+                )
+            )
+        return ws
+
+    def test_no_traces(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "no traces" in result.output.lower()
+
+    def test_basic_stats(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+        assert "web_search" in result.output
+        assert "shell_command" in result.output
+
+    def test_shows_total_steps(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "6" in result.output
+
+    def test_shows_cost(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "$" in result.output
+
+    def test_since_filter(self, tmp_path):
+        """--since should filter traces by date relative to now."""
+        from datetime import timedelta
+
+        ws_path = tmp_path / "workspace"
+        ws = Workspace(ws_path)
+        now = datetime.now(timezone.utc)
+
+        ts_old = now - timedelta(days=10)
+        ts_new = now - timedelta(days=1)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts_old,
+            end_time=ts_old,
+            duration_ms=400,
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id=ts_old.strftime("%Y%m%d-%H%M%S"),
+                goal="old run",
+                start_time=ts_old,
+                end_time=ts_old,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=500,
+                total_cost=0.003,
+                status="success",
+            )
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id=ts_new.strftime("%Y%m%d-%H%M%S"),
+                goal="recent run",
+                start_time=ts_new,
+                end_time=ts_new,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=500,
+                total_cost=0.003,
+                status="success",
+            )
+        )
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats", "--since", "3"])
+        assert result.exit_code == 0
+        assert "1" in result.output
+
+    def test_model_filter(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "stats", "--model", "claude-sonnet-4-6"]
+            )
+        assert result.exit_code == 0
+        assert "3" in result.output
+
+    def test_model_filter_no_match(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "stats", "--model", "nonexistent-model"]
+            )
+        assert result.exit_code == 0
+        assert "no traces" in result.output.lower()
+
+    def test_single_trace(self, tmp_path):
+        """Single trace should not cause division errors."""
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path, count=1)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "1" in result.output
+
+    def test_with_failed_steps(self, tmp_path):
+        """Failed steps should be classified and counted."""
+        ws_path = tmp_path / "workspace"
+        ws = Workspace(ws_path)
+        ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        steps = [
+            TraceStep(
+                index=1,
+                tool_name="web_search",
+                status="success",
+                start_time=ts,
+                end_time=ts,
+                duration_ms=400,
+            ),
+            TraceStep(
+                index=2,
+                tool_name="http_request",
+                status="error",
+                start_time=ts,
+                end_time=ts,
+                duration_ms=5000,
+                error="ConnectionTimeout: server did not respond within 30s",
+            ),
+        ]
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-100000",
+                goal="test failures",
+                start_time=ts,
+                end_time=ts,
+                model_id="claude-sonnet-4-6",
+                steps=steps,
+                total_tokens=500,
+                status="success",
+            )
+        )
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "timeout" in result.output.lower()
+
+    def test_mixed_costs_some_none(self, tmp_path):
+        """Runs with cost=None should not break averages."""
+        ws_path = tmp_path / "workspace"
+        ws = Workspace(ws_path)
+        ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=400,
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-100000",
+                goal="with cost",
+                start_time=ts,
+                end_time=ts,
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=500,
+                total_cost=0.005,
+                status="success",
+            )
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-110000",
+                goal="no cost",
+                start_time=ts,
+                end_time=ts,
+                model_id="ollama/llama3",
+                steps=[step],
+                total_tokens=500,
+                total_cost=None,
+                status="success",
+            )
+        )
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "2" in result.output
+
+
+# --- Streaming callback CLI wiring ---
+
+
+class TestStreamingCallbackWiring:
+    """Verify both CLI paths pass console to create_agent."""
+
+    @patch("blueclaw.session.run_chat_loop")
+    @patch("blueclaw.session.create_agent")
+    @patch("blueclaw.session.build_model")
+    def test_interactive_passes_console(
+        self, mock_build_model, mock_create_agent, mock_loop
+    ):
+        mock_build_model.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
+        result = runner.invoke(app, [], input="exit\n")
+        assert result.exit_code == 0
+        assert mock_create_agent.called, "create_agent was never called"
+        call_kwargs = mock_create_agent.call_args
+        assert "console" in call_kwargs.kwargs
+        assert call_kwargs.kwargs["console"] is not None
+
+    @patch("blueclaw.session.BackgroundContextUpdater")
+    @patch("blueclaw.session.cleanup_mcp_clients")
+    @patch("blueclaw.session.Agent")
+    @patch("blueclaw.session.create_agent")
+    @patch("blueclaw.session.build_model")
+    def test_scripted_run_passes_console(
+        self,
+        mock_build_model,
+        mock_create_agent,
+        mock_agent_cls,
+        mock_cleanup,
+        mock_updater_cls,
+        tmp_path,
+    ):
+        mock_build_model.return_value = MagicMock()
+        mock_agent = MagicMock()
+        result_obj = MagicMock()
+        result_obj.message = "ok"
+        result_obj.metrics.accumulated_usage = {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "totalTokens": 2,
+        }
+        mock_agent.return_value = result_obj
+        mock_create_agent.return_value = mock_agent
+
+        yaml_path = tmp_path / "blueclaw.yaml"
+        yaml_path.write_text(
+            "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n"
+            "workspace:\n  path: "
+            f"{tmp_path / 'workspace'}\n"
+            "tools: []\n"
+        )
+        with patch(
+            "blueclaw.cli.Path",
+            side_effect=lambda p: yaml_path if p == "blueclaw.yaml" else Path(p),
+        ):
+            result = runner.invoke(app, ["run", "hello"])
+        assert mock_create_agent.called
+        call_kwargs = mock_create_agent.call_args
+        assert "console" in call_kwargs.kwargs
+        assert call_kwargs.kwargs["console"] is not None

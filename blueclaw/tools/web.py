@@ -14,9 +14,15 @@ def make_web_search():
     @tool
     def web_search(query: str) -> str:
         """Search the web for a query and return results."""
-        # In v1, this is a placeholder — real implementation uses
-        # strands-agents-tools or an MCP server for search.
-        return f"Search results for: {query}"
+        from ddgs import DDGS
+
+        results = DDGS().text(query, max_results=5)
+        if not results:
+            return "No results found."
+        lines = []
+        for r in results:
+            lines.append(f"**{r['title']}**\n{r['href']}\n{r['body']}\n")
+        return "\n".join(lines)
 
     return web_search
 

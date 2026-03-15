@@ -75,7 +75,9 @@ def render_pixel_art() -> Text:
     col_count = max((len(row) for row in PIXEL_GRID), default=0)
     for row_idx in range(0, row_count, 2):
         top_row = PIXEL_GRID[row_idx]
-        bot_row = PIXEL_GRID[row_idx + 1] if row_idx + 1 < row_count else [None] * col_count
+        bot_row = (
+            PIXEL_GRID[row_idx + 1] if row_idx + 1 < row_count else [None] * col_count
+        )
         for col in range(col_count):
             fg = top_row[col] if col < len(top_row) else None
             bg = bot_row[col] if col < len(bot_row) else None
@@ -172,7 +174,7 @@ def run_session(model_override: str | None = None) -> None:
 
     render_welcome_banner(config, workspace, console)
 
-    agent = create_agent(config, workspace, observer, model=model)
+    agent = create_agent(config, workspace, observer, model=model, console=console)
     run_chat_loop(agent, workspace, observer, console, config, model=model)
 
 
@@ -227,7 +229,12 @@ def run(
     console.print(f"blueclaw run \u00b7 {config.model_id}", style="dim")
 
     agent = create_agent(
-        config, workspace, observer, model=model_instance, scripted=True
+        config,
+        workspace,
+        observer,
+        model=model_instance,
+        scripted=True,
+        console=console,
     )
     updater = BackgroundContextUpdater(model_instance, workspace)
     try:

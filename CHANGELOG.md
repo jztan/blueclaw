@@ -2,6 +2,13 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.2] - 2026-03-15
+
+### Fixed
+
+- Streaming output buffered until complete instead of flushing each chunk — replaced SDK's `PrintingCallbackHandler` with `_StreamingCallback` that flushes immediately, skips tool headers (observer handles those), and emits exactly one trailing newline on complete instead of two
+- Streamed output wrote to raw stdout instead of the session's console sink — `create_agent()` now threads the console's file into the callback so both CLI paths (interactive and scripted run) write to the same destination
+
 ## [1.2.1] - 2026-03-15
 
 ### Fixed

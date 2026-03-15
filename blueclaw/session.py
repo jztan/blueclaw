@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import logging
@@ -293,6 +294,26 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
     return "\n\n".join(parts)
 
 
+class _StreamingCallback:
+    """Stream text to a file object with immediate flush.
+
+    Skips tool headers (observer handles those) and the extra trailing
+    newline that the SDK's PrintingCallbackHandler emits on complete.
+    """
+
+    def __init__(self, file=None):
+        self._file = file or sys.stdout
+
+    def __call__(self, **kwargs):
+        data = kwargs.get("data", "")
+        complete = kwargs.get("complete", False)
+        reasoning = kwargs.get("reasoningText", "")
+        if reasoning:
+            print(reasoning, end="", file=self._file, flush=True)
+        if data:
+            print(data, end="\n" if complete else "", file=self._file, flush=True)
+
+
 def create_agent(
     config: SessionConfig,
     workspace: Workspace,
@@ -300,6 +321,7 @@ def create_agent(
     model=None,
     skills_dir: Path | None = None,
     scripted: bool = False,
+    console: Console | None = None,
 ) -> Agent:
     """Construct and return a Strands Agent."""
     tools = load_tools(config, workspace=workspace)
@@ -309,12 +331,14 @@ def create_agent(
     system_prompt = build_system_prompt(workspace, skills_dir=skills_dir)
     approval_hooks = ApprovalHooks(config, scripted=scripted)
 
+    stream_file = console.file if console else sys.stdout
     agent = Agent(
         model=model,
         tools=tools,
         hooks=[approval_hooks, observer],
         system_prompt=system_prompt,
         conversation_manager=SummarizingConversationManager(),
+        callback_handler=_StreamingCallback(file=stream_file),
     )
     # Attach clients for cleanup
     observer.mcp_clients = mcp_clients

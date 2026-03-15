@@ -966,3 +966,68 @@ class TestTraceStats:
             result = runner.invoke(app, ["trace", "stats"])
         assert result.exit_code == 0
         assert "2" in result.output
+
+
+# --- Streaming callback CLI wiring ---
+
+
+class TestStreamingCallbackWiring:
+    """Verify both CLI paths pass console to create_agent."""
+
+    @patch("blueclaw.session.run_chat_loop")
+    @patch("blueclaw.session.create_agent")
+    @patch("blueclaw.session.build_model")
+    def test_interactive_passes_console(
+        self, mock_build_model, mock_create_agent, mock_loop
+    ):
+        mock_build_model.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
+        result = runner.invoke(app, [], input="exit\n")
+        assert result.exit_code == 0
+        assert mock_create_agent.called, "create_agent was never called"
+        call_kwargs = mock_create_agent.call_args
+        assert "console" in call_kwargs.kwargs
+        assert call_kwargs.kwargs["console"] is not None
+
+    @patch("blueclaw.session.BackgroundContextUpdater")
+    @patch("blueclaw.session.cleanup_mcp_clients")
+    @patch("blueclaw.session.Agent")
+    @patch("blueclaw.session.create_agent")
+    @patch("blueclaw.session.build_model")
+    def test_scripted_run_passes_console(
+        self,
+        mock_build_model,
+        mock_create_agent,
+        mock_agent_cls,
+        mock_cleanup,
+        mock_updater_cls,
+        tmp_path,
+    ):
+        mock_build_model.return_value = MagicMock()
+        mock_agent = MagicMock()
+        result_obj = MagicMock()
+        result_obj.message = "ok"
+        result_obj.metrics.accumulated_usage = {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "totalTokens": 2,
+        }
+        mock_agent.return_value = result_obj
+        mock_create_agent.return_value = mock_agent
+
+        yaml_path = tmp_path / "blueclaw.yaml"
+        yaml_path.write_text(
+            "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n"
+            "workspace:\n  path: "
+            f"{tmp_path / 'workspace'}\n"
+            "tools: []\n"
+        )
+        with patch(
+            "blueclaw.cli.Path",
+            side_effect=lambda p: yaml_path if p == "blueclaw.yaml" else Path(p),
+        ):
+            result = runner.invoke(app, ["run", "hello"])
+        assert mock_create_agent.called
+        call_kwargs = mock_create_agent.call_args
+        assert "console" in call_kwargs.kwargs
+        assert call_kwargs.kwargs["console"] is not None

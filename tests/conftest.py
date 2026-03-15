@@ -78,7 +78,7 @@ def mock_before_event():
         "toolUseId": "id123",
     }
     event.selected_tool = None
-    event.invocation_state = {}
+    event.invocation_state = {"request_state": {}}
     event.cancel_tool = False
     return event
 

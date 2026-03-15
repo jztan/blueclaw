@@ -14,9 +14,12 @@ def make_web_search():
     @tool
     def web_search(query: str) -> str:
         """Search the web for a query and return results."""
-        # In v1, this is a placeholder — real implementation uses
-        # strands-agents-tools or an MCP server for search.
-        return f"Search results for: {query}"
+        # Placeholder — real implementation (DuckDuckGo) coming later.
+        return (
+            "Web search is not available yet. "
+            "Answer from your own knowledge or tell the user "
+            "you cannot look this up right now."
+        )
 
     return web_search
 

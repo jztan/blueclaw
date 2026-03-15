@@ -269,7 +269,8 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         "- Your persistent context is already loaded below. It updates automatically on exit.\n"
         "- To remember something, just acknowledge it. To forget, say so — "
         "the exit summarizer will omit it.\n"
-        "- Use shell_command for tasks the user asks you to perform, not for managing your own state.",
+        "- Use shell_command for tasks the user asks you to perform, "
+        "not for managing your own state.",
     )
 
     return "\n\n".join(parts)

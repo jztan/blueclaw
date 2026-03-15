@@ -74,9 +74,11 @@ Most AI agents are black boxes — when something goes wrong, you don't know if 
 | Token/cost breakdown per step | `models.py` | ✅ | Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible — populated when per-tool metrics become available from Strands SDK) |
 | Date-range filtering | `workspace.py` | ✅ | `since` parameter on `Workspace.list_traces()` for date-range trace queries |
 | Current date in system prompt | `session.py` | ✅ | `build_system_prompt()` includes UTC date so the agent knows "today" without relying on training cutoff |
+| Esc Esc user interrupt | `observer.py` | ✅ | Double-Esc stops agent at next tool boundary via `cancel_tool` + `stop_event_loop`. Non-blocking cbreak stdin polling with escape-sequence disambiguation |
+| Honest `web_search` placeholder | `tools/web.py` | ✅ | Returns "not available" instead of fake results — prevents runaway `http_request` retry loops |
 
-**Actual lines:** 1,935
-**Test coverage:** 311 tests (+46 for v1.2 analytics)
+**Actual lines:** 2,035
+**Test coverage:** 316 tests (+51 for v1.2 analytics + interrupt)
 
 ---
 
@@ -210,7 +212,7 @@ tests:
 |---|---|---|---|---|---|---|---|
 | Core files | 6 | 6 | 6 | 7 | 8 | 9 | 11 |
 | Dependencies | 7 | 7 | 7 | 7 | 7 | 7 + 2 optional | 7 + 2 |
-| Lines (actual/est.) | 1,554 | 1,728 | 1,933 | ~2,050 | ~2,300 | ~2,450 | ~2,700 |
+| Lines (actual/est.) | 1,554 | 1,728 | 2,035 | ~2,150 | ~2,400 | ~2,550 | ~2,800 |
 | One-sitting readable? | Yes | Yes | Yes | Yes | Stretch | Stretch | No |
 
 ---

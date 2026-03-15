@@ -13,7 +13,12 @@ All notable changes to blueclaw will be documented in this file.
 - `since` parameter on `Workspace.list_traces()` for date-range filtering
 - Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible for per-step attribution)
 - Current date injected into system prompt so the agent knows "today" without relying on training cutoff
-- 46 new tests for v1.2 features (311 total)
+- Esc Esc interrupt — press Escape twice during agent execution to stop the current turn at the next tool boundary. Non-blocking cbreak stdin polling in `before_tool` hook with escape-sequence disambiguation (50ms peek)
+- 51 new tests for v1.2 features (316 total)
+
+### Fixed
+
+- `web_search` placeholder returned fake `"Search results for: {query}"` string, causing the model to spiral into 20+ `http_request` retries. Now returns an honest "not available" message
 
 ## [1.1.0] - 2026-03-15
 

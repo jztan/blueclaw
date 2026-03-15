@@ -195,10 +195,10 @@ class ObserverHooks(HookProvider):
                 err_msg = str(event.exception)
                 if len(err_msg) > 80:
                     err_msg = err_msg[:77] + "..."
-                self.console.print(f"  \u2717 {err_msg} ({elapsed:.1f}s)")
+                self.console.print(f"  \u2717 {tool_name} {err_msg} ({elapsed:.1f}s)")
         else:
             if not self.quiet:
-                self.console.print(f"  \u2713 {elapsed:.1f}s")
+                self.console.print(f"  \u2713 {tool_name} {elapsed:.1f}s")
             # Truncate tool result content
             if event.result:
                 truncate_tool_result(event.result)

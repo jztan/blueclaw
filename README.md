@@ -276,9 +276,9 @@ allowlist_domains:
 
 ## Architecture
 
-```
-Terminal input → cli.py → session.py → Strands Agent → Tools → workspace.py (sandbox) → observer.py (trace) → Response
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jztan/blueclaw/master/blueclaw-arch.svg" alt="BlueClaw Architecture" width="800">
+</p>
 
 | Module | Purpose | Lines |
 |---|---|---|

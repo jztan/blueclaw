@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 300" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#7a9bb5"/>
+    </marker>
+    <marker id="arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#c9a84c"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="780" height="300" fill="#f8fafc" rx="12"/>
+
+  <!-- ===== Terminal ===== -->
+  <rect x="30" y="90" width="100" height="80" rx="14" fill="#d6e6f0" filter="url(#shadow)"/>
+  <text x="80" y="127" text-anchor="middle" font-size="20">⌨️</text>
+  <text x="80" y="150" text-anchor="middle" font-size="13" font-weight="600" fill="#2c5f7c">Terminal</text>
+
+  <!-- Arrow: Terminal → Session -->
+  <line x1="130" y1="130" x2="168" y2="130" stroke="#7a9bb5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== Agent Loop boundary ===== -->
+  <rect x="165" y="28" width="340" height="240" rx="16" fill="none" stroke="#a3c4d6" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="335" y="50" text-anchor="middle" font-size="11" font-weight="600" fill="#3d7a9a" letter-spacing="1">AGENT LOOP · Strands SDK</text>
+
+  <!-- ===== Session ===== -->
+  <rect x="178" y="95" width="100" height="70" rx="12" fill="#f5ecd0" filter="url(#shadow)"/>
+  <text x="228" y="127" text-anchor="middle" font-size="13" font-weight="600" fill="#7a6420">Session</text>
+  <text x="228" y="145" text-anchor="middle" font-size="10" fill="#9a8234">Config · Loop</text>
+
+  <!-- Arrow: Session → Model -->
+  <line x1="228" y1="95" x2="228" y2="78" stroke="#7a9bb5" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Model pills row -->
+  <rect x="180" y="58" width="46" height="16" rx="8" fill="#e8d9a0"/>
+  <text x="203" y="70" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">Anthropic</text>
+  <rect x="230" y="58" width="46" height="16" rx="8" fill="#e8d9a0"/>
+  <text x="253" y="70" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">Ollama</text>
+  <rect x="180" y="77" width="46" height="16" rx="8" fill="none"/>
+  <rect x="230" y="77" width="46" height="16" rx="8" fill="none"/>
+
+  <!-- Arrow: Session → Tools -->
+  <line x1="278" y1="130" x2="314" y2="130" stroke="#7a9bb5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===== Tools ===== -->
+  <rect x="318" y="80" width="170" height="100" rx="12" fill="#cde2ec" filter="url(#shadow)"/>
+  <text x="403" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#1e4d6b">Tools</text>
+
+  <!-- Tool pills -->
+  <rect x="330" y="116" width="62" height="20" rx="10" fill="#b3d1e0"/>
+  <text x="361" y="130" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">shell</text>
+  <rect x="398" y="116" width="78" height="20" rx="10" fill="#b3d1e0"/>
+  <text x="437" y="130" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">web_search</text>
+  <rect x="330" y="142" width="78" height="20" rx="10" fill="#b3d1e0"/>
+  <text x="369" y="156" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">http_request</text>
+  <rect x="414" y="142" width="62" height="20" rx="10" fill="#b3d1e0"/>
+  <text x="445" y="156" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">MCP</text>
+
+  <!-- Return arrow: Tools → Session (below) -->
+  <path d="M 403 180 L 403 210 L 228 210 L 228 165" stroke="#a3c4d6" stroke-width="1.5" fill="none" marker-end="url(#arrow)" stroke-dasharray="5 3"/>
+
+  <!-- Lessons label on return path -->
+  <rect x="270" y="218" width="108" height="20" rx="10" fill="#eee5c6"/>
+  <text x="324" y="232" text-anchor="middle" font-size="9" font-weight="600" fill="#7a6420">Trace Lessons</text>
+
+  <!-- ===== Response arrow back ===== -->
+  <path d="M 178 150 L 155 150 L 155 230 L 80 230 L 80 176" stroke="#7a9bb5" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <rect x="90" y="220" width="74" height="22" rx="11" fill="#d6e6f0"/>
+  <text x="127" y="236" text-anchor="middle" font-size="11" font-weight="600" fill="#2c5f7c">Response</text>
+
+  <!-- ===== Right: Workspace ===== -->
+  <line x1="488" y1="115" x2="530" y2="115" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
+
+  <rect x="534" y="60" width="215" height="110" rx="14" fill="#2c5f7c" filter="url(#shadow)"/>
+  <text x="641" y="84" text-anchor="middle" font-size="13" font-weight="600" fill="#f0e6c8">Workspace</text>
+  <text x="641" y="100" text-anchor="middle" font-size="10" fill="#a3c4d6">Sandboxed file I/O</text>
+
+  <rect x="546" y="112" width="90" height="28" rx="7" fill="#3a7291"/>
+  <text x="591" y="130" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">CONTEXT.md</text>
+  <rect x="647" y="112" width="90" height="28" rx="7" fill="#3a7291"/>
+  <text x="692" y="130" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">history.jsonl</text>
+
+  <!-- ===== Right: Observer ===== -->
+  <line x1="488" y1="150" x2="530" y2="210" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
+
+  <rect x="534" y="192" width="215" height="72" rx="14" fill="#f5ecd0" filter="url(#shadow)"/>
+  <text x="641" y="218" text-anchor="middle" font-size="13" font-weight="600" fill="#7a6420">Observer</text>
+  <text x="641" y="236" text-anchor="middle" font-size="10" fill="#9a8234">Rich tracing · Structured logs</text>
+  <text x="641" y="252" text-anchor="middle" font-size="9" fill="#b09a3e">traces/ · timeline · stats</text>
+
+  <!-- Bottom credit -->
+  <text x="390" y="290" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK</text>
+</svg>

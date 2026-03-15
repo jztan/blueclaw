@@ -1,6 +1,23 @@
-# Claude Code
+# AI agent configs
 .claude/
 CLAUDE.md
+AGENTS.md
+COPILOT.md
+CODEX.md
+.codex/
+.cursor/
+.cursorrules
+.cursorignore
+.github/copilot-instructions.md
+.windsurfrules
+.cline/
+.clinerules
+.roo/
+.roomodes
+.aider*
+.continue/
+.augment*
+docs_internal/
 
 # Python
 .venv/

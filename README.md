@@ -3,12 +3,13 @@
 </p>
 
 <p align="center">
-  <strong>Persistent, interactive terminal automation agent</strong><br>
+  <strong>BlueClaw treats AI agents like debuggable programs, not black boxes.</strong><br>
   Built on <a href="https://github.com/strands-agents/sdk-python">Strands Agents SDK</a>
 </p>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
+  <a href="#tracing--observability">Tracing</a> •
   <a href="#features">Features</a> •
   <a href="#model-support">Models</a> •
   <a href="#configuration">Configuration</a> •
@@ -19,7 +20,9 @@
 
 ## What is BlueClaw?
 
-BlueClaw is a Python-native terminal automation agent that remembers context across sessions. Give it a goal, and it researches, fetches, processes, and writes — all within a sandboxed workspace.
+BlueClaw is a terminal-based AI agent with built-in execution tracing, enabling developers to inspect, replay, and debug agent behavior step by step.
+
+Most AI agents are black boxes — when something goes wrong, you don't know if it was the model reasoning, the tool input, the tool output, or a bad retry. BlueClaw records every tool call with timing, inputs, and outputs, then gives you CLI tools to understand what happened.
 
 ```
 blueclaw> research the MCP ecosystem, focus on Python SDKs
@@ -49,17 +52,36 @@ blueclaw
 blueclaw run "summarize the latest Python 3.13 release notes"
 ```
 
+## Tracing & Observability
+
+Every agent run is recorded as a structured JSON trace with per-step timing, tool inputs, outputs, and errors.
+
+```
+blueclaw trace graph 20260315-054426
+
+search for Python 3.13 new features
+├── web_search (1ms) ✓  query: Python 3.13 new features
+├── web_search (1ms) ✓  query: Python 3.13 new features list 2024
+└── http_request (366ms) ✓  url: https://docs.python.org/3.13/whatsnew/3.13.html
+```
+
+- **`trace show`** — detailed step table with timing and status
+- **`trace graph`** — tree view of tool call sequences
+- **`trace explain`** — LLM-powered post-hoc explanation of what happened and why
+- **`trace diff`** — compare two runs side by side (steps, tokens, cost, duration deltas)
+- **`trace replay`** — interactive step-through debugger
+
 ## Features
 
-- **Interactive + scripted modes** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
-- **Persistent memory** — `CONTEXT.md` updates in the background after each turn (instant exit), `history.jsonl` logs every run
+- **Execution tracing** — structured JSON traces with full observability tooling (see above)
 - **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
+- **Persistent memory** — `CONTEXT.md` updates in the background after each turn (instant exit), `history.jsonl` logs every run
+- **Interactive + scripted modes** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
 - **Shell execution** — sandboxed `shell_command` tool with deny-list, 30s timeout, and interactive approval
 - **Workspace sandbox** — path validation + destructive command deny-list
-- **Execution tracing** — structured JSON traces with per-step timing, input/output summaries, CLI viewer, LLM-powered explanation, graph view, diff, and interactive replay
-- **Output truncation** — 12k char limit prevents context blowout
 - **Approval hooks** — interactive confirmation for shell commands and new web domains
 - **Crash recovery** — per-turn checkpoints in `.blueclaw/last_turn.md`
+- **Output truncation** — 12k char limit prevents context blowout
 - **MCP support** — bundled `pdf-mcp` server, custom stdio/SSE servers via config
 - **Skill system** — progressive loading, index in prompt, full content on demand
 

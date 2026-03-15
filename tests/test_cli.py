@@ -52,7 +52,7 @@ class TestCommands:
         result = runner.invoke(app, ["history", "--help"])
         assert result.exit_code == 0
 
-    @patch("blueclaw.session.update_context_on_exit")
+    @patch("blueclaw.session.BackgroundContextUpdater")
     @patch("blueclaw.session.cleanup_mcp_clients")
     @patch("blueclaw.session.Agent")
     @patch("blueclaw.session.build_model")
@@ -61,7 +61,7 @@ class TestCommands:
         mock_build_model,
         mock_agent_cls,
         mock_cleanup,
-        mock_update_context,
+        mock_updater_cls,
         tmp_path,
     ):
         mock_build_model.return_value = MagicMock()
@@ -91,7 +91,7 @@ class TestCommands:
             result = runner.invoke(app, ["run", "hello"])
 
         assert result.exit_code == 0
-        assert mock_update_context.called
+        mock_updater_cls.return_value.trigger.assert_called_once()
         assert mock_cleanup.called
 
 

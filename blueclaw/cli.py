@@ -213,12 +213,12 @@ def run(
     """Run a single prompt and exit."""
     from blueclaw.observer import ObserverHooks
     from blueclaw.session import (
+        BackgroundContextUpdater,
         build_model,
         cleanup_mcp_clients,
         create_agent,
         load_config,
         print_run_summary,
-        update_context_on_exit,
     )
 
     config_path = Path("blueclaw.yaml")
@@ -232,6 +232,7 @@ def run(
     agent = create_agent(
         config, workspace, observer, model=model_instance, scripted=True
     )
+    updater = BackgroundContextUpdater(model_instance, workspace)
     try:
         import time as _time
 
@@ -251,9 +252,11 @@ def run(
             elapsed=elapsed,
             start_time=start,
         )
+
+        updater.trigger(agent)
     finally:
-        update_context_on_exit(agent, workspace)
         cleanup_mcp_clients(observer)
+        updater.wait()
 
 
 @app.command()

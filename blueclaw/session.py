@@ -271,7 +271,12 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         "- To remember something, just acknowledge it. To forget, say so — "
         "the exit summarizer will omit it.\n"
         "- Use shell_command for tasks the user asks you to perform, "
-        "not for managing your own state.",
+        "not for managing your own state.\n"
+        "- web_search results include titles, URLs, and snippets. "
+        "Use snippets directly when they contain enough information. "
+        "Only use http_request to fetch a page if you truly need more detail. "
+        "If http_request fails with a domain allowlist error, do not retry other domains — "
+        "answer from the search snippets you already have.",
     )
 
     return "\n\n".join(parts)
@@ -341,7 +346,7 @@ def update_context_background(model, messages_snapshot: str, workspace: Workspac
             workspace.write_context(text)
             workspace.clear_last_turn_checkpoint()
     except Exception as e:
-        logger.warning("Background context update failed: %s", e)
+        logger.debug("Background context update failed: %s", e)
 
 
 class BackgroundContextUpdater:
@@ -547,6 +552,6 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
             if current_context:
                 workspace.write_context(current_context)
     except Exception as e:
-        logger.warning("Failed to update CONTEXT.md on exit: %s", e)
+        logger.debug("Failed to update CONTEXT.md on exit: %s", e)
         if current_context:
             workspace.write_context(current_context)

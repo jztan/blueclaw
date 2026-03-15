@@ -16,7 +16,14 @@ All notable changes to blueclaw will be documented in this file.
 - Esc Esc interrupt — press Escape twice during agent execution to stop the current turn at the next tool boundary. Non-blocking cbreak stdin polling in `before_tool` hook with escape-sequence disambiguation (50ms peek)
 - Trace Lessons — before each turn, scans past traces for similar goals with failures/cost spikes, injects up to 3 short behavioral hints into the prompt. Reduced repeat oil-price query from 6 tool calls/$0.11 to 1 call/$0.03. Jaccard keyword similarity with minimal stemming, capped at 50 recent traces
 - DuckDuckGo web search via `ddgs` — replaces placeholder with live search returning top 5 results (title, URL, snippet). Lazy import, no try/except (errors propagate to observer)
+- System prompt guidance to prefer web_search snippets over http_request fetches, reducing unnecessary tool calls
 - 78 new tests for v1.2 features (343 total)
+
+### Fixed
+
+- `blueclaw run` blocked for several seconds after printing "Done" — synchronous context update replaced with background thread (`BackgroundContextUpdater`). "Done" prints immediately; context update completes before process exits via `updater.wait()`
+- Scripted mode let `http_request` run against non-allowlisted domains (tool failed silently, agent retried 10+ domains). Now cancels the tool call with a clear message directing the agent to use search snippets
+- Background context update failures printed visible `WARNING` to stderr — downgraded to debug level
 
 ## [1.1.0] - 2026-03-15
 

@@ -41,8 +41,12 @@ class ApprovalHooks(HookProvider):
 
             # Domain not in allowlist
             if self.scripted:
-                # Scripted mode: do nothing, let tool fail with error message
-                pass
+                # Scripted mode: cancel tool with clear error
+                event.cancel_tool = (
+                    f"Domain '{domain}' is not in the allowlist. "
+                    "Use information from web_search snippets instead."
+                )
+                return
             else:
                 # Interactive mode: prompt user
                 msg = f"Tool '{tool_name}' wants to access '{domain}'. Allow?"

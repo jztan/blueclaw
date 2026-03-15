@@ -2,6 +2,15 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.4] - 2026-03-15
+
+### Fixed
+
+- Unused imports (F401) in 10 test files and conftest
+- Unused variables (F841) in test_cli, test_integration, test_workspace
+- Ambiguous variable name `l` (E741) in test_lessons
+- black formatting violations in `lessons.py` and `test_lessons.py`
+
 ## [1.2.3] - 2026-03-15
 
 ### Fixed

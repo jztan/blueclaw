@@ -8,6 +8,10 @@ All notable changes to blueclaw will be documented in this file.
 
 - GitHub Actions CI: lint (flake8 + black) and test across Python 3.11–3.14 on push/PR to `develop`
 - Issue management workflows: auto-lock closed issues after 7 days, stale issue warnings at 14 days with auto-close at 30 days, autoclose label removal on human comment
+- PyPI publish workflow: tag pushes (`v*.*.*`) run full test matrix then auto-publish via twine
+- README badges: PyPI version, license, Python versions, GitHub issues, CI status, downloads
+- PyPI package metadata: description, license, authors, classifiers, project URLs
+- Published to PyPI as `blueclaw`
 
 ### Fixed
 

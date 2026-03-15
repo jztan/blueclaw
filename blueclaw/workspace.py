@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 
 from blueclaw.models import RunRecord, RunTrace
@@ -179,15 +180,22 @@ class Workspace:
             return None
         return RunTrace.from_json(path.read_text())
 
-    def list_traces(self, limit: int = 20) -> list[RunTrace]:
-        """List recent traces, newest first."""
+    def list_traces(
+        self, limit: int = 20, since: datetime | None = None
+    ) -> list[RunTrace]:
+        """List traces, newest first. Optionally filter by start_time >= since."""
         if not self.traces_dir.exists():
             return []
         files = sorted(self.traces_dir.glob("*.json"), reverse=True)
         traces = []
-        for f in files[:limit]:
+        for f in files:
+            if len(traces) >= limit:
+                break
             try:
-                traces.append(RunTrace.from_json(f.read_text()))
+                trace = RunTrace.from_json(f.read_text())
             except Exception:
                 continue
+            if since is not None and trace.start_time < since:
+                continue
+            traces.append(trace)
         return traces

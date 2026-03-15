@@ -70,6 +70,8 @@ search for Python 3.13 new features
 - **`trace explain`** — LLM-powered post-hoc explanation of what happened and why
 - **`trace diff`** — compare two runs side by side (steps, tokens, cost, duration deltas)
 - **`trace replay`** — interactive step-through debugger
+- **`trace timeline`** — waterfall chart with per-step start offset, duration, cumulative timing, and overhead breakdown
+- **`trace stats`** — aggregate metrics across runs: avg tokens/cost, timing percentiles, top tools, failure classification (`--since N`, `--model`)
 
 ## Features
 
@@ -122,6 +124,8 @@ OPENAI_API_KEY=sk-...
 | `blueclaw trace graph <run_id>` | Tree view of tool call sequence |
 | `blueclaw trace diff <id1> <id2>` | Compare two traces side by side |
 | `blueclaw trace replay <run_id>` | Step through a trace interactively |
+| `blueclaw trace timeline <run_id>` | Waterfall timeline with timing and overhead |
+| `blueclaw trace stats` | Aggregate metrics across all traces |
 | `blueclaw --version` | Print version |
 | `blueclaw --model provider/model` | Override model for this session |
 
@@ -156,13 +160,13 @@ Terminal input → cli.py → session.py → Strands Agent → Tools → workspa
 
 | Module | Purpose | Lines |
 |---|---|---|
-| `cli.py` | Typer entrypoints, welcome banner, trace tooling | ~530 |
-| `session.py` | Config, model factory, agent, chat loop, background context updater | ~527 |
-| `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~183 |
+| `cli.py` | Typer entrypoints, welcome banner, trace tooling | ~714 |
+| `session.py` | Config, model factory, agent, chat loop, background context updater | ~537 |
+| `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~201 |
 | `observer.py` | Structured tool tracing + output truncation | ~151 |
-| `models.py` | Pydantic models, trace schema, cost calculation | ~100 |
-| `tools/` | Web, shell, MCP wiring (factory pattern) | ~163 |
-| `approval.py` | Shell command + domain allowlist hooks | ~67 |
+| `models.py` | Pydantic models, trace schema, cost calculation, error classification | ~124 |
+| `tools/` | Web, shell, MCP wiring (factory pattern) | ~155 |
+| `approval.py` | Shell command + domain allowlist hooks | ~51 |
 
 ## Workspace Structure
 

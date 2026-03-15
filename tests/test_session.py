@@ -658,9 +658,14 @@ class TestFormatTraceForExplanation:
 
         ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
         trace = RunTrace(
-            run_id="20260315-100000", goal="empty run",
-            start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
-            steps=[], total_tokens=100, status="success",
+            run_id="20260315-100000",
+            goal="empty run",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=100,
+            status="success",
         )
         result = format_trace_for_explanation(trace)
         assert "empty run" in result

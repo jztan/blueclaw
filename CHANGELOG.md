@@ -2,6 +2,18 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.0] - 2026-03-15
+
+### Added
+
+- `blueclaw trace timeline <run_id>` — waterfall timeline showing when each tool call started, duration, cumulative timing, and proportional bar chart with overhead breakdown
+- `blueclaw trace stats` — aggregate metrics across all traces: run count, step counts, avg tokens/cost, timing percentiles (median, p95), top tools by frequency, and step-level failure classification
+- `--since N` and `--model MODEL` filters for `trace stats`
+- `classify_error()` — heuristic error classifier (timeout, rate_limit, auth, not_found, schema, network, sandbox) for step-level failure aggregation
+- `since` parameter on `Workspace.list_traces()` for date-range filtering
+- Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible for per-step attribution)
+- 45 new tests for v1.2 features (310 total)
+
 ## [1.1.0] - 2026-03-15
 
 ### Added

@@ -478,7 +478,9 @@ def trace_diff(
         return f"+{v}" if v > 0 else str(v)
 
     console.print(f"Steps:  {len(a.steps)} \u2192 {len(b.steps)} ({sign(d_steps)})")
-    console.print(f"Tokens: {a.total_tokens} \u2192 {b.total_tokens} ({sign(d_tokens)})")
+    console.print(
+        f"Tokens: {a.total_tokens} \u2192 {b.total_tokens} ({sign(d_tokens)})"
+    )
     console.print(f"Cost:   {_cost(a)} \u2192 {_cost(b)}")
     console.print(f"Time:   {_dur(a)}ms \u2192 {_dur(b)}ms ({sign(d_dur)}ms)")
 
@@ -528,3 +530,185 @@ def trace_replay(
         f"\nTotal: {len(trace.steps)} steps \u00b7 {total_dur}ms "
         f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
     )
+
+
+@trace_app.command("timeline")
+def trace_timeline(
+    run_id: str = typer.Argument(..., help="Run ID to display"),
+) -> None:
+    """Show waterfall timeline of tool calls."""
+    from rich.table import Table
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    trace = workspace.read_trace(run_id)
+
+    if trace is None:
+        console.print(f"Trace not found: {run_id}")
+        raise typer.Exit(1)
+
+    cost = f"${trace.total_cost:.4f}" if trace.total_cost is not None else "n/a"
+    console.print(f"\n[bold]Goal:[/bold] {trace.goal}")
+    console.print(
+        f"[bold]Model:[/bold] {trace.model_id} \u00b7 "
+        f"{len(trace.steps)} steps \u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
+    )
+    console.print()
+
+    if not trace.steps:
+        console.print("No steps recorded.")
+        return
+
+    max_dur = max(s.duration_ms for s in trace.steps)
+    max_bar = 40
+
+    table = Table(show_edge=False, pad_edge=False)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Tool", min_width=15)
+    table.add_column("Start", justify="right", width=10)
+    table.add_column("Duration", justify="right", width=10)
+    table.add_column("Cumulative", justify="right", width=12)
+    table.add_column("Bar", min_width=10)
+
+    cumulative = 0
+    for step in trace.steps:
+        offset_ms = int((step.start_time - trace.start_time).total_seconds() * 1000)
+        cumulative += step.duration_ms
+        bar_len = int(step.duration_ms / max_dur * max_bar) if max_dur > 0 else 0
+        bar = "\u2588" * max(bar_len, 1)
+
+        table.add_row(
+            str(step.index),
+            step.tool_name,
+            f"+{offset_ms}ms",
+            f"{step.duration_ms}ms",
+            f"{cumulative}ms",
+            bar,
+        )
+
+    console.print(table)
+
+    wall_ms = int((trace.end_time - trace.start_time).total_seconds() * 1000)
+    tool_ms = sum(s.duration_ms for s in trace.steps)
+    overhead_ms = wall_ms - tool_ms
+    overhead_pct = (overhead_ms / wall_ms * 100) if wall_ms > 0 else 0
+    console.print(
+        f"\nTool time: {tool_ms}ms \u00b7 Wall time: {wall_ms}ms "
+        f"\u00b7 Overhead: {overhead_ms}ms ({overhead_pct:.0f}%)"
+    )
+
+
+@trace_app.command("stats")
+def trace_stats(
+    since: Optional[int] = typer.Option(
+        None, "--since", "-s", help="Only include traces from the last N days"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Filter by model ID"
+    ),
+) -> None:
+    """Show aggregate trace statistics."""
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+
+    from blueclaw.models import classify_error
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+
+    since_dt = None
+    if since is not None:
+        since_dt = datetime.now(timezone.utc) - timedelta(days=since)
+
+    traces = workspace.list_traces(limit=10_000, since=since_dt)
+
+    # Apply model filter
+    if model:
+        traces = [t for t in traces if t.model_id == model]
+
+    if not traces:
+        console.print("No traces yet.")
+        return
+
+    # --- Compute metrics ---
+    total_runs = len(traces)
+    all_steps = [s for t in traces for s in t.steps]
+    total_steps = len(all_steps)
+    failed_steps = [s for s in all_steps if s.status == "error"]
+
+    avg_steps = total_steps / total_runs
+    avg_tokens = sum(t.total_tokens for t in traces) / total_runs
+
+    costs = [t.total_cost for t in traces if t.total_cost is not None]
+    avg_cost = sum(costs) / len(costs) if costs else None
+    total_cost = sum(costs) if costs else None
+
+    # Timing
+    wall_times = []
+    tool_times = []
+    for t in traces:
+        wall_ms = int((t.end_time - t.start_time).total_seconds() * 1000)
+        tool_ms = sum(s.duration_ms for s in t.steps)
+        wall_times.append(wall_ms)
+        tool_times.append(tool_ms)
+
+    avg_wall = sum(wall_times) / total_runs
+    avg_tool = sum(tool_times) / total_runs
+
+    durations_sorted = sorted(wall_times)
+    median = durations_sorted[len(durations_sorted) // 2]
+    p95 = durations_sorted[int(len(durations_sorted) * 0.95)]
+
+    tool_pct = (avg_tool / avg_wall * 100) if avg_wall > 0 else 0
+
+    # Tool frequency
+    tool_counts = Counter(s.tool_name for s in all_steps)
+
+    # --- Display ---
+    header = f"Trace Stats \u00b7 {total_runs} runs"
+    if since is not None:
+        header += f" \u00b7 last {since} days"
+    console.print(f"\n[bold]{header}[/bold]\n")
+
+    # Overview
+    console.print("[bold]Overview[/bold]")
+    console.print(f"  Total runs:     {total_runs}")
+    console.print(f"  Total steps:    {total_steps}")
+    console.print(f"  Avg steps/run:  {avg_steps:.1f}")
+    console.print(f"  Avg tokens/run: {avg_tokens:,.0f}")
+    if avg_cost is not None:
+        console.print(f"  Avg cost/run:   ${avg_cost:.4f}")
+    if total_cost is not None:
+        console.print(f"  Total cost:     ${total_cost:.2f}")
+    console.print()
+
+    # Timing
+    console.print("[bold]Timing[/bold]")
+    console.print(f"  Avg duration:    {avg_wall / 1000:.1f}s")
+    console.print(f"  Median duration: {median / 1000:.1f}s")
+    console.print(f"  p95 duration:    {p95 / 1000:.1f}s")
+    console.print(
+        f"  Avg tool time:   {avg_tool / 1000:.1f}s ({tool_pct:.0f}% of wall)"
+    )
+    console.print()
+
+    # Top tools
+    console.print("[bold]Top Tools[/bold] (by frequency)")
+    for tool_name, count in tool_counts.most_common(10):
+        pct = count / total_steps * 100
+        console.print(f"  {tool_name:<20} {count} calls ({pct:.0f}%)")
+    console.print()
+
+    # Failed steps
+    if failed_steps:
+        failure_counts = Counter(classify_error(s.error) for s in failed_steps)
+        fail_rate = len(failed_steps) / total_steps * 100
+        runs_with_failures = len(
+            set(t.run_id for t in traces for s in t.steps if s.status == "error")
+        )
+        console.print(
+            f"[bold]Failed Steps[/bold] "
+            f"({len(failed_steps)} across {runs_with_failures} runs "
+            f"\u00b7 {fail_rate:.1f}% step failure rate)"
+        )
+        for category, count in failure_counts.most_common():
+            pct = count / len(failed_steps) * 100
+            console.print(f"  {category:<20} {count} ({pct:.0f}%)")

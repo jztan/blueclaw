@@ -66,6 +66,8 @@ class TraceStep(BaseModel):
     input_summary: dict = {}
     output_summary: str | None = None
     error: str | None = None
+    tokens: int | None = None  # v1.2
+    cost: float | None = None  # v1.2
 
 
 class RunTrace(BaseModel):
@@ -98,3 +100,25 @@ def calculate_cost(
         return None
     input_rate, output_rate = pricing
     return (input_tokens * input_rate + output_tokens * output_rate) / 1000
+
+
+FAILURE_PATTERNS: list[tuple[str, list[str]]] = [
+    ("timeout", ["timeout", "timed out", "deadline exceeded"]),
+    ("rate_limit", ["rate limit", "429", "too many requests", "throttl"]),
+    ("auth", ["401", "403", "unauthorized", "forbidden", "credential"]),
+    ("not_found", ["404", "not found", "no such", "does not exist"]),
+    ("schema", ["validation", "invalid", "schema", "type error"]),
+    ("network", ["connection", "dns", "unreachable", "refused"]),
+    ("sandbox", ["denied", "blocked", "not allowed", "workspace"]),
+]
+
+
+def classify_error(error: str | None) -> str:
+    """Classify an error message into a failure category."""
+    if not error:
+        return "unknown"
+    lower = error.lower()
+    for category, patterns in FAILURE_PATTERNS:
+        if any(p in lower for p in patterns):
+            return category
+    return "unknown"

@@ -97,7 +97,9 @@ def format_trace_for_explanation(trace) -> str:
     ]
     for step in trace.steps:
         status = f"error: {step.error}" if step.error else step.status
-        lines.append(f"Step {step.index}: {step.tool_name} ({step.duration_ms}ms) [{status}]")
+        lines.append(
+            f"Step {step.index}: {step.tool_name} ({step.duration_ms}ms) [{status}]"
+        )
         if step.input_summary:
             for k, v in step.input_summary.items():
                 lines.append(f"  input {k}: {v}")
@@ -373,9 +375,17 @@ def run_chat_loop(
 ) -> None:
     """Run the interactive chat loop."""
     exit_commands = {
-        "exit", "quit", "/exit", "/quit",
-        "eixt", "exti", "exiit", "ext", "exi",
-        "bye", "q",
+        "exit",
+        "quit",
+        "/exit",
+        "/quit",
+        "eixt",
+        "exti",
+        "exiit",
+        "ext",
+        "exi",
+        "bye",
+        "q",
     }
     session = PromptSession()
     turn_count = 0

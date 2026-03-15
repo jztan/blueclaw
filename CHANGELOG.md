@@ -2,6 +2,14 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.3] - 2026-03-15
+
+### Fixed
+
+- CI test failures for `TestBuildModel` (anthropic, litellm, openai) — `patch("strands.models.XModel")` triggered lazy `__getattr__` which imported real SDK packages not installed in CI. Replaced with `patch.dict` on module `__dict__` to bypass lazy imports
+- 7 flake8 E501 line-too-long violations in `session.py` system prompt strings
+- Logo not displaying on PyPI — relative image path replaced with absolute raw GitHub URL
+
 ## [1.2.2] - 2026-03-15
 
 ### Added

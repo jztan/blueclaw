@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="blueclaw-logo.PNG" alt="BlueClaw" width="400">
+  <img src="https://raw.githubusercontent.com/jztan/blueclaw/master/blueclaw-logo.PNG" alt="BlueClaw" width="400">
 </p>
 
 <p align="center">

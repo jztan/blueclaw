@@ -26,6 +26,9 @@ DENY_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bshutdown\b", re.IGNORECASE),
     re.compile(r":\(\)\s*\{", re.IGNORECASE),  # fork bomb
     re.compile(r"\bformat\s+\w:", re.IGNORECASE),
+    re.compile(r"\bsudo\b", re.IGNORECASE),  # privilege escalation
+    re.compile(r"\bcurl\b.*\|\s*(ba)?sh", re.IGNORECASE),  # curl | bash
+    re.compile(r"\bwget\b.*\|\s*(ba)?sh", re.IGNORECASE),  # wget | sh
 ]
 
 

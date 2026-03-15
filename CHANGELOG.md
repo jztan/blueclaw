@@ -14,13 +14,15 @@ All notable changes to blueclaw will be documented in this file.
 - Model-agnostic support: Anthropic, Ollama, OpenAI, LiteLLM via `--model` flag or `blueclaw.yaml`
 - API key validation for Anthropic and OpenAI providers
 - `.env` file support via python-dotenv
-- Workspace sandbox with path validation and destructive command deny-list
+- Workspace sandbox with path validation and destructive command deny-list (sudo, curl|bash, wget|sh)
+- Shell command execution via `shell_command` tool: sandboxed `subprocess.run()` with 30s timeout, workspace cwd, interactive approval prompt
+- `"github"` config auto-activates shell tool for `gh` CLI access
 - Structured execution tracing: per-run JSON traces in `.blueclaw/traces/`
 - `TraceStep` / `RunTrace` models with input/output summaries, timing, and error capture
 - `blueclaw trace list` — list recent execution traces
 - `blueclaw trace show <run_id>` — display detailed step table for a run
 - Tool output truncation (12k char limit, head+tail preservation)
-- Test coverage for trace models, workspace trace I/O, observer step accumulation, and CLI trace commands (44 new tests)
+- Test coverage for trace models, workspace trace I/O, observer step accumulation, CLI trace commands, shell tool, and approval hooks (238 tests total)
 - flake8 and black dev dependencies with `.flake8` config
 - Domain allowlist with conversational approval hooks
 - Persistent context: `CONTEXT.md` updated via LLM summarization on session exit

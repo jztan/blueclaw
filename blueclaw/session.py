@@ -199,9 +199,9 @@ def build_model(config: SessionConfig):
         raise ValueError(f"Unknown provider: {config.provider}")
 
 
-def load_tools(config: SessionConfig) -> list:
+def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> list:
     """Load tools based on config."""
-    return get_tools(config.tools, config)
+    return get_tools(config.tools, config, workspace=workspace)
 
 
 def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) -> str:
@@ -249,7 +249,7 @@ def create_agent(
     scripted: bool = False,
 ) -> Agent:
     """Construct and return a Strands Agent."""
-    tools = load_tools(config)
+    tools = load_tools(config, workspace=workspace)
     mcp_clients = get_mcp_servers(config)
     tools.extend(mcp_clients)
 
@@ -346,6 +346,9 @@ def print_run_summary(
 
     cost = calculate_cost(config.model_id, input_tokens, output_tokens)
     steps = len(observer.tools_called)
+
+    # Ensure summary starts on a new line after streamed response
+    console.print()
 
     # Build summary line
     parts = [f"Done \u00b7 {steps} steps \u00b7 {total_tokens} tokens"]

@@ -7,26 +7,38 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from blueclaw.models import SessionConfig
+from blueclaw.tools.shell import make_shell_command
 from blueclaw.tools.web import make_http_request, make_web_search
 
 TOOL_REGISTRY: dict[str, Callable] = {
-    "web": lambda config: [
+    "web": lambda config, workspace: [
         make_web_search(),
         make_http_request(config.allowlist_domains),
     ],
+    "shell": lambda config, workspace: [make_shell_command(workspace)],
 }
 
 
-def get_tools(names: list[str], config: SessionConfig) -> list[Callable]:
+def get_tools(
+    names: list[str], config: SessionConfig, workspace=None
+) -> list[Callable]:
     """Create configured tool instances based on names and config."""
     tools = []
+    shell_loaded = False
     for name in names:
         if name in TOOL_REGISTRY:
-            tools.extend(TOOL_REGISTRY[name](config))
+            tools.extend(TOOL_REGISTRY[name](config, workspace))
+            if name == "shell":
+                shell_loaded = True
+        elif name == "github":
+            # GitHub uses gh CLI via shell tool
+            if workspace and not shell_loaded:
+                tools.extend(TOOL_REGISTRY["shell"](config, workspace))
+                shell_loaded = True
         elif name.startswith("mcp:"):
             continue  # MCP tools handled separately
-        elif name in ("github", "pdf"):
-            continue  # Handled via shell (gh) or MCP server
+        elif name == "pdf":
+            continue  # Handled via MCP server
         else:
             raise ValueError(f"Unknown tool: {name}")
     return tools

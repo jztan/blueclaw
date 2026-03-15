@@ -7,7 +7,9 @@ import pytest
 
 from blueclaw.models import SessionConfig
 from blueclaw.tools import get_mcp_servers, get_tools
+from blueclaw.tools.shell import make_shell_command
 from blueclaw.tools.web import make_http_request, make_web_search
+from blueclaw.workspace import Workspace
 
 # --- web.py ---
 
@@ -94,3 +96,29 @@ class TestGetTools:
         servers = get_mcp_servers(config)
         assert isinstance(servers, list)
         assert len(servers) == 1
+
+    def test_get_tools_shell(self, tmp_path):
+        ws = Workspace(tmp_path)
+        config = SessionConfig(tools=["shell"])
+        tools = get_tools(["shell"], config, workspace=ws)
+        assert len(tools) == 1
+        assert callable(tools[0])
+
+    def test_get_tools_github_activates_shell(self, tmp_path):
+        ws = Workspace(tmp_path)
+        config = SessionConfig(tools=["github"])
+        tools = get_tools(["github"], config, workspace=ws)
+        assert len(tools) == 1
+        assert callable(tools[0])
+
+    def test_get_tools_github_no_duplicate_shell(self, tmp_path):
+        ws = Workspace(tmp_path)
+        config = SessionConfig(tools=["shell", "github"])
+        tools = get_tools(["shell", "github"], config, workspace=ws)
+        # shell_command should only appear once
+        assert len(tools) == 1
+
+    def test_get_tools_unknown_still_raises(self):
+        config = SessionConfig()
+        with pytest.raises(ValueError):
+            get_tools(["unknown"], config)

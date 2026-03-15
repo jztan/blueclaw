@@ -21,6 +21,7 @@ AnthropicModel = None
 OllamaModel = None
 LiteLLMModel = None
 
+from blueclaw.lessons import build_lessons_block
 from blueclaw.models import RunRecord, RunTrace, SessionConfig, calculate_cost
 from blueclaw.tools import get_tools, get_mcp_servers
 from blueclaw.workspace import Workspace
@@ -411,8 +412,19 @@ def run_chat_loop(
                 break
 
             turn_count += 1
+
+            # Inject trace lessons for this goal
+            prompt = stripped
+            try:
+                traces = workspace.list_traces(limit=50)
+                lessons = build_lessons_block(stripped, traces)
+                if lessons:
+                    prompt = f"{lessons}\n\n{stripped}"
+            except Exception:
+                pass
+
             start = time.time()
-            result = agent(stripped)
+            result = agent(prompt)
             elapsed = time.time() - start
             total_tool_calls += len(observer.tools_called)
 

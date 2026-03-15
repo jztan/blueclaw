@@ -1,8 +1,7 @@
 """Tests for ApprovalHooks."""
 
 from unittest.mock import MagicMock, patch
-from urllib.parse import urlparse
-import pytest
+
 from strands.hooks import BeforeToolCallEvent
 from blueclaw.models import SessionConfig
 from blueclaw.approval import ApprovalHooks

@@ -1,8 +1,6 @@
 """Integration tests — full pipeline without real LLM calls."""
 
-from datetime import datetime, timezone
 from io import StringIO
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,11 +8,10 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from blueclaw.cli import app
-from blueclaw.models import RunRecord, SessionConfig
+from blueclaw.models import SessionConfig
 from blueclaw.observer import ObserverHooks, truncate_tool_result
 from blueclaw.session import (
     build_system_prompt,
-    create_agent,
     load_config,
     print_run_summary,
 )
@@ -75,13 +72,11 @@ class TestInitThenRun:
             # Run with mocked model + agent
             with patch("blueclaw.cli.console", Console(file=StringIO())):
                 # Need to also patch the config path
-                import os
-
                 yaml_path = tmp_path / "blueclaw.yaml"
                 yaml_path.write_text(
                     "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\ntools: []\n"
                 )
-                with patch("blueclaw.session.Path") as mock_path_cls:
+                with patch("blueclaw.session.Path"):
                     # This is complex; let's test the pipeline more directly
                     pass
 

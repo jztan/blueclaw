@@ -1,9 +1,8 @@
 """Tests for blueclaw.session — config, model factory, agent, chat loop."""
 
 from io import StringIO
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml

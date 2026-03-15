@@ -16,9 +16,7 @@ from blueclaw.models import RunTrace, TraceStep
 TS = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _step(
-    tool="web_search", status="success", error=None, input_summary=None
-):
+def _step(tool="web_search", status="success", error=None, input_summary=None):
     return TraceStep(
         index=1,
         tool_name=tool,
@@ -173,13 +171,11 @@ class TestBuildLessonsBlock:
         ]
         # Make each tool fail twice so each generates a hint
         steps = steps + steps
-        traces = [
-            _trace(goal="oil price", steps=steps, status="error", cost=0.50)
-        ]
+        traces = [_trace(goal="oil price", steps=steps, status="error", cost=0.50)]
         block = build_lessons_block("oil price", traces)
         assert block is not None
         # Count bullet points
-        lesson_lines = [l for l in block.split("\n") if l.startswith("- ")]
+        lesson_lines = [line for line in block.split("\n") if line.startswith("- ")]
         assert len(lesson_lines) <= MAX_LESSONS
 
     def test_lessons_block_format(self):

@@ -356,3 +356,247 @@ class TestTraceCommands:
             result = runner.invoke(app, ["trace", "show", "20260315-101201"])
             assert "2847" in result.output
             assert "$0.0042" in result.output
+
+
+class TestTraceExplain:
+    def test_explain_command_exists(self):
+        result = runner.invoke(app, ["trace", "explain", "--help"])
+        assert result.exit_code == 0
+
+    def test_explain_not_found_exits_1(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "explain", "nonexistent"])
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    @patch("strands.Agent")
+    @patch("blueclaw.session.build_model")
+    @patch("blueclaw.session.load_config")
+    def test_explain_reads_trace_and_calls_agent(
+        self, mock_load_config, mock_build_model, mock_agent_cls, tmp_path
+    ):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, goal="research MCP")
+        mock_load_config.return_value = SessionConfig()
+        mock_build_model.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.return_value = MagicMock(message="explanation")
+        mock_agent_cls.return_value = mock_agent_instance
+
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "explain", "20260315-101201"])
+
+        mock_agent_cls.assert_called_once()
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert call_kwargs["tools"] == []
+        assert "callback_handler" not in call_kwargs
+        # Agent should be called with prompt containing the goal
+        prompt = mock_agent_instance.call_args[0][0]
+        assert "research MCP" in prompt
+
+    @patch("strands.Agent")
+    @patch("blueclaw.session.build_model")
+    @patch("blueclaw.session.load_config")
+    def test_explain_prints_post_hoc_disclaimer(
+        self, mock_load_config, mock_build_model, mock_agent_cls, tmp_path
+    ):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        mock_load_config.return_value = SessionConfig()
+        mock_build_model.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.return_value = MagicMock(message="explanation")
+        mock_agent_cls.return_value = mock_agent_instance
+
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "explain", "20260315-101201"])
+        assert "post-hoc" in result.output.lower()
+
+    @patch("strands.Agent")
+    @patch("blueclaw.session.build_model")
+    @patch("blueclaw.session.load_config")
+    def test_explain_loads_config_for_model(
+        self, mock_load_config, mock_build_model, mock_agent_cls, tmp_path
+    ):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        mock_load_config.return_value = SessionConfig()
+        mock_build_model.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_instance.return_value = MagicMock(message="explanation")
+        mock_agent_cls.return_value = mock_agent_instance
+
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            runner.invoke(app, ["trace", "explain", "20260315-101201"])
+        mock_load_config.assert_called_once()
+        mock_build_model.assert_called_once()
+
+
+class TestTraceGraph:
+    def test_graph_command_exists(self):
+        result = runner.invoke(app, ["trace", "graph", "--help"])
+        assert result.exit_code == 0
+
+    def test_graph_not_found_exits_1(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "nonexistent"])
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_graph_shows_goal_as_root(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, goal="research MCP")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "20260315-101201"])
+            assert result.exit_code == 0
+            assert "research MCP" in result.output
+
+    def test_graph_shows_tool_names(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "20260315-101201"])
+            assert "web_search" in result.output
+
+    def test_graph_shows_duration(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "20260315-101201"])
+            assert "842ms" in result.output
+
+    def test_graph_shows_status_indicators(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "20260315-101201"])
+            # success step should have check mark
+            assert "\u2713" in result.output
+
+    def test_graph_shows_input_summary(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "graph", "20260315-101201"])
+            assert "query" in result.output
+
+
+class TestTraceDiff:
+    def test_diff_command_exists(self):
+        result = runner.invoke(app, ["trace", "diff", "--help"])
+        assert result.exit_code == 0
+
+    def test_diff_first_not_found_exits_1(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "diff", "bad1", "bad2"])
+            assert result.exit_code == 1
+
+    def test_diff_second_not_found_exits_1(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, run_id="20260315-101201")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "diff", "20260315-101201", "nonexistent"]
+            )
+            assert result.exit_code == 1
+
+    def test_diff_shows_both_run_ids(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, run_id="20260315-101201", goal="first")
+        _write_test_trace(ws_path, run_id="20260315-143022", goal="second")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "diff", "20260315-101201", "20260315-143022"]
+            )
+            assert result.exit_code == 0
+            assert "20260315-101201" in result.output
+            assert "20260315-143022" in result.output
+
+    def test_diff_shows_both_goals(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, run_id="20260315-101201", goal="research MCP")
+        _write_test_trace(ws_path, run_id="20260315-143022", goal="research FastAPI")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "diff", "20260315-101201", "20260315-143022"]
+            )
+            assert "research MCP" in result.output
+            assert "research FastAPI" in result.output
+
+    def test_diff_shows_token_comparison(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, run_id="20260315-101201")
+        _write_test_trace(ws_path, run_id="20260315-143022")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "diff", "20260315-101201", "20260315-143022"]
+            )
+            # Both traces have 2847 tokens
+            assert "2847" in result.output
+
+
+class TestTraceReplay:
+    def test_replay_command_exists(self):
+        result = runner.invoke(app, ["trace", "replay", "--help"])
+        assert result.exit_code == 0
+
+    def test_replay_not_found_exits_1(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "replay", "nonexistent"])
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_replay_shows_header(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path, goal="research MCP")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "replay", "20260315-101201"], input="\n\n"
+            )
+            assert "research MCP" in result.output
+
+    def test_replay_shows_each_step(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "replay", "20260315-101201"], input="\n\n"
+            )
+            assert "web_search" in result.output
+
+    def test_replay_shows_step_details(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "replay", "20260315-101201"], input="\n\n"
+            )
+            assert "842ms" in result.output
+            assert "query" in result.output
+
+    def test_replay_quit_early(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "replay", "20260315-101201"], input="q\n"
+            )
+            # Should not show the step details after quit
+            assert result.exit_code == 0
+
+    def test_replay_shows_final_summary(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(
+                app, ["trace", "replay", "20260315-101201"], input="\n\n"
+            )
+            assert "2847" in result.output

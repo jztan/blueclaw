@@ -16,6 +16,7 @@ from blueclaw.session import (
     cleanup_mcp_clients,
     create_agent,
     extract_text,
+    format_trace_for_explanation,
     is_capability_refusal,
     load_config,
     load_tools,
@@ -615,3 +616,52 @@ class TestContextCheckpoint:
         text = ws.read_last_turn_checkpoint()
         assert "assistant output" in text
         assert "system-reminder" not in text
+
+
+# --- format_trace_for_explanation ---
+
+
+class TestFormatTraceForExplanation:
+    def test_includes_goal_in_output(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "research MCP Python SDKs" in result
+
+    def test_includes_step_tool_names(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "web_search" in result
+        assert "http_request" in result
+
+    def test_includes_step_inputs(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "query" in result
+        assert "test search" in result
+
+    def test_includes_step_outputs(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "Found 10 results" in result
+
+    def test_includes_step_errors(self, error_trace):
+        result = format_trace_for_explanation(error_trace)
+        assert "ConnectionTimeout" in result
+
+    def test_includes_timing(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "842ms" in result
+
+    def test_includes_model_id(self, sample_trace):
+        result = format_trace_for_explanation(sample_trace)
+        assert "claude-sonnet-4-6" in result
+
+    def test_empty_steps(self):
+        from datetime import datetime, timezone
+        from blueclaw.models import RunTrace
+
+        ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        trace = RunTrace(
+            run_id="20260315-100000", goal="empty run",
+            start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
+            steps=[], total_tokens=100, status="success",
+        )
+        result = format_trace_for_explanation(trace)
+        assert "empty run" in result
+        assert "claude-sonnet-4-6" in result

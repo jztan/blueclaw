@@ -56,7 +56,7 @@ blueclaw run "summarize the latest Python 3.13 release notes"
 - **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
 - **Shell execution** — sandboxed `shell_command` tool with deny-list, 30s timeout, and interactive approval
 - **Workspace sandbox** — path validation + destructive command deny-list
-- **Execution tracing** — structured JSON traces with per-step timing, input/output summaries, and CLI viewer
+- **Execution tracing** — structured JSON traces with per-step timing, input/output summaries, CLI viewer, LLM-powered explanation, graph view, diff, and interactive replay
 - **Output truncation** — 12k char limit prevents context blowout
 - **Approval hooks** — interactive confirmation for shell commands and new web domains
 - **Crash recovery** — per-turn checkpoints in `.blueclaw/last_turn.md`
@@ -96,6 +96,10 @@ OPENAI_API_KEY=sk-...
 | `blueclaw history` | View past run history |
 | `blueclaw trace list` | List recent execution traces |
 | `blueclaw trace show <run_id>` | Show detailed trace for a run |
+| `blueclaw trace explain <run_id>` | LLM-powered explanation of a recorded trace |
+| `blueclaw trace graph <run_id>` | Tree view of tool call sequence |
+| `blueclaw trace diff <id1> <id2>` | Compare two traces side by side |
+| `blueclaw trace replay <run_id>` | Step through a trace interactively |
 | `blueclaw --version` | Print version |
 | `blueclaw --model provider/model` | Override model for this session |
 
@@ -130,8 +134,8 @@ Terminal input → cli.py → session.py → Strands Agent → Tools → workspa
 
 | Module | Purpose | Lines |
 |---|---|---|
-| `cli.py` | Typer entrypoints, welcome banner, trace viewer | ~377 |
-| `session.py` | Config, model factory, agent, chat loop, background context updater | ~506 |
+| `cli.py` | Typer entrypoints, welcome banner, trace tooling | ~530 |
+| `session.py` | Config, model factory, agent, chat loop, background context updater | ~527 |
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~183 |
 | `observer.py` | Structured tool tracing + output truncation | ~151 |
 | `models.py` | Pydantic models, trace schema, cost calculation | ~100 |

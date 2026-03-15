@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from blueclaw.models import RunTrace, TraceStep
+
 
 @pytest.fixture
 def tmp_workspace(tmp_path):
@@ -99,3 +101,52 @@ def mock_after_event():
     event.exception = None
     event.invocation_state = {}
     return event
+
+
+@pytest.fixture
+def sample_trace():
+    """A RunTrace with 2 steps for testing trace commands."""
+    ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+    steps = [
+        TraceStep(
+            index=1, tool_name="web_search", status="success",
+            start_time=ts, end_time=ts, duration_ms=842,
+            input_summary={"query": "test search"},
+            output_summary="Found 10 results...",
+        ),
+        TraceStep(
+            index=2, tool_name="http_request", status="success",
+            start_time=ts, end_time=ts, duration_ms=1203,
+            input_summary={"url": "https://example.com/page"},
+            output_summary="Page content retrieved...",
+        ),
+    ]
+    return RunTrace(
+        run_id="20260315-101201", goal="research MCP Python SDKs",
+        start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
+        steps=steps, total_tokens=1840, total_cost=0.0073, status="success",
+    )
+
+
+@pytest.fixture
+def error_trace():
+    """A RunTrace with a failing step."""
+    ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+    steps = [
+        TraceStep(
+            index=1, tool_name="web_search", status="success",
+            start_time=ts, end_time=ts, duration_ms=842,
+            input_summary={"query": "test"},
+        ),
+        TraceStep(
+            index=2, tool_name="http_request", status="error",
+            start_time=ts, end_time=ts, duration_ms=3012,
+            input_summary={"url": "https://broken.example.com"},
+            error="ConnectionTimeout: server did not respond",
+        ),
+    ]
+    return RunTrace(
+        run_id="20260315-110000", goal="fetch broken page",
+        start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
+        steps=steps, total_tokens=500, total_cost=0.002, status="error",
+    )

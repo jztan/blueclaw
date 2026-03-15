@@ -14,12 +14,15 @@ def make_web_search():
     @tool
     def web_search(query: str) -> str:
         """Search the web for a query and return results."""
-        # Placeholder — real implementation (DuckDuckGo) coming later.
-        return (
-            "Web search is not available yet. "
-            "Answer from your own knowledge or tell the user "
-            "you cannot look this up right now."
-        )
+        from ddgs import DDGS
+
+        results = DDGS().text(query, max_results=5)
+        if not results:
+            return "No results found."
+        lines = []
+        for r in results:
+            lines.append(f"**{r['title']}**\n{r['href']}\n{r['body']}\n")
+        return "\n".join(lines)
 
     return web_search
 

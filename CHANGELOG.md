@@ -15,11 +15,8 @@ All notable changes to blueclaw will be documented in this file.
 - Current date injected into system prompt so the agent knows "today" without relying on training cutoff
 - Esc Esc interrupt — press Escape twice during agent execution to stop the current turn at the next tool boundary. Non-blocking cbreak stdin polling in `before_tool` hook with escape-sequence disambiguation (50ms peek)
 - Trace Lessons — before each turn, scans past traces for similar goals with failures/cost spikes, injects up to 3 short behavioral hints into the prompt. Reduced repeat oil-price query from 6 tool calls/$0.11 to 1 call/$0.03. Jaccard keyword similarity with minimal stemming, capped at 50 recent traces
-- 72 new tests for v1.2 features (337 total)
-
-### Fixed
-
-- `web_search` placeholder returned fake `"Search results for: {query}"` string, causing the model to spiral into 20+ `http_request` retries. Now returns an honest "not available" message
+- DuckDuckGo web search via `ddgs` — replaces placeholder with live search returning top 5 results (title, URL, snippet). Lazy import, no try/except (errors propagate to observer)
+- 78 new tests for v1.2 features (343 total)
 
 ## [1.1.0] - 2026-03-15
 

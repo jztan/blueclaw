@@ -190,6 +190,7 @@ $ blueclaw trace stats --model claude-sonnet-4-6 --since 30
 
 - **Execution tracing** — structured JSON traces with full observability tooling (see above)
 - **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
+- **Web search** — DuckDuckGo search via `ddgs`, returns top 5 results with titles, URLs, and snippets
 - **Persistent memory** — `CONTEXT.md` updates in the background after each turn (instant exit), `history.jsonl` logs every run
 - **Interactive + scripted modes** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
 - **Shell execution** — sandboxed `shell_command` tool with deny-list, 30s timeout, and interactive approval

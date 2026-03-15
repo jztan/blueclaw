@@ -76,9 +76,11 @@ Most AI agents are black boxes — when something goes wrong, you don't know if 
 | Current date in system prompt | `session.py` | ✅ | `build_system_prompt()` includes UTC date so the agent knows "today" without relying on training cutoff |
 | Esc Esc user interrupt | `observer.py` | ✅ | Double-Esc stops agent at next tool boundary via `cancel_tool` + `stop_event_loop`. Non-blocking cbreak stdin polling with escape-sequence disambiguation |
 | Honest `web_search` placeholder | `tools/web.py` | ✅ | Returns "not available" instead of fake results — prevents runaway `http_request` retry loops |
+| Trace Lessons | `lessons.py` (new), `session.py` | ✅ | Before each turn, scan last 50 traces for similar failed goals, inject up to 3 behavioral hints. Jaccard keyword similarity with minimal stemming. Reduced repeat oil-price query from 6 calls/$0.11 to 1 call/$0.03 |
+| DuckDuckGo web search | `tools/web.py` | ⬚ | Replace placeholder with `duckduckgo-search` package. Return top 5 results (title, URL, snippet) |
 
-**Actual lines:** 2,035
-**Test coverage:** 316 tests (+51 for v1.2 analytics + interrupt)
+**Actual lines:** 2,199
+**Test coverage:** 337 tests (+72 for v1.2 analytics + interrupt + lessons)
 
 ---
 

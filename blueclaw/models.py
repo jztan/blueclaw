@@ -17,7 +17,7 @@ class SessionConfig(BaseModel):
     max_tokens: int = 4096
     workspace_path: Path = Path.home() / "blueclaw" / "workspace"
     allowlist_domains: list[str] = []
-    tools: list[str] = ["web", "github", "pdf"]
+    tools: list[str] = ["web", "shell", "pdf"]
 
 
 class RunRecord(BaseModel):

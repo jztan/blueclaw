@@ -24,17 +24,9 @@ def get_tools(
 ) -> list[Callable]:
     """Create configured tool instances based on names and config."""
     tools = []
-    shell_loaded = False
     for name in names:
         if name in TOOL_REGISTRY:
             tools.extend(TOOL_REGISTRY[name](config, workspace))
-            if name == "shell":
-                shell_loaded = True
-        elif name == "github":
-            # GitHub uses gh CLI via shell tool
-            if workspace and not shell_loaded:
-                tools.extend(TOOL_REGISTRY["shell"](config, workspace))
-                shell_loaded = True
         elif name.startswith("mcp:"):
             continue  # MCP tools handled separately
         elif name == "pdf":

@@ -27,7 +27,7 @@ class TestSessionConfigDefaults:
         assert cfg.max_tokens == 4096
         assert cfg.workspace_path == Path.home() / "blueclaw" / "workspace"
         assert cfg.allowlist_domains == []
-        assert cfg.tools == ["web", "github", "pdf"]
+        assert cfg.tools == ["web", "shell", "pdf"]
 
     def test_session_config_ollama(self):
         cfg = SessionConfig(provider="ollama", model_id="llama3")
@@ -40,8 +40,8 @@ class TestSessionConfigDefaults:
         assert cfg.model_id == "gemini/gemini-2.0-flash"
 
     def test_session_config_with_tools(self):
-        cfg = SessionConfig(tools=["web", "github", "pdf"])
-        assert cfg.tools == ["web", "github", "pdf"]
+        cfg = SessionConfig(tools=["web", "shell", "pdf"])
+        assert cfg.tools == ["web", "shell", "pdf"]
 
     def test_session_config_with_mcp(self):
         cfg = SessionConfig(tools=["web", "mcp:http://localhost:8080/sse"])

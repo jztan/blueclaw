@@ -272,7 +272,7 @@ def init() -> None:
     if not config_path.exists():
         config_path.write_text(
             "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n\n"
-            "tools:\n  - web\n  - github\n  - pdf\n\nallowlist_domains: []\n"
+            "tools:\n  - web\n  - shell\n  - pdf\n\nallowlist_domains: []\n"
         )
 
     console.print(f"Workspace initialized at {workspace.root}")

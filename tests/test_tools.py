@@ -1,13 +1,11 @@
 """Tests for blueclaw.tools — web tools, factory pattern, tool loading."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from blueclaw.models import SessionConfig
 from blueclaw.tools import get_mcp_servers, get_tools
-from blueclaw.tools.shell import make_shell_command
 from blueclaw.tools.web import make_http_request, make_web_search
 from blueclaw.workspace import Workspace
 

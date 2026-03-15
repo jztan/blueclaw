@@ -1,12 +1,8 @@
 """Tests for blueclaw shell_command tool."""
 
-from io import StringIO
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import pytest
-
-from blueclaw.tools.shell import TIMEOUT_SECONDS, make_shell_command
+from blueclaw.tools.shell import make_shell_command
 from blueclaw.workspace import Workspace
 
 

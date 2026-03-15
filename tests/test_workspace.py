@@ -1,6 +1,5 @@
 """Tests for blueclaw.workspace — sandbox enforcement, context/history ops."""
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +14,7 @@ from blueclaw.workspace import Workspace, WorkspaceError
 class TestWorkspaceInit:
     def test_workspace_init_creates_dirs(self, tmp_path):
         ws_path = tmp_path / "ws"
-        ws = Workspace(ws_path)
+        Workspace(ws_path)
         assert ws_path.exists()
         assert (ws_path / ".blueclaw").exists()
 

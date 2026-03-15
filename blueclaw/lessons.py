@@ -20,9 +20,31 @@ def _stem(word: str) -> str:
 
 
 _STOPWORDS = {
-    "a", "an", "the", "is", "to", "for", "of", "in", "on",
-    "and", "how", "what", "do", "does", "can", "my", "me",
-    "it", "this", "that", "be", "are", "was", "were", "about",
+    "a",
+    "an",
+    "the",
+    "is",
+    "to",
+    "for",
+    "of",
+    "in",
+    "on",
+    "and",
+    "how",
+    "what",
+    "do",
+    "does",
+    "can",
+    "my",
+    "me",
+    "it",
+    "this",
+    "that",
+    "be",
+    "are",
+    "was",
+    "were",
+    "about",
 }
 
 
@@ -68,9 +90,7 @@ def _extract_hints(trace: RunTrace) -> list[str]:
         if step.error:
             cat = classify_error(step.error)
             detail = step.error[:80]
-            error_cats.setdefault(cat, []).append(
-                f"{step.tool_name}: {detail}"
-            )
+            error_cats.setdefault(cat, []).append(f"{step.tool_name}: {detail}")
 
     # Repeated tool failures
     tool_errors: dict[str, int] = {}
@@ -104,16 +124,12 @@ def _extract_hints(trace: RunTrace) -> list[str]:
             f"similar goal used {len(trace.steps)} steps — prefer fewer tool calls"
         )
     if (trace.total_cost or 0) >= COST_SPIKE_THRESHOLD:
-        hints.append(
-            f"similar goal cost ${trace.total_cost:.2f} — be concise"
-        )
+        hints.append(f"similar goal cost ${trace.total_cost:.2f} — be concise")
 
     return hints
 
 
-def build_lessons_block(
-    goal: str, traces: list[RunTrace]
-) -> str | None:
+def build_lessons_block(goal: str, traces: list[RunTrace]) -> str | None:
     """Build a lessons block for the system prompt. Returns None if no lessons."""
     # Filter to recent problematic traces with similar goals
     candidates: list[tuple[float, RunTrace]] = []

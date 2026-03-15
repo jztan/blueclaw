@@ -5,7 +5,6 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -34,7 +33,7 @@ class TestCommands:
 
     @patch("blueclaw.cli.run_session")
     def test_main_model_flag(self, mock_run):
-        result = runner.invoke(app, ["--model", "ollama/llama3"], input="exit\n")
+        runner.invoke(app, ["--model", "ollama/llama3"], input="exit\n")
         if mock_run.called:
             call_kwargs = mock_run.call_args
             assert "ollama/llama3" in str(call_kwargs)
@@ -381,7 +380,7 @@ class TestTraceExplain:
         mock_agent_cls.return_value = mock_agent_instance
 
         with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
-            result = runner.invoke(app, ["trace", "explain", "20260315-101201"])
+            runner.invoke(app, ["trace", "explain", "20260315-101201"])
 
         mock_agent_cls.assert_called_once()
         call_kwargs = mock_agent_cls.call_args.kwargs
@@ -1026,7 +1025,7 @@ class TestStreamingCallbackWiring:
             "blueclaw.cli.Path",
             side_effect=lambda p: yaml_path if p == "blueclaw.yaml" else Path(p),
         ):
-            result = runner.invoke(app, ["run", "hello"])
+            runner.invoke(app, ["run", "hello"])
         assert mock_create_agent.called
         call_kwargs = mock_create_agent.call_args
         assert "console" in call_kwargs.kwargs

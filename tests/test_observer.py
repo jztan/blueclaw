@@ -4,7 +4,6 @@ import time
 from io import StringIO
 from unittest.mock import Mock
 
-import pytest
 from rich.console import Console
 
 from blueclaw.observer import (

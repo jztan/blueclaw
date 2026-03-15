@@ -52,7 +52,7 @@ blueclaw run "summarize the latest Python 3.13 release notes"
 ## Features
 
 - **Interactive + scripted modes** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
-- **Persistent memory** — `CONTEXT.md` carries facts across sessions, `history.jsonl` logs every run
+- **Persistent memory** — `CONTEXT.md` updates in the background after each turn (instant exit), `history.jsonl` logs every run
 - **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
 - **Shell execution** — sandboxed `shell_command` tool with deny-list, 30s timeout, and interactive approval
 - **Workspace sandbox** — path validation + destructive command deny-list
@@ -131,7 +131,7 @@ Terminal input → cli.py → session.py → Strands Agent → Tools → workspa
 | Module | Purpose | Lines |
 |---|---|---|
 | `cli.py` | Typer entrypoints, welcome banner, trace viewer | ~377 |
-| `session.py` | Config, model factory, agent, chat loop | ~420 |
+| `session.py` | Config, model factory, agent, chat loop, background context updater | ~506 |
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~183 |
 | `observer.py` | Structured tool tracing + output truncation | ~151 |
 | `models.py` | Pydantic models, trace schema, cost calculation | ~100 |

@@ -2,6 +2,14 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.2.1] - 2026-03-15
+
+### Fixed
+
+- Agent responses used emojis, bold markdown, tables, and verbose motivational filler — added strict tone rules to system prompt: no emojis (even if context contains them), no markdown formatting (terminal doesn't render it), plain short sentences only
+- Agent recommended unavailable movies from stale context without searching — context flagged as unverified memory; time-sensitive queries now require web_search
+- Exit summarizer stored transient data (recommendations, weather, prices, news) in CONTEXT.md causing stale answers — updated both summarizer prompts to exclude time-sensitive data and keep only durable facts
+
 ## [1.2.0] - 2026-03-15
 
 ### Added

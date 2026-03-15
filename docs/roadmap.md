@@ -1,14 +1,22 @@
 # blueclaw Roadmap
 
-> Milestones from v1 (terminal agent) → v1.1 (trace tooling) → v1.2 (webhook gateway) → v2 (multi-channel system).
+> Observable agent runtime → trace analytics → agent testing → production observability → API gateway → multi-channel runtime.
 > Derived from [design.md](design.md). Each milestone ships independently.
-> **Current:** v1.1 complete. v1.2 next.
+> **Current:** v1.2 complete. v1.3 next.
 
 ---
 
-## v1 — Terminal Agent (Foundation)
+## Trace Philosophy
 
-**Goal:** A working interactive terminal agent powered by Strands SDK. Small enough to read in one sitting.
+Agents should be observable. Every run should be inspectable. Every tool call should be traceable. Every failure should be explainable.
+
+Most AI agents are black boxes — when something goes wrong, you don't know if it was the model reasoning, the tool input, the tool output, or a bad retry. BlueClaw treats agents like debuggable programs: structured traces capture every step, and CLI tools let you explain, replay, diff, and analyze what happened after the fact.
+
+---
+
+## v1 — Observable Agent Runtime (Foundation)
+
+**Goal:** A working interactive terminal agent with built-in structured execution tracing. Small enough to read in one sitting.
 
 | Deliverable | File(s) | Notes |
 |---|---|---|
@@ -38,9 +46,9 @@
 
 ---
 
-## v1.1 — Trace Tooling
+## v1.1 — Trace Analysis Tools
 
-**Goal:** Make BlueClaw runs debuggable after the fact. Extend the structured trace infrastructure with CLI tools for explanation, comparison, and visualization.
+**Goal:** Make BlueClaw runs debuggable after the fact. CLI tools for explanation, comparison, and visualization.
 
 | Deliverable | File(s) | Status | Notes |
 |---|---|---|---|
@@ -54,91 +62,115 @@
 
 ---
 
-## v1.2 — Webhook API (Channel Gateway)
+## v1.2 — Trace Analytics & Stats
 
-**Goal:** A single FastAPI endpoint that accepts messages and returns responses. Unlocks messaging channels without building a channel registry, message queue, or database.
+**Goal:** Aggregate trace data into actionable metrics. Answer "how is my agent performing?" without reading individual traces.
 
-### v1.2.0 — Stateless Webhook
+| Deliverable | File(s) | Status | Notes |
+|---|---|---|---|
+| `blueclaw trace timeline <run_id>` | `cli.py` | ✅ | Waterfall timeline with per-step start offset, duration, cumulative timing, proportional bar chart, and overhead breakdown |
+| `blueclaw trace stats` | `cli.py`, `workspace.py` | ✅ | Aggregate stats: run count, avg latency, timing percentiles (median/p95), most-used tools, avg tokens/cost per run. `--since N` and `--model` filters |
+| Failure classification | `cli.py`, `models.py` | ✅ | `classify_error()` groups step-level failures by type: timeout, rate_limit, auth, not_found, schema, network, sandbox. Surfaced in `trace stats` output |
+| Token/cost breakdown per step | `models.py` | ✅ | Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible — populated when per-tool metrics become available from Strands SDK) |
+| Date-range filtering | `workspace.py` | ✅ | `since` parameter on `Workspace.list_traces()` for date-range trace queries |
+| Current date in system prompt | `session.py` | ✅ | `build_system_prompt()` includes UTC date so the agent knows "today" without relying on training cutoff |
+
+**Actual lines:** 1,935
+**Test coverage:** 311 tests (+46 for v1.2 analytics)
+
+---
+
+## v1.3 — Agent Regression Testing
+
+**Goal:** Define expected agent behavior in YAML and validate it automatically. CI for agents.
+
+| Deliverable | File(s) | Status | Notes |
+|---|---|---|---|
+| `blueclaw test <spec.yaml>` | `cli.py`, `testing.py` (new) | ⬚ | Run goals from YAML spec, assert expected tools were called, check pass/fail |
+| Test spec format | — | ⬚ | YAML with `goal`, `expected_tools`, optional `expected_output_contains`, `max_steps`, `max_cost` |
+| JUnit/TAP output | `testing.py` | ⬚ | Machine-readable test results for CI integration |
+| `blueclaw test --dry-run` | `cli.py` | ⬚ | Validate spec without running agents |
+| `blueclaw trace replay --stub-tools` | `cli.py` | ⬚ | Re-run model reasoning with recorded tool outputs — debug prompt/reasoning changes without network or API calls |
+
+**Example spec:**
+```yaml
+tests:
+  - goal: summarize webpage
+    expected_tools: [fetch_url, summarize]
+    max_cost: 0.05
+
+  - goal: create a file called hello.txt
+    expected_tools: [shell_command]
+    expected_output_contains: hello.txt
+```
+
+**Estimated lines:** ~1,950
+**New file:** `testing.py` (~120 lines)
+
+---
+
+## v2 — Production Observability
+
+**Goal:** Move trace storage beyond local JSON files. Production-grade persistence and optional visualization. This strengthens the core identity before adding API plumbing.
+
+### v2.0 — Trace Storage Backend
+
+| Deliverable | File(s) | Status | Notes |
+|---|---|---|---|
+| SQLite trace store | `trace_store.py` (new) | ⬚ | Replace/augment JSON files with SQLite for querying, aggregation, retention |
+| `blueclaw trace query` | `cli.py` | ⬚ | SQL-like filtering: `--tool web_search --status error --since 7d` |
+| Trace retention policy | `trace_store.py` | ⬚ | Auto-prune traces older than N days, configurable |
+| OpenTelemetry export (optional) | `trace_store.py` | ⬚ | Export traces as OTel spans for Jaeger/Datadog/Grafana integration |
+
+### v2.1 — Trace UI (Optional)
+
+| Deliverable | File(s) | Status | Notes |
+|---|---|---|---|
+| `blueclaw trace serve` | `trace_ui.py` (new) | ⬚ | Local web UI for trace visualization — call graph, timeline, cost breakdown |
+| Trace timeline visualization | `trace_ui.py` | ⬚ | Waterfall chart of tool calls with timing bars |
+
+---
+
+## v3 — Agent API Gateway
+
+**Goal:** A single API endpoint so other systems can talk to BlueClaw. Lightweight — not a full messaging platform.
+
+### v3.0 — Stateless Webhook
 
 | Deliverable | File(s) | Status | Notes |
 |---|---|---|---|
 | `POST /message` endpoint + `GET /health` | `server.py` (new, ~100 lines) | ⬚ | Reuses same `session.py` Agent as terminal mode |
 | `blueclaw serve` command | `cli.py` (+10 lines) | ⬚ | Starts uvicorn on localhost:8420 |
 | Quiet observer mode for webhook | `observer.py` (+10 lines) | ⬚ | Suppress Rich console output in API mode |
-| `ServerConfig`, `MessageRequest`, `MessageResponse` models | `models.py` (+15 lines) | ⬚ | Forward-compatible API contract (channel, conversation_id, sender fields logged but not routed) |
+| `ServerConfig`, `MessageRequest`, `MessageResponse` models | `models.py` (+15 lines) | ⬚ | Forward-compatible API contract |
 
 **Core files:** 7 (+server.py)
-**Estimated lines:** ~1,600
 **New dependencies:** fastapi, uvicorn (optional)
 
-### v1.2.1 — Stateful Conversations
+### v3.1 — Stateful Conversations
 
 | Deliverable | File(s) | Status | Notes |
 |---|---|---|---|
 | Per-conversation persistence via Strands `FileSessionManager` | `server.py`, `session.py` | ⬚ | `build_webhook_agent(conversation_id, session_manager)` helper |
 | `conversation_id` tracking | `server.py` | ⬚ | Missing ID → random one-shot ID (preserves stateless behavior) |
 
-### Channel Adapters (Skills, Not Core)
+---
 
-Channel adapters are skills that translate platform webhooks to `POST /message`:
+## v4 — Multi-Channel Runtime
 
-- `/add-slack` — Slack webhook adapter ⬚
-- `/add-discord` — Discord bot adapter ⬚
-- `/add-telegram` — Telegram bot adapter ⬚
+**Goal:** Production multi-channel agent. Lower priority than observability — many frameworks already do this.
 
-The core never imports platform SDKs. Adapters are thin translators.
-
-⚠️ *[Architectural note: In v1.2, adapter skills are run-once transformers (generate code). In v2, adapters must persistently register with `ChannelRegistry` — the transition from "skill that generates code" to "loaded module that registers at startup" needs clarification in the design. The design.md shows adapters importing and registering at module load time, which is a different pattern than skill-based code generation.]*
+| Deliverable | File(s) | Status | Notes |
+|---|---|---|---|
+| Channel adapters as skills | skills/ | ⬚ | Slack, Discord, Telegram — thin translators to `POST /message` |
+| `ChannelAdapter` protocol + `ChannelRegistry` | `channels.py` (new) | ⬚ | Protocol-based, no base class inheritance |
+| Conversation routing + sender auth | `server.py` | ⬚ | SQLite-backed conversation persistence |
+| Docker sandbox (optional) | `workspace.py` | ⬚ | `sandbox: docker` config, volume mount, resource caps |
+| `blueclaw serve --install` | `cli.py` | ⬚ | Generate launchd/systemd service config |
 
 ---
 
-## v2 — Full Multi-Channel System
-
-**Goal:** Production-grade multi-channel agent with conversation routing, sender auth, concurrent conversations, typing indicators, and optional Docker sandbox.
-
-### v2-alpha — Persistence + Concurrency
-
-| Deliverable | File(s) | Status | Notes |
-|---|---|---|---|
-| SQLite message persistence (conversations, messages, allowed_senders) | `db.py` (new, ~150 lines) | ⬚ | Python stdlib `sqlite3`, zero new deps |
-| Conversation queue with per-conversation serialization | `queue.py` (new, ~80 lines) | ⬚ | `max_concurrent` config (default: 5) |
-| Database sink for observer | `observer.py` (+24 lines) | ⬚ | `DatabaseSink` alternative to console output |
-| Workspace db_path + sessions_dir | `workspace.py` (mod) | ⬚ | New properties for structured storage |
-
-### v2-beta — Channel Registry + Typing
-
-| Deliverable | File(s) | Status | Notes |
-|---|---|---|---|
-| `ChannelAdapter` protocol + `ChannelRegistry` | `channels.py` (new, ~120 lines) | ⬚ | Protocol-based — adapters implement methods, no base class inheritance |
-| Server routes through registry + queue | `server.py` (expand to ~180 lines) | ⬚ | Sender validation, conversation routing, `/conversations` API endpoints |
-| Typing indicators via `BeforeToolCallEvent` hook | `observer.py` (mod) | ⬚ | `adapter.send_typing()` on tool call start |
-| Channel config models | `models.py` (+18 lines) | ⬚ | `ConversationRecord`, `ChannelConfig`, `SenderPolicy` |
-
-### v2 — Daemon + CLI
-
-| Deliverable | File(s) | Status | Notes |
-|---|---|---|---|
-| `blueclaw serve --install` (launchd/systemd) | `cli.py` (+19 lines) | ⬚ | Generate OS service config, print instructions |
-| `blueclaw serve --status` | `cli.py` | ⬚ | Check daemon status |
-| `blueclaw channels` command | `cli.py` | ⬚ | List registered channel adapters |
-| `blueclaw conversations` command | `cli.py` | ⬚ | List/query conversations from SQLite |
-
-### v2-rc — Docker Sandbox + Skill Loading
-
-| Deliverable | File(s) | Status | Notes |
-|---|---|---|---|
-| Optional Docker workspace isolation | `workspace.py` (+73 lines) | ⬚ | `sandbox: docker` config, volume mount, resource caps |
-| Docker `execute()` method | `workspace.py` | ⬚ | Routes shell commands through `docker run` when enabled |
-| Graceful fallback to app-level sandbox | `workspace.py` | ⬚ | If Docker unavailable, warn and use `sandbox: app` |
-| Enhanced progressive skill loading | `session.py` (+15 lines) | ⬚ | Skill index scanner, critical as skill ecosystem grows |
-
-**Core files:** 10
-**Estimated lines:** ~2,100
-**Dependencies:** 7 + 2 optional (fastapi, uvicorn); sqlite3 is stdlib
-
----
-
-## Persistence Layers (v2 Complete)
+## Persistence Layers
 
 | Store | Purpose | Reader | Lifetime | Status |
 |---|---|---|---|---|
@@ -146,39 +178,40 @@ The core never imports platform SDKs. Adapters are thin translators.
 | `history.jsonl` | Run audit log | `blueclaw history` | Append-only | ✅ |
 | `traces/*.json` | Structured execution traces | `blueclaw trace` | Per-run | ✅ |
 | `FileSessionManager` | Strands conversation state | Agent (context restore) | Per-conversation | ⬚ |
-| SQLite (`blueclaw.db`) | Messages, routing, sender auth | Server, API, CLI | Per-workspace | ⬚ |
+| SQLite (`blueclaw.db`) | Trace queries, conversations | `trace query`, API | Per-workspace | ⬚ |
 
 ---
 
 ## Migration Path
 
 - **v1 → v1.1:** Extend trace CLI. Existing terminal mode unchanged.
-- **v1.1 → v1.2:** Add `server.py`. Existing terminal mode unchanged.
-- **v1.2 → v2:** Existing skill adapters work unchanged (same POST body — v2 activates fields v1.2 ignored). `CONTEXT.md` and `history.jsonl` untouched. `blueclaw.yaml` gains optional sections with sensible defaults.
+- **v1.1 → v1.2:** Add analytics commands. No schema changes — reads existing trace JSON.
+- **v1.2 → v1.3:** Add test runner. Existing traces/agent unchanged.
+- **v1.3 → v2:** SQLite trace store alongside existing JSON (migration optional). OTel export opt-in.
+- **v2 → v3:** Add `server.py`. Existing terminal mode unchanged.
+- **v3 → v4:** Channel adapters as skills, not core. Existing API unchanged.
 
 ---
 
-## Explicitly Deferred (v3+)
+## Explicitly Deferred
 
 | Feature | Reason |
 |---|---|
-| Web UI dashboard | Complexity vs. value for terminal-native users |
 | Task scheduling | Can be a skill, not core |
 | Multi-agent collaboration | Strands supports it — add when there's a real use case |
 | Browser automation | Can be an MCP server, not core |
-| Network-level domain isolation | Requires Docker proxy; `--network=host` is v2's tradeoff |
-| Persistent container (`docker exec` reuse) | Optimization for v2's per-command container spawn latency |
+| Network-level domain isolation | Requires Docker proxy; deferred to v4 |
 
 ---
 
 ## Complexity Budget
 
-| Metric | v1 | v1.1 | v1.2 | v2 |
-|---|---|---|---|---|
-| Core files | 6 | 6 | 7 | 10 |
-| Dependencies | 7 | 7 | 7 + 2 optional | 7 + 2 optional |
-| Lines (actual/est.) | 1,554 | 1,728 | ~1,830 | ~2,330 |
-| One-sitting readable? | Yes | Yes | Yes | Stretch |
+| Metric | v1 | v1.1 | v1.2 | v1.3 | v2 | v3 | v4 |
+|---|---|---|---|---|---|---|---|
+| Core files | 6 | 6 | 6 | 7 | 8 | 9 | 11 |
+| Dependencies | 7 | 7 | 7 | 7 | 7 | 7 + 2 optional | 7 + 2 |
+| Lines (actual/est.) | 1,554 | 1,728 | 1,933 | ~2,050 | ~2,300 | ~2,450 | ~2,700 |
+| One-sitting readable? | Yes | Yes | Yes | Yes | Stretch | Stretch | No |
 
 ---
 

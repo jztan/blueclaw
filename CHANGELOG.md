@@ -2,6 +2,18 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [1.1.0] - 2026-03-15
+
+### Added
+
+- `blueclaw trace explain <run_id>` — LLM-powered post-hoc explanation of recorded traces using a fresh tool-free Agent
+- `blueclaw trace graph <run_id>` — Rich Tree rendering of tool call sequences with status icons, timing, and input summaries
+- `blueclaw trace diff <id1> <id2>` — side-by-side comparison of two runs (steps, tokens, cost, duration with deltas)
+- `blueclaw trace replay <run_id>` — interactive step-through viewer (Enter to advance, q to quit)
+- `format_trace_for_explanation()` helper in session.py
+- Shared `sample_trace` and `error_trace` test fixtures in conftest.py
+- 33 new tests for trace tooling (265 total)
+
 ## [1.0.0] - 2026-03-15
 
 ### Added

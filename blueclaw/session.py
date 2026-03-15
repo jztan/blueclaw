@@ -86,6 +86,27 @@ def extract_text(value: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def format_trace_for_explanation(trace) -> str:
+    """Format a RunTrace into readable text for LLM explanation."""
+    lines = [
+        f"Goal: {trace.goal}",
+        f"Model: {trace.model_id}",
+        f"Status: {trace.status}",
+        f"Steps: {len(trace.steps)}",
+        "",
+    ]
+    for step in trace.steps:
+        status = f"error: {step.error}" if step.error else step.status
+        lines.append(f"Step {step.index}: {step.tool_name} ({step.duration_ms}ms) [{status}]")
+        if step.input_summary:
+            for k, v in step.input_summary.items():
+                lines.append(f"  input {k}: {v}")
+        if step.output_summary:
+            lines.append(f"  output: {step.output_summary}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def is_capability_refusal(text: str) -> bool:
     """Detect model refusal responses that should not overwrite context."""
     lowered = text.lower()

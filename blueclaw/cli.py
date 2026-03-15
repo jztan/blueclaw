@@ -375,3 +375,156 @@ def trace_show(
         f"\nTotal: {len(trace.steps)} steps \u00b7 {total_dur}ms "
         f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
     )
+
+
+@trace_app.command("explain")
+def trace_explain(
+    run_id: str = typer.Argument(..., help="Run ID to explain"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
+) -> None:
+    """Explain a recorded trace using an LLM."""
+    from blueclaw.session import (
+        build_model,
+        format_trace_for_explanation,
+        load_config,
+    )
+    from strands import Agent
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    trace = workspace.read_trace(run_id)
+
+    if trace is None:
+        console.print(f"Trace not found: {run_id}")
+        raise typer.Exit(1)
+
+    config_path = Path("blueclaw.yaml")
+    config = load_config(config_path, model_override=model)
+    model_instance = build_model(config)
+    formatted = format_trace_for_explanation(trace)
+
+    explain_agent = Agent(
+        model=model_instance,
+        tools=[],
+        system_prompt=(
+            "You explain recorded agent traces. Describe what the agent "
+            "did step by step and why. This is a post-hoc explanation — "
+            "you are interpreting recorded actions, not reporting the "
+            "agent's actual reasoning."
+        ),
+    )
+    explain_agent(f"Explain this trace:\n\n{formatted}")
+
+    console.print(
+        "\n[dim]Post-hoc explanation \u00b7 not the agent's actual reasoning[/dim]"
+    )
+
+
+@trace_app.command("graph")
+def trace_graph(
+    run_id: str = typer.Argument(..., help="Run ID to display as tree"),
+) -> None:
+    """Show execution graph as a tree."""
+    from rich.tree import Tree
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    trace = workspace.read_trace(run_id)
+
+    if trace is None:
+        console.print(f"Trace not found: {run_id}")
+        raise typer.Exit(1)
+
+    tree = Tree(f"[bold]{trace.goal}[/bold]")
+    for step in trace.steps:
+        icon = "\u2713" if step.status == "success" else "\u2717"
+        input_parts = [f"{k}: {str(v)[:60]}" for k, v in step.input_summary.items()]
+        input_str = ", ".join(input_parts) if input_parts else ""
+        tree.add(f"{step.tool_name} ({step.duration_ms}ms) {icon}  {input_str}")
+
+    console.print(tree)
+
+
+@trace_app.command("diff")
+def trace_diff(
+    id1: str = typer.Argument(..., help="First run ID"),
+    id2: str = typer.Argument(..., help="Second run ID"),
+) -> None:
+    """Compare two execution traces."""
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    a = workspace.read_trace(id1)
+    if a is None:
+        console.print(f"Trace not found: {id1}")
+        raise typer.Exit(1)
+    b = workspace.read_trace(id2)
+    if b is None:
+        console.print(f"Trace not found: {id2}")
+        raise typer.Exit(1)
+
+    def _cost(t):
+        return f"${t.total_cost:.4f}" if t.total_cost is not None else "n/a"
+
+    def _dur(t):
+        return sum(s.duration_ms for s in t.steps)
+
+    console.print(f"[bold]Run A:[/bold] {a.run_id}  [bold]Run B:[/bold] {b.run_id}")
+    console.print(f"[bold]Goal A:[/bold] {a.goal}")
+    console.print(f"[bold]Goal B:[/bold] {b.goal}")
+    console.print()
+
+    d_steps = len(b.steps) - len(a.steps)
+    d_tokens = b.total_tokens - a.total_tokens
+    d_dur = _dur(b) - _dur(a)
+
+    def sign(v):
+        return f"+{v}" if v > 0 else str(v)
+
+    console.print(f"Steps:  {len(a.steps)} \u2192 {len(b.steps)} ({sign(d_steps)})")
+    console.print(f"Tokens: {a.total_tokens} \u2192 {b.total_tokens} ({sign(d_tokens)})")
+    console.print(f"Cost:   {_cost(a)} \u2192 {_cost(b)}")
+    console.print(f"Time:   {_dur(a)}ms \u2192 {_dur(b)}ms ({sign(d_dur)}ms)")
+
+
+@trace_app.command("replay")
+def trace_replay(
+    run_id: str = typer.Argument(..., help="Run ID to replay"),
+) -> None:
+    """Step through a recorded trace interactively."""
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    trace = workspace.read_trace(run_id)
+
+    if trace is None:
+        console.print(f"Trace not found: {run_id}")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Run:[/bold] {trace.run_id}")
+    console.print(f"[bold]Goal:[/bold] {trace.goal}")
+    console.print(f"[bold]Model:[/bold] {trace.model_id}")
+    console.print(f"[bold]Steps:[/bold] {len(trace.steps)}")
+    console.print()
+
+    for step in trace.steps:
+        icon = "\u2713" if step.status == "success" else "\u2717"
+        console.print(
+            f"[bold]Step {step.index}:[/bold] {step.tool_name} "
+            f"({step.duration_ms}ms) {icon}"
+        )
+        if step.input_summary:
+            for k, v in step.input_summary.items():
+                console.print(f"  input {k}: {v}")
+        if step.output_summary:
+            console.print(f"  output: {step.output_summary}")
+        if step.error:
+            console.print(f"  [red]error: {step.error}[/red]")
+
+        try:
+            resp = input("[Enter] next · [q] quit > ")
+        except EOFError:
+            break
+        if resp.strip().lower() == "q":
+            break
+
+    total_dur = sum(s.duration_ms for s in trace.steps)
+    cost = f"${trace.total_cost:.4f}" if trace.total_cost is not None else "n/a"
+    console.print(
+        f"\nTotal: {len(trace.steps)} steps \u00b7 {total_dur}ms "
+        f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
+    )

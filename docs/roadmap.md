@@ -2,7 +2,7 @@
 
 > Milestones from v1 (terminal agent) → v1.1 (trace tooling) → v1.2 (webhook gateway) → v2 (multi-channel system).
 > Derived from [design.md](design.md). Each milestone ships independently.
-> **Current:** v1 complete. v1.1 next.
+> **Current:** v1.1 complete. v1.2 next.
 
 ---
 
@@ -44,14 +44,13 @@
 
 | Deliverable | File(s) | Status | Notes |
 |---|---|---|---|
-| `blueclaw trace explain <run_id>` | `cli.py`, `session.py` | ⬚ | Feed recorded trace to LLM for post-hoc explanation. Label as "post-hoc explanation", not actual chain-of-thought. |
-| Execution graph view | `cli.py` | ⬚ | Tree rendering of tool call sequences (e.g. search → fetch → fetch → summarize) |
-| `blueclaw trace diff <id1> <id2>` | `cli.py` | ⬚ | Side-by-side comparison of two runs (steps, timing, cost) |
-| `blueclaw trace replay <run_id>` | `cli.py` | ⬚ | Step-through viewer — walk through recorded trace interactively |
+| `blueclaw trace explain <run_id>` | `cli.py`, `session.py` | ✅ | Feed recorded trace to LLM for post-hoc explanation. Fresh tool-free Agent with default streaming callback. |
+| `blueclaw trace graph <run_id>` | `cli.py` | ✅ | Rich Tree rendering of tool call sequences with status icons, timing, and input summaries |
+| `blueclaw trace diff <id1> <id2>` | `cli.py` | ✅ | Side-by-side comparison of two runs (steps, timing, cost, tokens with deltas) |
+| `blueclaw trace replay <run_id>` | `cli.py` | ✅ | Interactive step-through viewer — Enter to advance, q to quit |
 
-**Priority:** `trace explain` is highest-value — delivers the "agent you can actually debug" narrative with one command.
-
-**Constraint:** Current codebase is ~1,554 lines. Some features may need refactoring headroom or be implemented as skills.
+**Actual lines:** 1,728
+**Test coverage:** 265 tests (+33 for v1.1 trace tooling)
 
 ---
 
@@ -178,7 +177,7 @@ The core never imports platform SDKs. Adapters are thin translators.
 |---|---|---|---|---|
 | Core files | 6 | 6 | 7 | 10 |
 | Dependencies | 7 | 7 | 7 + 2 optional | 7 + 2 optional |
-| Lines (actual/est.) | 1,554 | ~1,570 | ~1,670 | ~2,170 |
+| Lines (actual/est.) | 1,554 | 1,728 | ~1,830 | ~2,330 |
 | One-sitting readable? | Yes | Yes | Yes | Stretch |
 
 ---

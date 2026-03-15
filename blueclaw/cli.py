@@ -176,7 +176,7 @@ def run_session(model_override: str | None = None) -> None:
     render_welcome_banner(config, workspace, console)
 
     agent = create_agent(config, workspace, observer, model=model)
-    run_chat_loop(agent, workspace, observer, console, config)
+    run_chat_loop(agent, workspace, observer, console, config, model=model)
 
 
 def _version_callback(value: bool) -> None:

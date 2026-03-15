@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import logging
 import os
@@ -277,18 +278,88 @@ def create_agent(
     return agent
 
 
+def _snapshot_messages(messages: list) -> str:
+    """Convert message list to a readable string for summarization."""
+    parts = []
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        text = extract_text(msg)
+        if text:
+            parts.append(f"{role}: {text[:500]}")
+    return "\n\n".join(parts)
+
+
+def update_context_background(model, messages_snapshot: str, workspace: Workspace):
+    """Update CONTEXT.md using a fresh Agent (no shared state)."""
+    current_context = workspace.read_context()
+    try:
+        summary_agent = Agent(
+            model=model,
+            tools=[],
+            system_prompt=(
+                "You update a persistent context file. "
+                "Write only facts, preferences, and project state. Be concise. "
+                "Return only markdown. No tool mentions or policies."
+            ),
+            callback_handler=None,
+        )
+        result = summary_agent(
+            f"Current CONTEXT.md:\n\n{current_context}\n\n"
+            f"Recent conversation:\n\n{messages_snapshot}\n\n"
+            "Update CONTEXT.md with any new facts from the conversation. "
+            "Preserve existing facts that are still relevant."
+        )
+        text = extract_text(getattr(result, "message", result))
+        if text and not is_capability_refusal(text):
+            workspace.write_context(text)
+            workspace.clear_last_turn_checkpoint()
+    except Exception as e:
+        logger.warning("Background context update failed: %s", e)
+
+
+class BackgroundContextUpdater:
+    def __init__(self, model, workspace: Workspace):
+        self.model = model
+        self.workspace = workspace
+        self._thread: threading.Thread | None = None
+
+    def trigger(self, agent):
+        """Snapshot messages and start background update."""
+        if self._thread and self._thread.is_alive():
+            return
+        snapshot = _snapshot_messages(agent.messages[-20:])
+        self._thread = threading.Thread(
+            target=update_context_background,
+            args=(self.model, snapshot, self.workspace),
+            daemon=False,
+        )
+        self._thread.start()
+
+    def wait(self, timeout=15.0):
+        """Wait for background update to finish."""
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+
+
 def run_chat_loop(
     agent,
     workspace: Workspace,
     observer,
     console: Console,
     config: SessionConfig,
+    model=None,
     scripted: bool = False,
 ) -> None:
     """Run the interactive chat loop."""
-    exit_commands = {"exit", "quit", "/exit", "/quit"}
+    exit_commands = {
+        "exit", "quit", "/exit", "/quit",
+        "eixt", "exti", "exiit", "ext", "exi",
+        "bye", "q",
+    }
     session = PromptSession()
-    had_turns = False
+    turn_count = 0
+    total_tool_calls = 0
+    updater = BackgroundContextUpdater(model, workspace) if model else None
 
     try:
         while True:
@@ -305,10 +376,11 @@ def run_chat_loop(
             if stripped.lower() in exit_commands:
                 break
 
-            had_turns = True
+            turn_count += 1
             start = time.time()
             result = agent(stripped)
             elapsed = time.time() - start
+            total_tool_calls += len(observer.tools_called)
 
             # Strands streams the response via callback — don't reprint
 
@@ -327,16 +399,14 @@ def run_chat_loop(
                 elapsed=elapsed,
                 start_time=start,
             )
+
+            if updater and (turn_count >= 2 or total_tool_calls > 0):
+                updater.trigger(agent)
     except Exception:
         pass
     finally:
-        if had_turns:
-            console.print("Updating context...", style="dim")
-            ctx_start = time.time()
-            update_context_on_exit(agent, workspace)
-            console.print(
-                f"Context updated ({time.time() - ctx_start:.1f}s)", style="dim"
-            )
+        if updater and turn_count > 0 and (turn_count >= 2 or total_tool_calls > 0):
+            updater.wait()
         cleanup_mcp_clients(observer)
 
 

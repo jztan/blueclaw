@@ -15,7 +15,7 @@
 | Interactive terminal session with Rich welcome banner + pixel art mascot | `cli.py` | Typer entrypoint, prompt_toolkit input, Rich output ✅ |
 | Strands Agent as the core loop | `session.py` | Loads CONTEXT.md + history.jsonl, builds Agent, runs chat loop ✅ |
 | Model-agnostic support (Claude, Ollama, Gemini) | `session.py`, `models.py` | Factory for AnthropicModel / OllamaModel / LiteLLMModel via config ✅ |
-| Persistent memory: `CONTEXT.md` + `history.jsonl` | `session.py` | Read on start, write on end; JSONL append-only audit trail ✅ |
+| Persistent memory: `CONTEXT.md` + `history.jsonl` | `session.py` | Read on start, background update after each turn; JSONL append-only audit trail ✅ |
 | Custom tools via `@tool` (web) + MCP (pdf) | `tools/web.py`, `tools/__init__.py` | MCP-first where possible; PDF via `pdf-mcp` server ✅ |
 | Shell command execution (`shell_command`) | `tools/shell.py`, `approval.py`, `workspace.py` | Sandboxed `subprocess.run()` in workspace; deny-list + interactive approval; enables `gh` CLI and general shell access ✅ |
 | MCP server support | `session.py` | Via Strands `MCPClient` ✅ |
@@ -33,7 +33,7 @@
 | Test suite | `tests/` | 238 tests covering models, workspace, observer, CLI, session, tools, shell, approval, integration ✅ |
 
 **Core files:** 6 modules (`cli.py`, `session.py`, `tools/`, `workspace.py`, `observer.py`, `models.py`, `approval.py`)
-**Actual lines:** 1,482
+**Actual lines:** 1,554
 **Dependencies:** strands-agents, strands-agents-tools, typer, rich, prompt-toolkit, pydantic, pyyaml + dev: pytest, pytest-mock, flake8, black
 
 ---
@@ -51,7 +51,7 @@
 
 **Priority:** `trace explain` is highest-value — delivers the "agent you can actually debug" narrative with one command.
 
-**Constraint:** Must stay within the 1,500-line ceiling. Current codebase is ~1,395 lines (~105 remaining). Some features may need to wait for refactoring headroom or be implemented as skills.
+**Constraint:** Current codebase is ~1,554 lines. Some features may need refactoring headroom or be implemented as skills.
 
 ---
 
@@ -178,7 +178,7 @@ The core never imports platform SDKs. Adapters are thin translators.
 |---|---|---|---|---|
 | Core files | 6 | 6 | 7 | 10 |
 | Dependencies | 7 | 7 | 7 + 2 optional | 7 + 2 optional |
-| Lines (actual/est.) | 1,482 | ~1,500 | ~1,600 | ~2,100 |
+| Lines (actual/est.) | 1,554 | ~1,570 | ~1,670 | ~2,170 |
 | One-sitting readable? | Yes | Yes | Yes | Stretch |
 
 ---

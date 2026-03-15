@@ -25,7 +25,7 @@ All notable changes to blueclaw will be documented in this file.
 - Test coverage for trace models, workspace trace I/O, observer step accumulation, CLI trace commands, shell tool, and approval hooks (238 tests total)
 - flake8 and black dev dependencies with `.flake8` config
 - Domain allowlist with conversational approval hooks
-- Persistent context: `CONTEXT.md` updated via LLM summarization on session exit
+- Persistent context: `CONTEXT.md` updated via background LLM summarization after each turn (instant exit)
 - Append-only run history: `.blueclaw/history.jsonl`
 - Crash recovery checkpointing (`.blueclaw/last_turn.md`)
 - End-of-run summary: steps, tokens, cost, elapsed time

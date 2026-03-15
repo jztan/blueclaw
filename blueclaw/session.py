@@ -233,11 +233,20 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
                 first_line = sf.read_text().split("\n")[0].strip("# ").strip()
                 parts.append(f"- {name}: {first_line}")
 
-    return (
-        "\n\n".join(parts)
-        if parts
-        else "You are blueclaw, a terminal automation agent."
+    # Core instructions
+    parts.insert(
+        0,
+        "You are blueclaw, a terminal automation agent.\n\n"
+        "**Rules:**\n"
+        "- CONTEXT.md, history.jsonl, and .blueclaw/ are managed by the system. "
+        "Never access them via shell. They are blocked at the sandbox level.\n"
+        "- Your persistent context is already loaded below. It updates automatically on exit.\n"
+        "- To remember something, just acknowledge it. To forget, say so — "
+        "the exit summarizer will omit it.\n"
+        "- Use shell_command for tasks the user asks you to perform, not for managing your own state.",
     )
+
+    return "\n\n".join(parts)
 
 
 def create_agent(
@@ -323,7 +332,11 @@ def run_chat_loop(
     finally:
         if had_turns:
             console.print("Updating context...", style="dim")
+            ctx_start = time.time()
             update_context_on_exit(agent, workspace)
+            console.print(
+                f"Context updated ({time.time() - ctx_start:.1f}s)", style="dim"
+            )
         cleanup_mcp_clients(observer)
 
 
@@ -394,6 +407,7 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
     current_context = workspace.read_context()
 
     try:
+        # Suppress streaming output during summarization
         original_callback = getattr(agent, "callback_handler", None)
         if original_callback is not None:
             agent.callback_handler = lambda **_: None
@@ -414,7 +428,6 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
             workspace.write_context(context_text)
             workspace.clear_last_turn_checkpoint()
         else:
-            # Preserve existing context when summarization returns no content
             if current_context:
                 workspace.write_context(current_context)
     except Exception as e:

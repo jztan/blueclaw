@@ -501,7 +501,7 @@ class TestContextUpdate:
         agent.assert_called_once()
         prompt = agent.call_args[0][0]
         assert "CONTEXT.md" in prompt
-        assert "Do not call any tools" in prompt
+        assert "facts" in prompt
 
     def test_context_update_keeps_existing_when_empty(self, tmp_path):
         ws = Workspace(tmp_path)

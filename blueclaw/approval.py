@@ -21,7 +21,6 @@ class ApprovalHooks(HookProvider):
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         registry.add_callback(BeforeToolCallEvent, self.check_domain_allowlist)
-        registry.add_callback(BeforeToolCallEvent, self.check_shell_command)
 
     def check_domain_allowlist(self, event: BeforeToolCallEvent) -> None:
         """Check allowlist for network tools. Prompt user if domain is new."""
@@ -50,18 +49,3 @@ class ApprovalHooks(HookProvider):
                 if Confirm.ask(msg):
                     self.config.allowlist_domains.append(domain)
                 # If denied, do nothing -> tool will run and fail
-
-    def check_shell_command(self, event: BeforeToolCallEvent) -> None:
-        """Prompt for approval before running shell commands."""
-        if event.tool_use["name"] != "shell_command":
-            return
-
-        if self.scripted:
-            return  # Rely on deny-list only
-
-        command = event.tool_use.get("input", {}).get("command", "")
-        if not command:
-            return
-
-        if not Confirm.ask(f"Run: [bold]{command}[/bold]?"):
-            event.cancel_tool = "Command rejected by user"

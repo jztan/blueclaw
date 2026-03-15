@@ -7,7 +7,7 @@ workspace:
 
 tools:
   - web
-  - github
+  - shell
   - pdf
 
 allowlist_domains: []

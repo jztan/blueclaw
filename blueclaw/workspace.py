@@ -83,8 +83,18 @@ class Workspace:
 
         return resolved
 
+    # Files managed by blueclaw — blocked from shell access
+    PROTECTED_FILES = ("CONTEXT.md", "history.jsonl", "last_turn.md")
+
     def validate_command(self, command: str) -> None:
         """Check command against destructive deny-list. Raises WorkspaceError."""
+        # Block any shell access to blueclaw-managed files
+        for pf in self.PROTECTED_FILES:
+            if pf in command:
+                raise WorkspaceError(
+                    f"{pf} is managed by blueclaw — do not access it via shell"
+                )
+
         # Check rm -r on the workspace root itself
         ws_str = str(self.root)
         rm_root_pattern = re.compile(

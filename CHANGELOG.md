@@ -15,8 +15,8 @@ All notable changes to blueclaw will be documented in this file.
 - API key validation for Anthropic and OpenAI providers
 - `.env` file support via python-dotenv
 - Workspace sandbox with path validation and destructive command deny-list (sudo, curl|bash, wget|sh)
-- Shell command execution via `shell_command` tool: sandboxed `subprocess.run()` with 30s timeout, workspace cwd, interactive approval prompt
-- `"github"` config auto-activates shell tool for `gh` CLI access
+- Shell command execution via `shell_command` tool: sandboxed `subprocess.run()` with 30s timeout, workspace cwd
+- Protected files (CONTEXT.md, history.jsonl, last_turn.md) blocked from shell access at sandbox level
 - Structured execution tracing: per-run JSON traces in `.blueclaw/traces/`
 - `TraceStep` / `RunTrace` models with input/output summaries, timing, and error capture
 - `blueclaw trace list` — list recent execution traces

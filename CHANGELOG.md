@@ -4,6 +4,11 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [1.2.2] - 2026-03-15
 
+### Added
+
+- GitHub Actions CI: lint (flake8 + black) and test across Python 3.11–3.14 on push/PR to `develop`
+- Issue management workflows: auto-lock closed issues after 7 days, stale issue warnings at 14 days with auto-close at 30 days, autoclose label removal on human comment
+
 ### Fixed
 
 - Streaming output buffered until complete instead of flushing each chunk — replaced SDK's `PrintingCallbackHandler` with `_StreamingCallback` that flushes immediately, skips tool headers (observer handles those), and emits exactly one trailing newline on complete instead of two

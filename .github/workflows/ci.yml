@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+  push:
+    branches:
+      - develop
+
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: pip install uv
+      - name: Set up environment
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .[dev]
+      - name: Run code quality checks
+        run: |
+          source .venv/bin/activate
+          flake8 blueclaw/ --max-line-length=88
+          black --check blueclaw/ tests/ --line-length=88
+      - name: Run tests
+        run: |
+          source .venv/bin/activate
+          python -m pytest tests/

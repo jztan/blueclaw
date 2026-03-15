@@ -267,7 +267,8 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         f"Today's date is {today}.\n\n"
         "**Tone & style (STRICT — always follow these):**\n"
         "- Be concise. Lead with the answer or action, not the reasoning.\n"
-        "- NEVER use emojis in responses, even if the context or history contains them.\n"
+        "- NEVER use emojis in responses, even if the context "
+        "or history contains them.\n"
         "- No motivational quotes, filler, or cheerful preamble.\n"
         "- No markdown formatting — no **bold**, *italic*, tables, or headings. "
         "Your output is raw text in a terminal; markdown does not render.\n"
@@ -279,7 +280,8 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         "weather, news), always use web_search — never answer from context alone.\n"
         "- CONTEXT.md, history.jsonl, and .blueclaw/ are managed by the system. "
         "Never access them via shell. They are blocked at the sandbox level.\n"
-        "- Your persistent context is already loaded below. It updates automatically on exit.\n"
+        "- Your persistent context is already loaded below. "
+        "It updates automatically on exit.\n"
         "- To remember something, just acknowledge it. To forget, say so — "
         "the exit summarizer will omit it.\n"
         "- Use shell_command for tasks the user asks you to perform, "
@@ -287,7 +289,8 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         "- web_search results include titles, URLs, and snippets. "
         "Use snippets directly when they contain enough information. "
         "Only use http_request to fetch a page if you truly need more detail. "
-        "If http_request fails with a domain allowlist error, do not retry other domains — "
+        "If http_request fails with a domain allowlist error, "
+        "do not retry other domains — "
         "answer from the search snippets you already have.",
     )
 
@@ -365,10 +368,14 @@ def update_context_background(model, messages_snapshot: str, workspace: Workspac
             tools=[],
             system_prompt=(
                 "You update a persistent context file. "
-                "Keep only durable facts: user preferences, project state, workspace setup. "
-                "EXCLUDE transient data: recommendations given, weather, prices, news, "
-                "search results, documents read, commands run, and anything time-sensitive. "
-                "Be concise. Return only markdown. No tool mentions or policies."
+                "Keep only durable facts: user preferences, "
+                "project state, workspace setup. "
+                "EXCLUDE transient data: recommendations given, "
+                "weather, prices, news, "
+                "search results, documents read, commands run, "
+                "and anything time-sensitive. "
+                "Be concise. Return only markdown. "
+                "No tool mentions or policies."
             ),
             callback_handler=None,
         )
@@ -572,9 +579,12 @@ def update_context_on_exit(agent, workspace: Workspace) -> None:
         try:
             result = agent(
                 "Update CONTEXT.md with key facts from this session. "
-                "Keep only durable facts: user preferences, project state, workspace setup. "
-                "EXCLUDE transient data: recommendations given, weather, prices, news, "
-                "search results, documents read, commands run, and anything time-sensitive. "
+                "Keep only durable facts: user preferences, "
+                "project state, workspace setup. "
+                "EXCLUDE transient data: recommendations given, "
+                "weather, prices, news, "
+                "search results, documents read, commands run, "
+                "and anything time-sensitive. "
                 "Not a timeline. Be concise. "
                 "Return only markdown for CONTEXT.md. Do not call any tools. "
                 "Do not mention tool limitations, capabilities, or policies."

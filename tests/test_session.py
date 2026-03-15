@@ -104,8 +104,11 @@ class TestParseModelOverride:
 
 class TestBuildModel:
     def test_build_model_anthropic(self):
+        import strands.models as _sm
+
+        mock_cls = MagicMock()
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}, clear=False):
-            with patch("strands.models.AnthropicModel") as mock_cls:
+            with patch.dict(_sm.__dict__, {"AnthropicModel": mock_cls}):
                 cfg = SessionConfig(provider="anthropic", model_id="claude-sonnet-4-6")
                 build_model(cfg)
                 mock_cls.assert_called_once_with(
@@ -120,14 +123,20 @@ class TestBuildModel:
                 mock_cls.assert_called_once_with(None, model_id="llama3")
 
     def test_build_model_litellm(self):
-        with patch("strands.models.LiteLLMModel") as mock_cls:
+        import strands.models as _sm
+
+        mock_cls = MagicMock()
+        with patch.dict(_sm.__dict__, {"LiteLLMModel": mock_cls}):
             cfg = SessionConfig(provider="litellm", model_id="gemini/gemini-2.0-flash")
             build_model(cfg)
             mock_cls.assert_called_once_with(model_id="gemini/gemini-2.0-flash")
 
     def test_build_model_openai(self):
+        import strands.models as _sm
+
+        mock_cls = MagicMock()
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False):
-            with patch("strands.models.OpenAIModel") as mock_cls:
+            with patch.dict(_sm.__dict__, {"OpenAIModel": mock_cls}):
                 cfg = SessionConfig(provider="openai", model_id="gpt-4.1-mini")
                 build_model(cfg)
                 mock_cls.assert_called_once_with(model_id="gpt-4.1-mini")

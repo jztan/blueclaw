@@ -411,3 +411,69 @@ class TestTraceStepAccumulation:
         assert len(obs.trace_steps) == 1
         obs.reset()
         assert obs.trace_steps == []
+
+
+# --- User interrupt (Esc Esc) ---
+
+
+class TestUserInterrupt:
+    def test_cancelled_flag_stops_tool(self):
+        """Setting _cancelled directly cancels the next tool call."""
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs._cancelled = True
+
+        event = Mock()
+        event.tool_use = {"name": "t", "input": {}, "toolUseId": "x"}
+        event.invocation_state = {"request_state": {}}
+        event.cancel_tool = False
+
+        obs.before_tool(event)
+        assert event.cancel_tool == "Cancelled by user."
+        assert event.invocation_state["request_state"]["stop_event_loop"] is True
+
+    def test_cancelled_prints_message(self):
+        output = StringIO()
+        console = Console(file=output)
+        obs = ObserverHooks(console=console)
+        obs._cancelled = True
+
+        event = Mock()
+        event.tool_use = {"name": "t", "input": {}, "toolUseId": "x"}
+        event.invocation_state = {"request_state": {}}
+        event.cancel_tool = False
+
+        obs.before_tool(event)
+        assert "Esc Esc" in output.getvalue()
+
+    def test_cancelled_quiet_no_message(self):
+        output = StringIO()
+        console = Console(file=output)
+        obs = ObserverHooks(console=console, quiet=True)
+        obs._cancelled = True
+
+        event = Mock()
+        event.tool_use = {"name": "t", "input": {}, "toolUseId": "x"}
+        event.invocation_state = {"request_state": {}}
+        event.cancel_tool = False
+
+        obs.before_tool(event)
+        assert event.cancel_tool == "Cancelled by user."
+        assert output.getvalue() == ""
+
+    def test_reset_clears_cancelled(self):
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        obs._cancelled = True
+        obs._last_esc = 999.0
+        obs.reset()
+        assert obs._cancelled is False
+        assert obs._last_esc == 0.0
+
+    def test_check_escape_skips_non_tty(self):
+        """_check_escape is a no-op when stdin is not a tty."""
+        console = Console(file=StringIO())
+        obs = ObserverHooks(console=console)
+        # In test env stdin is not a tty, so this should do nothing
+        obs._check_escape()
+        assert obs._cancelled is False

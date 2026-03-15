@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import select
+import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +23,9 @@ TRUNCATION_LIMIT = 12_000
 HEAD_SIZE = 8_000
 TAIL_SIZE = 4_000
 INPUT_SUMMARY_MAX = 200
+
+ESC_SEQ_TIMEOUT = 0.05  # 50ms — standard Esc vs escape-sequence threshold
+ESC_ESC_WINDOW = 1.0  # seconds between two Esc presses
 
 
 def truncate_tool_result(result: dict) -> dict:
@@ -63,11 +69,13 @@ def _summarize_output(result: Any, max_len: int = 200) -> str | None:
 
 
 class ObserverHooks(HookProvider):
-    """Hook provider for tool tracing and output truncation."""
+    """Hook provider for tool tracing, output truncation, and user interrupt."""
 
     def __init__(self, console: Console, quiet: bool = False) -> None:
         self.console = console
         self.quiet = quiet
+        self._cancelled = False
+        self._last_esc = 0.0
         self.tools_called: list[str] = []
         self.trace_steps: list[TraceStep] = []
         self._step_starts: dict[str, tuple[float, int, dict]] = {}
@@ -77,11 +85,76 @@ class ObserverHooks(HookProvider):
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
         registry.add_callback(AfterToolCallEvent, self.after_tool)
 
+    # --- Escape detection ---
+
+    def _check_escape(self) -> None:
+        """Non-blocking check for double-Esc on stdin."""
+        if not sys.stdin.isatty():
+            return
+        try:
+            import termios
+            import tty
+        except ImportError:
+            return
+
+        fd = sys.stdin.fileno()
+        try:
+            old = termios.tcgetattr(fd)
+        except termios.error:
+            return
+
+        try:
+            tty.setcbreak(fd, when=termios.TCSANOW)
+            while select.select([fd], [], [], 0)[0]:
+                ch = os.read(fd, 1)
+                if ch == b"\x1b":
+                    # Peek: escape sequence (\x1b[…) or standalone Esc?
+                    if select.select([fd], [], [], ESC_SEQ_TIMEOUT)[0]:
+                        nxt = os.read(fd, 1)
+                        if nxt == b"\x1b":
+                            # Fast double-Esc (both in buffer)
+                            self._cancelled = True
+                            return
+                        # Escape sequence — consume remainder
+                        while select.select([fd], [], [], 0.01)[0]:
+                            os.read(fd, 1)
+                        continue
+                    # Standalone Esc — check against previous
+                    now = time.time()
+                    if now - self._last_esc < ESC_ESC_WINDOW:
+                        self._cancelled = True
+                        return
+                    self._last_esc = now
+                # Non-Esc bytes during agent run are silently consumed
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                import termios as _t
+
+                _t.tcsetattr(fd, _t.TCSADRAIN, old)
+            except Exception:
+                pass
+
+    # --- Hook callbacks ---
+
     def before_tool(self, event: BeforeToolCallEvent) -> None:
         tool_use = event.tool_use
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]
         tool_input = tool_use.get("input", {})
+
+        # Check for user interrupt (Esc Esc)
+        self._check_escape()
+        if self._cancelled:
+            event.cancel_tool = "Cancelled by user."
+            rs = event.invocation_state.setdefault("request_state", {})
+            rs["stop_event_loop"] = True
+            if not self.quiet:
+                self.console.print(
+                    "  [yellow]\u26a0 Stopped by user (Esc Esc)[/yellow]"
+                )
+            return
 
         step_index = len(self.trace_steps) + 1
         input_summary = _summarize_input(tool_input)
@@ -122,10 +195,10 @@ class ObserverHooks(HookProvider):
                 err_msg = str(event.exception)
                 if len(err_msg) > 80:
                     err_msg = err_msg[:77] + "..."
-                self.console.print(f"  \u2717 {err_msg} ({elapsed:.1f}s)")
+                self.console.print(f"  \u2717 {tool_name} {err_msg} ({elapsed:.1f}s)")
         else:
             if not self.quiet:
-                self.console.print(f"  \u2713 {elapsed:.1f}s")
+                self.console.print(f"  \u2713 {tool_name} {elapsed:.1f}s")
             # Truncate tool result content
             if event.result:
                 truncate_tool_result(event.result)
@@ -149,3 +222,5 @@ class ObserverHooks(HookProvider):
         self.tools_called.clear()
         self.trace_steps.clear()
         self._step_starts.clear()
+        self._cancelled = False
+        self._last_esc = 0.0

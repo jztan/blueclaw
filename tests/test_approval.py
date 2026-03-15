@@ -60,7 +60,9 @@ class TestApprovalHooks:
             "input": {"url": "https://example.com"},
         }
 
-        # Should NOT prompt
+        # Should NOT prompt — should cancel tool instead
         with patch("rich.prompt.Confirm.ask") as mock_ask:
             hooks.check_domain_allowlist(event)
             mock_ask.assert_not_called()
+        assert "not in the allowlist" in event.cancel_tool
+        assert "snippets" in event.cancel_tool

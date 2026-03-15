@@ -14,6 +14,15 @@ from blueclaw.workspace import Workspace
 # --- web.py ---
 
 
+FAKE_RESULTS = [
+    {"title": "Result 1", "href": "https://example.com/1", "body": "Snippet one"},
+    {"title": "Result 2", "href": "https://example.com/2", "body": "Snippet two"},
+    {"title": "Result 3", "href": "https://example.com/3", "body": "Snippet three"},
+    {"title": "Result 4", "href": "https://example.com/4", "body": "Snippet four"},
+    {"title": "Result 5", "href": "https://example.com/5", "body": "Snippet five"},
+]
+
+
 class TestWebSearch:
     def test_web_search_is_tool(self):
         tool = make_web_search()
@@ -25,6 +34,65 @@ class TestWebSearch:
         tool = make_web_search()
         # @tool decorator wraps the function; verify it's callable
         assert callable(tool)
+
+    def test_web_search_returns_formatted_results(self):
+        tool = make_web_search()
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_ddgs_cls.return_value.text.return_value = FAKE_RESULTS
+            result = tool(query="python tutorials")
+
+        assert "Result 1" in result
+        assert "https://example.com/1" in result
+        assert "Snippet one" in result
+        assert "Result 5" in result
+        for r in FAKE_RESULTS:
+            assert r["title"] in result
+            assert r["href"] in result
+            assert r["body"] in result
+
+    def test_web_search_calls_ddgs_with_max_results(self):
+        tool = make_web_search()
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_instance = mock_ddgs_cls.return_value
+            mock_instance.text.return_value = FAKE_RESULTS
+            tool(query="test query")
+
+        mock_instance.text.assert_called_once_with("test query", max_results=5)
+
+    def test_web_search_empty_results(self):
+        tool = make_web_search()
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_ddgs_cls.return_value.text.return_value = []
+            result = tool(query="xyzzy nonsense")
+
+        assert result == "No results found."
+
+    def test_web_search_propagates_exceptions(self):
+        tool = make_web_search()
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_ddgs_cls.return_value.text.side_effect = Exception("Rate limited")
+            with pytest.raises(Exception, match="Rate limited"):
+                tool(query="anything")
+
+    def test_web_search_single_result(self):
+        tool = make_web_search()
+        single = [{"title": "Only One", "href": "https://one.com", "body": "Solo"}]
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_ddgs_cls.return_value.text.return_value = single
+            result = tool(query="rare topic")
+
+        assert "Only One" in result
+        assert "https://one.com" in result
+        assert "Solo" in result
+
+    def test_web_search_result_format(self):
+        tool = make_web_search()
+        data = [{"title": "T", "href": "https://u.com", "body": "B"}]
+        with patch("ddgs.DDGS") as mock_ddgs_cls:
+            mock_ddgs_cls.return_value.text.return_value = data
+            result = tool(query="format test")
+
+        assert result == "**T**\nhttps://u.com\nB\n"
 
 
 class TestHttpRequest:

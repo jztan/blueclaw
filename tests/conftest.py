@@ -78,7 +78,7 @@ def mock_before_event():
         "toolUseId": "id123",
     }
     event.selected_tool = None
-    event.invocation_state = {}
+    event.invocation_state = {"request_state": {}}
     event.cancel_tool = False
     return event
 
@@ -109,22 +109,36 @@ def sample_trace():
     ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
     steps = [
         TraceStep(
-            index=1, tool_name="web_search", status="success",
-            start_time=ts, end_time=ts, duration_ms=842,
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
             input_summary={"query": "test search"},
             output_summary="Found 10 results...",
         ),
         TraceStep(
-            index=2, tool_name="http_request", status="success",
-            start_time=ts, end_time=ts, duration_ms=1203,
+            index=2,
+            tool_name="http_request",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=1203,
             input_summary={"url": "https://example.com/page"},
             output_summary="Page content retrieved...",
         ),
     ]
     return RunTrace(
-        run_id="20260315-101201", goal="research MCP Python SDKs",
-        start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
-        steps=steps, total_tokens=1840, total_cost=0.0073, status="success",
+        run_id="20260315-101201",
+        goal="research MCP Python SDKs",
+        start_time=ts,
+        end_time=ts,
+        model_id="claude-sonnet-4-6",
+        steps=steps,
+        total_tokens=1840,
+        total_cost=0.0073,
+        status="success",
     )
 
 
@@ -134,19 +148,33 @@ def error_trace():
     ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
     steps = [
         TraceStep(
-            index=1, tool_name="web_search", status="success",
-            start_time=ts, end_time=ts, duration_ms=842,
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=842,
             input_summary={"query": "test"},
         ),
         TraceStep(
-            index=2, tool_name="http_request", status="error",
-            start_time=ts, end_time=ts, duration_ms=3012,
+            index=2,
+            tool_name="http_request",
+            status="error",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=3012,
             input_summary={"url": "https://broken.example.com"},
             error="ConnectionTimeout: server did not respond",
         ),
     ]
     return RunTrace(
-        run_id="20260315-110000", goal="fetch broken page",
-        start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
-        steps=steps, total_tokens=500, total_cost=0.002, status="error",
+        run_id="20260315-110000",
+        goal="fetch broken page",
+        start_time=ts,
+        end_time=ts,
+        model_id="claude-sonnet-4-6",
+        steps=steps,
+        total_tokens=500,
+        total_cost=0.002,
+        status="error",
     )

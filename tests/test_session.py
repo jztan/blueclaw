@@ -11,6 +11,7 @@ from rich.console import Console
 
 from blueclaw.models import SessionConfig
 from blueclaw.session import (
+    _StreamingCallback,
     build_model,
     build_system_prompt,
     cleanup_mcp_clients,
@@ -220,6 +221,14 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(ws, skills_dir=skills_dir)
         assert "full skill content that should NOT" not in prompt
 
+    def test_system_prompt_includes_current_date(self, tmp_path):
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert f"Today's date is {today}" in prompt
+
 
 # --- Agent construction ---
 
@@ -263,6 +272,27 @@ class TestCreateAgent:
         call_kwargs = mock_agent_cls.call_args
         assert "system_prompt" in call_kwargs.kwargs
         assert isinstance(call_kwargs.kwargs["system_prompt"], str)
+
+    @patch("blueclaw.session.Agent")
+    def test_create_agent_uses_streaming_callback(self, mock_agent_cls, tmp_path):
+        ws = Workspace(tmp_path)
+        cfg = SessionConfig()
+        observer = MagicMock()
+        create_agent(cfg, ws, observer, model=MagicMock())
+        call_kwargs = mock_agent_cls.call_args
+        cb = call_kwargs.kwargs["callback_handler"]
+        assert isinstance(cb, _StreamingCallback)
+
+    @patch("blueclaw.session.Agent")
+    def test_create_agent_threads_console_file(self, mock_agent_cls, tmp_path):
+        ws = Workspace(tmp_path)
+        cfg = SessionConfig()
+        observer = MagicMock()
+        buf = StringIO()
+        console = Console(file=buf)
+        create_agent(cfg, ws, observer, model=MagicMock(), console=console)
+        cb = mock_agent_cls.call_args.kwargs["callback_handler"]
+        assert cb._file is buf
 
 
 # --- Chat loop ---
@@ -658,10 +688,88 @@ class TestFormatTraceForExplanation:
 
         ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
         trace = RunTrace(
-            run_id="20260315-100000", goal="empty run",
-            start_time=ts, end_time=ts, model_id="claude-sonnet-4-6",
-            steps=[], total_tokens=100, status="success",
+            run_id="20260315-100000",
+            goal="empty run",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=100,
+            status="success",
         )
         result = format_trace_for_explanation(trace)
         assert "empty run" in result
         assert "claude-sonnet-4-6" in result
+
+
+# --- Streaming callback ---
+
+
+import sys
+
+
+class TestStreamingCallback:
+    def test_data_chunk_flushed_immediately(self):
+        """Core fix: each chunk is available in the buffer without waiting for complete."""
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(data="hello")
+        assert buf.getvalue() == "hello"
+        cb(data=" world")
+        assert buf.getvalue() == "hello world"
+
+    def test_complete_adds_single_newline(self):
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(data="done", complete=True)
+        assert buf.getvalue() == "done\n"
+
+    def test_multi_chunk_then_complete(self):
+        """Simulates realistic streaming: several data chunks followed by a complete signal."""
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(data="The answer")
+        cb(data=" is 42")
+        cb(data=".", complete=True)
+        assert buf.getvalue() == "The answer is 42.\n"
+
+    def test_reasoning_then_data(self):
+        """Both reasoningText and data can appear; reasoning comes first."""
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(reasoningText="thinking...")
+        cb(data="result", complete=True)
+        assert buf.getvalue() == "thinking...result\n"
+
+    def test_tool_use_event_ignored(self):
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(
+            event={
+                "contentBlockStart": {
+                    "start": {"toolUse": {"name": "test", "toolUseId": "x"}}
+                }
+            }
+        )
+        assert buf.getvalue() == ""
+
+    def test_empty_data_no_output(self):
+        buf = StringIO()
+        cb = _StreamingCallback(file=buf)
+        cb(data="", complete=False)
+        assert buf.getvalue() == ""
+
+    def test_defaults_to_stdout(self):
+        cb = _StreamingCallback()
+        assert cb._file is sys.stdout
+
+    @patch("builtins.print")
+    def test_flush_called_on_every_write(self, mock_print):
+        """Regression guard: removing flush=True would break streaming responsiveness."""
+        fake_file = MagicMock()
+        cb = _StreamingCallback(file=fake_file)
+        cb(data="chunk1")
+        cb(data="chunk2", complete=True)
+        assert mock_print.call_count == 2
+        for call in mock_print.call_args_list:
+            assert call.kwargs["flush"] is True

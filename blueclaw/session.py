@@ -258,9 +258,11 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
                 parts.append(f"- {name}: {first_line}")
 
     # Core instructions
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     parts.insert(
         0,
-        "You are blueclaw, a terminal automation agent.\n\n"
+        "You are blueclaw, a terminal automation agent.\n"
+        f"Today's date is {today}.\n\n"
         "**Rules:**\n"
         "- CONTEXT.md, history.jsonl, and .blueclaw/ are managed by the system. "
         "Never access them via shell. They are blocked at the sandbox level.\n"

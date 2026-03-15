@@ -220,6 +220,14 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(ws, skills_dir=skills_dir)
         assert "full skill content that should NOT" not in prompt
 
+    def test_system_prompt_includes_current_date(self, tmp_path):
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert f"Today's date is {today}" in prompt
+
 
 # --- Agent construction ---
 

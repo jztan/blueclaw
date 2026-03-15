@@ -12,7 +12,8 @@ All notable changes to blueclaw will be documented in this file.
 - `classify_error()` — heuristic error classifier (timeout, rate_limit, auth, not_found, schema, network, sandbox) for step-level failure aggregation
 - `since` parameter on `Workspace.list_traces()` for date-range filtering
 - Optional `tokens` and `cost` fields on `TraceStep` (forward-compatible for per-step attribution)
-- 45 new tests for v1.2 features (310 total)
+- Current date injected into system prompt so the agent knows "today" without relying on training cutoff
+- 46 new tests for v1.2 features (311 total)
 
 ## [1.1.0] - 2026-03-15
 

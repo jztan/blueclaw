@@ -283,15 +283,15 @@ allowlist_domains:
   <img src="https://raw.githubusercontent.com/jztan/blueclaw/master/blueclaw-arch.svg" alt="BlueClaw Architecture" width="800">
 </p>
 
-| Module | Purpose | Lines |
-|---|---|---|
-| `cli.py` | Typer entrypoints, welcome banner, trace tooling | ~714 |
-| `session.py` | Config, model factory, agent, chat loop, background context updater | ~537 |
-| `workspace.py` | Sandbox enforcement, context/history/trace I/O | ~201 |
-| `observer.py` | Structured tool tracing + output truncation | ~151 |
-| `models.py` | Pydantic models, trace schema, cost calculation, error classification | ~124 |
-| `tools/` | Web, shell, MCP wiring (factory pattern) | ~155 |
-| `approval.py` | Shell command + domain allowlist hooks | ~51 |
+| Module | Purpose |
+|---|---|
+| `cli.py` | Typer entrypoints, welcome banner, trace tooling |
+| `session.py` | Config, model factory, agent, chat loop, background context updater |
+| `workspace.py` | Sandbox enforcement, context/history/trace I/O |
+| `observer.py` | Structured tool tracing + output truncation |
+| `models.py` | Pydantic models, trace schema, cost calculation, error classification |
+| `tools/` | Web, shell, MCP wiring (factory pattern) |
+| `approval.py` | Shell command + domain allowlist hooks |
 
 ## Workspace Structure
 

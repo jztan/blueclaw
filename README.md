@@ -3,17 +3,16 @@
 </p>
 
 <p align="center">
-  <strong>BlueClaw treats AI agents like debuggable programs, not black boxes.</strong><br>
-  Built on <a href="https://github.com/strands-agents/sdk-python">Strands Agents SDK</a>
+  <strong>Observable AI agent runtime with structured execution tracing.</strong><br>
+  Inspect, replay, diff, and debug agent behavior from the terminal.
 </p>
 
 <p align="center">
-  <a href="#quickstart">Quickstart</a> •
-  <a href="#tracing--observability">Tracing</a> •
-  <a href="#features">Features</a> •
-  <a href="#model-support">Models</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#architecture">Architecture</a>
+  <a href="#quickstart">Quickstart</a> &middot;
+  <a href="#tracing--observability">Tracing</a> &middot;
+  <a href="#what-makes-blueclaw-different">Why BlueClaw</a> &middot;
+  <a href="#model-support">Models</a> &middot;
+  <a href="#roadmap">Roadmap</a>
 </p>
 
 <p align="center">
@@ -26,11 +25,11 @@
 
 ---
 
-## What is BlueClaw?
+## Why BlueClaw
 
-BlueClaw is a terminal-based AI agent with built-in execution tracing, enabling developers to inspect, replay, and debug agent behavior step by step.
+Most AI agents are black boxes. When something goes wrong, you don't know whether the problem was the model reasoning, a tool input, a tool output, a retry loop, or a bad prompt.
 
-Most AI agents are black boxes — when something goes wrong, you don't know if it was the model reasoning, the tool input, the tool output, or a bad retry. BlueClaw records every tool call with timing, inputs, and outputs, then gives you CLI tools to understand what happened.
+BlueClaw records structured execution traces for every run and provides CLI tools to analyze them. Agents become observable systems, not mystery machines.
 
 ```
 blueclaw> research the MCP ecosystem, focus on Python SDKs
@@ -41,32 +40,22 @@ blueclaw> research the MCP ecosystem, focus on Python SDKs
 Done · 2 steps · 1840 tokens · $0.0073 · 4.1s
 ```
 
+Every tool call is recorded with timing, inputs, outputs, and errors. Then you debug it.
+
 ## Quickstart
 
 ```bash
-# Install
-pip install -e .
-
-# Initialize workspace
+pip install blueclaw
 blueclaw init
-
-# Set your API key
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
-
-# Start an interactive session
 blueclaw
-
-# Or run a single prompt
-blueclaw run "summarize the latest Python 3.13 release notes"
 ```
 
 ## Tracing & Observability
 
-Every agent run is recorded as a structured JSON trace with per-step timing, tool inputs, outputs, and errors. Eight CLI commands let you inspect runs after the fact — no dashboards, no external services, no setup.
+Every agent run produces a structured JSON trace. Nine CLI commands let you inspect runs after the fact — no dashboards, no external services, no setup.
 
 ### See what happened: `trace graph`
-
-Quick view of the tool call sequence for any run.
 
 ```
 $ blueclaw trace graph 20260315-054426
@@ -79,25 +68,23 @@ search for Python 3.13 new features
 
 ### Find the bottleneck: `trace timeline`
 
-See where time actually goes — tool execution vs. model reasoning overhead.
-
 ```
 $ blueclaw trace timeline 20260315-054426
 
 Goal: search for Python 3.13 new features
 Model: claude-sonnet-4-6 · 3 steps · 1840 tokens · $0.0073
 
- #    Tool             Start     Duration  Cumulative  Bar
- 1    web_search         +0ms       1ms         1ms    █
- 2    web_search       +120ms       1ms         2ms    █
- 3    http_request     +250ms     366ms       368ms    ████████████████████████████████████████
+ #  Tool          Start    Duration  Cumulative  Bar
+ 1  web_search      +0ms      1ms         1ms    █
+ 2  web_search    +120ms      1ms         2ms    █
+ 3  http_request  +250ms    366ms       368ms    ██████████████████████
 
-Tool time: 368ms · Wall time: 4100ms · Overhead: 3732ms (91%)
+Tool time: 368ms · Wall time: 4100ms · Overhead: 91%
 ```
 
 ### Understand why: `trace explain`
 
-Feed a recorded trace to an LLM for post-hoc explanation. Useful when the agent took an unexpected path.
+Feed a recorded trace to an LLM for post-hoc explanation.
 
 ```
 $ blueclaw trace explain 20260315-054426
@@ -111,8 +98,6 @@ Post-hoc explanation · not the agent's actual reasoning
 ```
 
 ### Compare two runs: `trace diff`
-
-Did your prompt change make things better or worse?
 
 ```
 $ blueclaw trace diff 20260315-054426 20260315-071830
@@ -129,8 +114,6 @@ Time:   368ms → 420ms (+52ms)
 
 ### Debug step by step: `trace replay`
 
-Interactive step-through — see inputs and outputs for each tool call.
-
 ```
 $ blueclaw trace replay 20260315-054426
 
@@ -140,9 +123,7 @@ Step 1: web_search (1ms) ✓
 [Enter] next · [q] quit >
 ```
 
-### Track performance over time: `trace stats`
-
-Aggregate metrics across all your runs. Answer "how is my agent performing?" at a glance.
+### Track performance: `trace stats`
 
 ```
 $ blueclaw trace stats --since 7
@@ -174,13 +155,6 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
   network              1 (33%)
 ```
 
-Filter by model to compare providers:
-
-```
-$ blueclaw trace stats --model ollama/llama3
-$ blueclaw trace stats --model claude-sonnet-4-6 --since 30
-```
-
 ### All trace commands
 
 | Command | Use case |
@@ -195,35 +169,42 @@ $ blueclaw trace stats --model claude-sonnet-4-6 --since 30
 | `trace stats` | Aggregate performance across all runs |
 | `trace purge` | Delete old traces (default: 30 days) |
 
+## What Makes BlueClaw Different
+
+Most agent tools focus on capability. BlueClaw focuses on **observability**.
+
+| | BlueClaw | Typical agent frameworks |
+|---|---|---|
+| Structured execution traces | Every run, automatic | None or manual logging |
+| Trace replay | Step-through debugger | Not available |
+| Trace diff | A/B test prompt changes | Not available |
+| Trace explain | LLM post-hoc analysis | Not available |
+| Aggregate stats | Cost, timing, failure rates | Not available |
+| CLI-first debugging | No dashboards required | Dashboard or nothing |
+
+Future versions will use trace history to generate runtime hints, allowing agents to avoid repeating past failures.
+
 ## Features
 
-- **Execution tracing** — structured JSON traces with full observability tooling (see above)
-- **Model-agnostic** — swap between Claude, Ollama, OpenAI, Gemini with one flag
-- **Web search** — DuckDuckGo search via `ddgs`, returns top 5 results with titles, URLs, and snippets
-- **Persistent memory** — `CONTEXT.md` updates in the background after each turn (instant exit), `history.jsonl` logs every run
-- **Interactive + scripted modes** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
-- **Shell execution** — sandboxed `shell_command` tool with deny-list, 30s timeout, and interactive approval
+- **Execution tracing** — structured JSON traces with full observability tooling
+- **Model-agnostic** — Claude, Ollama, OpenAI, Gemini with one flag
+- **Web search** — DuckDuckGo via `ddgs`, top 5 results with snippets
+- **Persistent memory** — `CONTEXT.md` updates in the background, `history.jsonl` logs every run
+- **Interactive + scripted** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
+- **Shell execution** — sandboxed with deny-list, 30s timeout, interactive approval
 - **Workspace sandbox** — path validation + destructive command deny-list
-- **Approval hooks** — interactive confirmation for shell commands and new web domains
-- **Crash recovery** — per-turn checkpoints in `.blueclaw/last_turn.md`
+- **Crash recovery** — per-turn checkpoints
 - **Output truncation** — 12k char limit prevents context blowout
-- **MCP support** — bundled `pdf-mcp` server, custom stdio/SSE servers via config
-- **Skill system** — progressive loading, index in prompt, full content on demand
+- **MCP support** — bundled `pdf-mcp`, custom stdio/SSE servers via config
+- **Trace lessons** — past failures automatically inform future runs
 
 ## Model Support
 
 ```bash
-# Anthropic (default)
-blueclaw
-
-# Ollama (local, no data leaves your machine)
-blueclaw --model ollama/llama3
-
-# OpenAI
-blueclaw --model openai/gpt-4.1-mini
-
-# Gemini via LiteLLM
-blueclaw --model litellm/gemini/gemini-2.0-flash
+blueclaw                                    # Anthropic (default)
+blueclaw --model ollama/llama3              # Ollama (local)
+blueclaw --model openai/gpt-4.1-mini       # OpenAI
+blueclaw --model litellm/gemini/gemini-2.0-flash  # Gemini via LiteLLM
 ```
 
 Set API keys in `.env`:
@@ -232,26 +213,6 @@ Set API keys in `.env`:
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `blueclaw` | Start interactive session |
-| `blueclaw run "..."` | Execute a single prompt and exit |
-| `blueclaw init` | Initialize workspace directory |
-| `blueclaw history` | View past run history |
-| `blueclaw trace list` | List recent execution traces |
-| `blueclaw trace show <run_id>` | Show detailed trace for a run |
-| `blueclaw trace explain <run_id>` | LLM-powered explanation of a recorded trace |
-| `blueclaw trace graph <run_id>` | Tree view of tool call sequence |
-| `blueclaw trace diff <id1> <id2>` | Compare two traces side by side |
-| `blueclaw trace replay <run_id>` | Step through a trace interactively |
-| `blueclaw trace timeline <run_id>` | Waterfall timeline with timing and overhead |
-| `blueclaw trace stats` | Aggregate metrics across all traces |
-| `blueclaw trace purge` | Delete traces older than retention period |
-| `blueclaw --version` | Print version |
-| `blueclaw --model provider/model` | Override model for this session |
 
 ## Configuration
 
@@ -268,7 +229,7 @@ workspace:
 
 tools:
   - web
-  - shell                              # sandboxed shell execution (enables gh, git, etc.)
+  - shell
   - pdf
   - mcp:https://localhost:8080/sse     # custom MCP server
 
@@ -293,28 +254,24 @@ allowlist_domains:
 | `tools/` | Web, shell, MCP wiring (factory pattern) |
 | `approval.py` | Shell command + domain allowlist hooks |
 
-## Workspace Structure
+Built on [Strands Agents SDK](https://github.com/strands-agents/sdk-python). The agent loop, tool execution, streaming, and model switching are all handled by Strands.
 
-```
-~/blueclaw/workspace/
-├── CONTEXT.md                    # Persistent agent knowledge (human-editable)
-└── .blueclaw/
-    ├── history.jsonl             # Append-only run log
-    ├── last_turn.md              # Crash recovery checkpoint
-    └── traces/                   # Structured execution traces
-        └── 20260315-101201.json  # One JSON file per run
-```
+## Roadmap
+
+BlueClaw evolves in layers:
+
+1. **Observable agent runtime** — structured tracing, model-agnostic, CLI tools (done)
+2. **Trace analytics** — aggregate stats, timeline, failure classification (done)
+3. **Agent regression testing** — define expected behavior in YAML, CI for agents (next)
+4. **Production observability** — SQLite backend, trace query, OpenTelemetry export
+5. **API gateway** — `blueclaw serve` with webhook endpoint
+6. **Multi-channel runtime** — Slack, Discord, Telegram adapters
 
 ## Development
 
 ```bash
-# Install in dev mode
 pip install -e ".[dev]"
-
-# Run tests
 pytest
-
-# Lint
 flake8 blueclaw/ tests/
 black --check blueclaw/ tests/
 ```

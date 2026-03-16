@@ -2,6 +2,23 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+
+- Smart context management: `ObservationMaskingManager` replaces `SummarizingConversationManager` as the default conversation manager. Based on [Lindenbauer et al. 2025 "The Complexity Trap"](https://arxiv.org/abs/2508.21433) — observation masking halves per-run costs with no quality loss
+- Three configurable strategies via `blueclaw.yaml`: `mask` (default, replaces old tool outputs with placeholders), `summarize` (legacy LLM summarization), `hybrid` (mask first, summarize only after N turns)
+- `context` section in `blueclaw.yaml`: `strategy`, `mask_after` (default 10), `summarize_after` (hybrid only, default 43)
+- Context metrics in traces: `context_masked_chars` and `context_strategy` fields on `RunTrace`
+- `trace show` displays context strategy and masked char count when present
+- `trace stats` shows Context Management section: runs with masking, avg/total chars masked, strategy breakdown
+- `BeforeModelCallEvent` hook for proactive masking within multi-tool invocations (same pattern as Strands' `SlidingWindowConversationManager`)
+- `reduce_context` fallback chain: aggressive mask (M=0) then delegate to `SummarizingConversationManager`
+- 35 new tests (400 total)
+
+### Changed
+
+- Default conversation manager switched from `SummarizingConversationManager` to `ObservationMaskingManager` — existing behavior available via `context.strategy: summarize`
+
 ## [1.2.5] - 2026-03-16
 ### Added
 

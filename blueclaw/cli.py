@@ -329,6 +329,10 @@ def trace_show(
         f"{trace.start_time.strftime('%Y-%m-%d %H:%M:%S')} \u2192 "
         f"{trace.end_time.strftime('%H:%M:%S')}"
     )
+    if trace.context_strategy:
+        console.print(f"[bold]Context:[/bold] {trace.context_strategy}")
+    if trace.context_masked_chars:
+        console.print(f"[bold]Masked:[/bold] {trace.context_masked_chars:,} chars")
     console.print()
 
     table = Table(show_edge=False, pad_edge=False)
@@ -666,6 +670,22 @@ def trace_stats(
         f"  Avg tool time:   {avg_tool / 1000:.1f}s ({tool_pct:.0f}% of wall)"
     )
     console.print()
+
+    # Context management
+    traces_with_ctx = [t for t in traces if t.context_masked_chars is not None]
+    if traces_with_ctx:
+        total_masked = sum(t.context_masked_chars for t in traces_with_ctx)
+        avg_masked = total_masked / len(traces_with_ctx)
+        strategies = Counter(
+            t.context_strategy for t in traces_with_ctx if t.context_strategy
+        )
+        console.print("[bold]Context Management[/bold]")
+        console.print(f"  Runs with masking: {len(traces_with_ctx)}/{total_runs}")
+        console.print(f"  Avg chars masked:  {avg_masked:,.0f}")
+        console.print(f"  Total chars saved: {total_masked:,.0f}")
+        for strat, cnt in strategies.most_common():
+            console.print(f"  Strategy {strat}: {cnt} runs")
+        console.print()
 
     # Top tools
     console.print("[bold]Top Tools[/bold] (by frequency)")

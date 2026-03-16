@@ -463,3 +463,87 @@ class TestClassifyError:
         # "connection timeout" matches both timeout and network
         # timeout comes first in FAILURE_PATTERNS
         assert classify_error("connection timeout") == "timeout"
+
+
+class TestSessionConfigContext:
+    def test_default_context_strategy(self):
+        cfg = SessionConfig()
+        assert cfg.context_strategy == "mask"
+        assert cfg.context_mask_after == 10
+        assert cfg.context_summarize_after is None
+
+    def test_valid_strategies(self):
+        for s in ("mask", "summarize", "hybrid"):
+            cfg = SessionConfig(context_strategy=s)
+            assert cfg.context_strategy == s
+
+    def test_invalid_strategy_raises(self):
+        with pytest.raises(ValidationError):
+            SessionConfig(context_strategy="invalid")
+
+    def test_hybrid_fields(self):
+        cfg = SessionConfig(
+            context_strategy="hybrid",
+            context_mask_after=5,
+            context_summarize_after=43,
+        )
+        assert cfg.context_mask_after == 5
+        assert cfg.context_summarize_after == 43
+
+
+class TestRunTraceContextFields:
+    def test_context_fields_default_none(self):
+        trace = RunTrace(
+            run_id="20260316-120000",
+            goal="test",
+            start_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            end_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            model_id="test",
+            steps=[],
+            total_tokens=0,
+            status="success",
+        )
+        assert trace.context_masked_chars is None
+        assert trace.context_strategy is None
+
+    def test_context_fields_populated(self):
+        trace = RunTrace(
+            run_id="20260316-120000",
+            goal="test",
+            start_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            end_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            model_id="test",
+            steps=[],
+            total_tokens=0,
+            status="success",
+            context_masked_chars=5000,
+            context_strategy="mask",
+        )
+        assert trace.context_masked_chars == 5000
+
+    def test_backward_compat_old_json(self):
+        old_json = (
+            '{"run_id":"x","goal":"y",'
+            '"start_time":"2026-03-16T00:00:00Z",'
+            '"end_time":"2026-03-16T00:00:00Z",'
+            '"model_id":"m","steps":[],"total_tokens":0,"status":"success"}'
+        )
+        trace = RunTrace.from_json(old_json)
+        assert trace.context_masked_chars is None
+
+    def test_roundtrip_with_context_fields(self):
+        trace = RunTrace(
+            run_id="20260316-120000",
+            goal="test",
+            start_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            end_time=datetime(2026, 3, 16, tzinfo=timezone.utc),
+            model_id="test",
+            steps=[],
+            total_tokens=0,
+            status="success",
+            context_masked_chars=1234,
+            context_strategy="hybrid",
+        )
+        restored = RunTrace.from_json(trace.to_json())
+        assert restored.context_masked_chars == 1234
+        assert restored.context_strategy == "hybrid"

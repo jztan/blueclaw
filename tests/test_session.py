@@ -89,6 +89,23 @@ class TestLoadConfig:
         cfg = load_config(yaml_path)
         assert cfg.trace_retention_days == 0
 
+    def test_context_strategy_from_yaml(self, tmp_path):
+        cfg_file = tmp_path / "blueclaw.yaml"
+        cfg_file.write_text(
+            "context:\n  strategy: hybrid\n" "  mask_after: 5\n  summarize_after: 20\n"
+        )
+        config = load_config(cfg_file)
+        assert config.context_strategy == "hybrid"
+        assert config.context_mask_after == 5
+        assert config.context_summarize_after == 20
+
+    def test_context_defaults_without_yaml_section(self, tmp_path):
+        cfg_file = tmp_path / "blueclaw.yaml"
+        cfg_file.write_text("tools: [web]\n")
+        config = load_config(cfg_file)
+        assert config.context_strategy == "mask"
+        assert config.context_mask_after == 10
+
 
 # --- Model override parsing ---
 
@@ -314,6 +331,42 @@ class TestCreateAgent:
         cb = mock_agent_cls.call_args.kwargs["callback_handler"]
         assert cb._file is buf
 
+    @patch("blueclaw.session.Agent")
+    def test_create_agent_uses_masking_manager_by_default(
+        self, mock_agent_cls, tmp_path
+    ):
+        from blueclaw.context import ObservationMaskingManager
+
+        ws = Workspace(tmp_path)
+        cfg = SessionConfig()
+        observer = MagicMock()
+        create_agent(cfg, ws, observer, model=MagicMock())
+        cm = mock_agent_cls.call_args.kwargs["conversation_manager"]
+        assert isinstance(cm, ObservationMaskingManager)
+
+    @patch("blueclaw.session.Agent")
+    def test_create_agent_uses_summarizer_when_configured(
+        self, mock_agent_cls, tmp_path
+    ):
+        from strands.agent.conversation_manager import (
+            SummarizingConversationManager,
+        )
+
+        ws = Workspace(tmp_path)
+        cfg = SessionConfig(context_strategy="summarize")
+        observer = MagicMock()
+        create_agent(cfg, ws, observer, model=MagicMock())
+        cm = mock_agent_cls.call_args.kwargs["conversation_manager"]
+        assert isinstance(cm, SummarizingConversationManager)
+
+    @patch("blueclaw.session.Agent")
+    def test_create_agent_attaches_cm_to_observer(self, mock_agent_cls, tmp_path):
+        ws = Workspace(tmp_path)
+        cfg = SessionConfig()
+        observer = MagicMock()
+        create_agent(cfg, ws, observer, model=MagicMock())
+        assert hasattr(observer, "conversation_manager")
+
 
 # --- Chat loop ---
 
@@ -523,6 +576,63 @@ class TestRunSummary:
             console=console,
         )
         observer.reset.assert_called_once()
+
+    def test_run_summary_captures_context_metrics(self, tmp_path):
+        ws = Workspace(tmp_path)
+        mock_cm = MagicMock()
+        mock_cm.masked_chars = 5000
+        observer = MagicMock()
+        observer.tools_called = ["t1"]
+        observer.conversation_manager = mock_cm
+        console = Console(file=StringIO())
+        cfg = SessionConfig()
+
+        result = MagicMock()
+        result.metrics.accumulated_usage = {
+            "inputTokens": 100,
+            "outputTokens": 50,
+            "totalTokens": 150,
+        }
+
+        print_run_summary(
+            result=result,
+            goal="test",
+            observer=observer,
+            workspace=ws,
+            config=cfg,
+            console=console,
+        )
+        traces = ws.list_traces()
+        assert len(traces) == 1
+        assert traces[0].context_masked_chars == 5000
+        assert traces[0].context_strategy == "mask"
+        mock_cm.reset_metrics.assert_called_once()
+
+    def test_run_summary_no_context_metrics_without_cm(self, tmp_path):
+        ws = Workspace(tmp_path)
+        observer = MagicMock(spec=["tools_called", "trace_steps", "reset"])
+        observer.tools_called = []
+        observer.trace_steps = []
+        console = Console(file=StringIO())
+        cfg = SessionConfig()
+
+        result = MagicMock()
+        result.metrics.accumulated_usage = {
+            "inputTokens": 10,
+            "outputTokens": 5,
+            "totalTokens": 15,
+        }
+
+        print_run_summary(
+            result=result,
+            goal="test",
+            observer=observer,
+            workspace=ws,
+            config=cfg,
+            console=console,
+        )
+        traces = ws.list_traces()
+        assert traces[0].context_masked_chars is None
 
 
 # --- Context update ---

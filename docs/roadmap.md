@@ -1,6 +1,6 @@
 # BlueClaw Roadmap
 
-> Observable agent runtime → trace analytics → agent testing → production observability → API gateway → multi-channel runtime.
+> Observable agent runtime → trace analytics → smart context management → agent testing → production observability → API gateway → multi-channel runtime.
 
 **Current:** v1.2 complete. v1.3 next.
 
@@ -18,7 +18,11 @@ CLI tools for post-hoc debugging: `trace explain`, `trace graph`, `trace diff`, 
 
 Aggregate metrics across runs: `trace timeline`, `trace stats` with `--since` and `--model` filters. Failure classification, Esc Esc interrupt, trace-powered behavioral lessons, DuckDuckGo web search.
 
-## v1.3 — Agent Regression Testing
+## v1.3 — Smart Context Management
+
+Replace LLM-based conversation summarization with observation masking — a research-backed strategy that halves per-run costs with no quality loss. Based on [Lindenbauer et al. 2025](https://arxiv.org/abs/2508.21433), which showed that replacing old tool outputs with a placeholder (while preserving all reasoning) matches or exceeds LLM summarization across multiple models. Configurable strategies (`mask`, `summarize`, `hybrid`), context metrics in traces, and cost savings visible in `trace stats`.
+
+## v1.4 — Agent Regression Testing
 
 Define expected agent behavior in YAML and validate automatically. CI for agents.
 

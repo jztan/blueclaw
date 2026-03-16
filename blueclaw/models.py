@@ -19,11 +19,21 @@ class SessionConfig(BaseModel):
     allowlist_domains: list[str] = []
     tools: list[str] = ["web", "shell", "pdf"]
     trace_retention_days: int = 30
+    context_strategy: str = "mask"
+    context_mask_after: int = 10
+    context_summarize_after: int | None = None
 
     @field_validator("trace_retention_days")
     @classmethod
     def clamp_retention(cls, v: int) -> int:
         return max(v, 0)
+
+    @field_validator("context_strategy")
+    @classmethod
+    def validate_context_strategy(cls, v: str) -> str:
+        if v not in ("mask", "summarize", "hybrid"):
+            raise ValueError(f"context_strategy must be mask|summarize|hybrid, got {v}")
+        return v
 
 
 class RunRecord(BaseModel):
@@ -88,6 +98,8 @@ class RunTrace(BaseModel):
     total_tokens: int
     total_cost: float | None = None
     status: str  # "success" | "error"
+    context_masked_chars: int | None = None
+    context_strategy: str | None = None
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)

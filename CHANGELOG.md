@@ -10,6 +10,7 @@ All notable changes to blueclaw will be documented in this file.
 - `blueclaw trace purge` CLI command with `--older-than` and `--dry-run` flags
 - 10 new tests for trace purge (workspace, CLI, config loading)
 - `workspace` section in generated `blueclaw.yaml` from `blueclaw init` (path + trace_retention_days)
+- `scripts/release.py` — gitflow release automation (version bump, changelog, tag, GitHub release, PyPI wait, merge back)
 
 ### Changed
 

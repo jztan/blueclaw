@@ -77,6 +77,18 @@ class TestLoadConfig:
         assert cfg.provider == "ollama"
         assert cfg.model_id == "llama3"
 
+    def test_load_config_trace_retention_days(self, tmp_path):
+        yaml_path = tmp_path / "blueclaw.yaml"
+        yaml_path.write_text(yaml.dump({"workspace": {"trace_retention_days": 7}}))
+        cfg = load_config(yaml_path)
+        assert cfg.trace_retention_days == 7
+
+    def test_load_config_trace_retention_negative_clamped(self, tmp_path):
+        yaml_path = tmp_path / "blueclaw.yaml"
+        yaml_path.write_text(yaml.dump({"workspace": {"trace_retention_days": -5}}))
+        cfg = load_config(yaml_path)
+        assert cfg.trace_retention_days == 0
+
 
 # --- Model override parsing ---
 

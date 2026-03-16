@@ -419,3 +419,54 @@ class TestListTracesSince:
         since = datetime(2026, 3, 13, 10, 0, 0, tzinfo=timezone.utc)
         traces = ws.list_traces(limit=100, since=since)
         assert len(traces) == 2
+
+
+class TestTracePurge:
+    """Trace retention: purge_old_traces method."""
+
+    def _write_trace_file(self, ws, filename):
+        ws.traces_dir.mkdir(parents=True, exist_ok=True)
+        (ws.traces_dir / filename).write_text("{}")
+
+    def test_purge_deletes_old_traces(self, tmp_path):
+        ws = Workspace(tmp_path)
+        self._write_trace_file(ws, "20250101-120000.json")
+        self._write_trace_file(ws, "20260315-120000.json")
+        count = ws.purge_old_traces(30)
+        assert count == 1
+        assert not (ws.traces_dir / "20250101-120000.json").exists()
+        assert (ws.traces_dir / "20260315-120000.json").exists()
+
+    def test_purge_keeps_recent_traces(self, tmp_path):
+        ws = Workspace(tmp_path)
+        self._write_trace_file(ws, "20260315-120000.json")
+        count = ws.purge_old_traces(30)
+        assert count == 0
+        assert (ws.traces_dir / "20260315-120000.json").exists()
+
+    def test_purge_zero_keeps_all(self, tmp_path):
+        ws = Workspace(tmp_path)
+        self._write_trace_file(ws, "20200101-120000.json")
+        count = ws.purge_old_traces(0)
+        assert count == 0
+        assert (ws.traces_dir / "20200101-120000.json").exists()
+
+    def test_purge_skips_bad_filenames(self, tmp_path):
+        ws = Workspace(tmp_path)
+        self._write_trace_file(ws, "not-a-date.json")
+        self._write_trace_file(ws, "20250101-120000.json")
+        count = ws.purge_old_traces(30)
+        assert count == 1
+        assert (ws.traces_dir / "not-a-date.json").exists()
+
+    def test_purge_empty_dir(self, tmp_path):
+        ws = Workspace(tmp_path)
+        count = ws.purge_old_traces(30)
+        assert count == 0
+
+    def test_purge_dry_run(self, tmp_path):
+        ws = Workspace(tmp_path)
+        self._write_trace_file(ws, "20250101-120000.json")
+        count = ws.purge_old_traces(30, dry_run=True)
+        assert count == 1
+        assert (ws.traces_dir / "20250101-120000.json").exists()

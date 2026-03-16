@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class SessionConfig(BaseModel):
@@ -18,6 +18,12 @@ class SessionConfig(BaseModel):
     workspace_path: Path = Path.home() / "blueclaw" / "workspace"
     allowlist_domains: list[str] = []
     tools: list[str] = ["web", "shell", "pdf"]
+    trace_retention_days: int = 30
+
+    @field_validator("trace_retention_days")
+    @classmethod
+    def clamp_retention(cls, v: int) -> int:
+        return max(v, 0)
 
 
 class RunRecord(BaseModel):

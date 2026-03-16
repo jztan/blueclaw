@@ -193,6 +193,7 @@ $ blueclaw trace stats --model claude-sonnet-4-6 --since 30
 | `trace diff <id1> <id2>` | Compare two runs (A/B test prompts) |
 | `trace replay <id>` | Step-through debugger for tool calls |
 | `trace stats` | Aggregate performance across all runs |
+| `trace purge` | Delete old traces (default: 30 days) |
 
 ## Features
 
@@ -248,6 +249,7 @@ OPENAI_API_KEY=sk-...
 | `blueclaw trace replay <run_id>` | Step through a trace interactively |
 | `blueclaw trace timeline <run_id>` | Waterfall timeline with timing and overhead |
 | `blueclaw trace stats` | Aggregate metrics across all traces |
+| `blueclaw trace purge` | Delete traces older than retention period |
 | `blueclaw --version` | Print version |
 | `blueclaw --model provider/model` | Override model for this session |
 
@@ -262,6 +264,7 @@ model:
 
 workspace:
   path: ~/blueclaw/workspace/
+  trace_retention_days: 30             # auto-purge old traces; 0 = keep forever
 
 tools:
   - web

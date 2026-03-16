@@ -169,6 +169,7 @@ def run_session(model_override: str | None = None) -> None:
     config_path = Path("blueclaw.yaml")
     config = load_config(config_path, model_override=model_override)
     workspace = Workspace(config.workspace_path)
+    workspace.purge_old_traces(config.trace_retention_days)
     observer = ObserverHooks(console=console)
     model = build_model(config)
 
@@ -223,6 +224,7 @@ def run(
     config_path = Path("blueclaw.yaml")
     config = load_config(config_path, model_override=model)
     workspace = Workspace(config.workspace_path)
+    workspace.purge_old_traces(config.trace_retention_days)
     observer = ObserverHooks(console=console)
     model_instance = build_model(config)
 
@@ -279,6 +281,8 @@ def init() -> None:
     if not config_path.exists():
         config_path.write_text(
             "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n\n"
+            "workspace:\n  path: ~/blueclaw/workspace/\n"
+            "  trace_retention_days: 30\n\n"
             "tools:\n  - web\n  - shell\n  - pdf\n\nallowlist_domains: []\n"
         )
 
@@ -719,3 +723,24 @@ def trace_stats(
         for category, count in failure_counts.most_common():
             pct = count / len(failed_steps) * 100
             console.print(f"  {category:<20} {count} ({pct:.0f}%)")
+
+
+@trace_app.command("purge")
+def trace_purge(
+    older_than: Optional[int] = typer.Option(
+        None,
+        "--older-than",
+        "-d",
+        help="Delete traces older than N days (default: config or 30)",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted"),
+) -> None:
+    """Delete old trace files."""
+    from blueclaw.session import load_config
+
+    config = load_config(Path("blueclaw.yaml"))
+    days = older_than if older_than is not None else config.trace_retention_days
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    count = workspace.purge_old_traces(days, dry_run=dry_run)
+    verb = "Would delete" if dry_run else "Deleted"
+    console.print(f"{verb} {count} trace(s) older than {days} days.")

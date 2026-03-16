@@ -37,6 +37,7 @@ build/
 workspace/
 
 # blueclaw runtime
+blueclaw.yaml
 *.jsonl
 pending.json
 blueclaw.db

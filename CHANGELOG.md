@@ -2,6 +2,25 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Trace retention: auto-purge old traces on session start (default 30 days, configurable via `workspace.trace_retention_days` in `blueclaw.yaml`, set `0` to keep forever)
+- `blueclaw trace purge` CLI command with `--older-than` and `--dry-run` flags
+- 10 new tests for trace purge (workspace, CLI, config loading)
+- `workspace` section in generated `blueclaw.yaml` from `blueclaw init` (path + trace_retention_days)
+- `scripts/release.py` — gitflow release automation (version bump, changelog, tag, GitHub release, PyPI wait, merge back)
+
+### Changed
+
+- Welcome banner: removed tips section, deduplicated version display, consolidated run count and status flags into mascot lines
+- Terminal mascot alignment: centered eyes/claws over body, reduced left padding to hug panel edge
+
+### Fixed
+
+- `blueclaw.yaml` was tracked in git — removed from tracking and added to `.gitignore`
+
 ## [1.2.4] - 2026-03-15
 
 ### Fixed

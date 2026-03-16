@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from blueclaw.models import RunRecord, RunTrace
@@ -199,3 +199,21 @@ class Workspace:
                 continue
             traces.append(trace)
         return traces
+
+    def purge_old_traces(self, retention_days: int, dry_run: bool = False) -> int:
+        """Delete traces older than retention_days. Returns count."""
+        if retention_days <= 0 or not self.traces_dir.exists():
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime(
+            "%Y%m%d"
+        )
+        count = 0
+        for f in self.traces_dir.glob("*.json"):
+            date_prefix = f.stem[:8]
+            if not date_prefix.isdigit() or len(date_prefix) != 8:
+                continue
+            if date_prefix < cutoff:
+                if not dry_run:
+                    f.unlink()
+                count += 1
+        return count

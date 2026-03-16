@@ -201,8 +201,8 @@ class TestWelcomeBanner:
         ws = Workspace(Path("/tmp/test-banner-ws4"))
         render_welcome_banner(cfg, ws, console)
         text = output.getvalue()
-        # Half-block chars should be present
-        assert any(ch in text for ch in "\u2580\u2584\u2588")
+        assert "•   •" in text
+        assert "▝▛███▜▘" in text
 
     def test_welcome_banner_ollama_note(self):
         output = StringIO()
@@ -232,19 +232,20 @@ class TestPixelArt:
         result = render_pixel_art()
         assert isinstance(result, Text)
 
-    def test_render_pixel_art_uses_half_blocks(self):
+    def test_render_pixel_art_contains_claws(self):
         output = StringIO()
         console = Console(file=output, force_terminal=True)
         art = render_pixel_art()
         console.print(art)
         text = output.getvalue()
-        assert any(ch in text for ch in "\u2580\u2584\u2588")
+        assert "\\ " in art.plain
+        assert "▝▛███▜▘" in text
 
     def test_render_pixel_art_line_count(self):
         art = render_pixel_art()
         plain = art.plain
         lines = plain.strip().splitlines()
-        assert len(lines) == 9
+        assert len(lines) == 3
 
     def test_render_pixel_art_has_colors(self):
         art = render_pixel_art()
@@ -1030,3 +1031,31 @@ class TestStreamingCallbackWiring:
         call_kwargs = mock_create_agent.call_args
         assert "console" in call_kwargs.kwargs
         assert call_kwargs.kwargs["console"] is not None
+
+
+class TestTracePurge:
+    """CLI: blueclaw trace purge command."""
+
+    def test_trace_purge_command(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        traces_dir = ws_path / ".blueclaw" / "traces"
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        (traces_dir / "20250101-120000.json").write_text("{}")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "purge"])
+        assert result.exit_code == 0
+        assert "1" in result.output
+        assert not (traces_dir / "20250101-120000.json").exists()
+
+    def test_trace_purge_dry_run(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        Workspace(ws_path)
+        traces_dir = ws_path / ".blueclaw" / "traces"
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        (traces_dir / "20250101-120000.json").write_text("{}")
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "purge", "--dry-run"])
+        assert result.exit_code == 0
+        assert "would delete" in result.output.lower()
+        assert (traces_dir / "20250101-120000.json").exists()

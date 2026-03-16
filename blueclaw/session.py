@@ -173,6 +173,13 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
         kwargs["allowlist_domains"] = config_data["allowlist_domains"]
     if "workspace" in config_data and "path" in config_data["workspace"]:
         kwargs["workspace_path"] = Path(config_data["workspace"]["path"]).expanduser()
+    if (
+        "workspace" in config_data
+        and "trace_retention_days" in config_data["workspace"]
+    ):
+        kwargs["trace_retention_days"] = config_data["workspace"][
+            "trace_retention_days"
+        ]
 
     # Apply model override
     if model_override:

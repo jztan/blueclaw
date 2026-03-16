@@ -2,8 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
-
+## [1.2.5] - 2026-03-16
 ### Added
 
 - Trace retention: auto-purge old traces on session start (default 30 days, configurable via `workspace.trace_retention_days` in `blueclaw.yaml`, set `0` to keep forever)

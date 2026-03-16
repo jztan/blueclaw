@@ -210,7 +210,7 @@ class TestWelcomeBanner:
         cfg = SessionConfig(provider="ollama", model_id="llama3")
         ws = Workspace(Path("/tmp/test-banner-ws5"))
         render_welcome_banner(cfg, ws, console)
-        assert "locally" in output.getvalue().lower()
+        assert "local mode" in output.getvalue().lower()
 
     def test_welcome_banner_shows_recovery_checkpoint(self):
         output = StringIO()

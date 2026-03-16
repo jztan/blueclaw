@@ -11,6 +11,11 @@ All notable changes to blueclaw will be documented in this file.
 - 10 new tests for trace purge (workspace, CLI, config loading)
 - `workspace` section in generated `blueclaw.yaml` from `blueclaw init` (path + trace_retention_days)
 
+### Changed
+
+- Welcome banner: removed tips section, deduplicated version display, consolidated run count and status flags into mascot lines
+- Terminal mascot alignment: centered eyes/claws over body, reduced left padding to hug panel edge
+
 ### Fixed
 
 - `blueclaw.yaml` was tracked in git — removed from tracking and added to `.gitignore`

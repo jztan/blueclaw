@@ -30,66 +30,52 @@ console = Console()
 
 DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
 
-# --- Pixel art ---
+# --- Terminal mascot ---
 
-# 24×18 color grid: BL=slate blue body, DB=dark outline, YL=gold accents.
-# The stencil is shaped to better match the logo mascot: upright ears, close-set
-# face, left claw, round body, and a curled tail on the right.
-_BL = "#4A7FAF"
-_DB = "#2D4F73"
-_YL = "#D4A843"
-
-_PIXEL_ROWS = [
-    "........D......D........",
-    ".......DYD....DYD.......",
-    "......DBYYD..DYYBD......",
-    ".....DBBBBBDDBBBBBD.....",
-    ".....DBBBBBBBBBBBBBD....",
-    "....DBBBDBBBBBDBBBBBD...",
-    "....DBBBBBDBDBBBBBBBD...",
-    "....DBBYYBBBBBBYYBBBD...",
-    "....DBBBBBBDBBBBBBBBD...",
-    ".....DBBBBBBBBBBBBBD....",
-    "..YYYDDBBBBBBBBBBBDD....",
-    ".YD...DYBBBBBBBBBBD.....",
-    "Y..YDDDBBBBBBBBBBBBDD...",
-    ".YDDBBBBBBBBBBBBBBBBBD..",
-    "...DBBBBBBBYYBBBBBBBBDD.",
-    "...DBBBBBBBDDBBBBBBBD.BD",
-    "....DYYD..D..DYYD..DDBD.",
-    ".....DD........DD....DD.",
+_MASCOT_BLUE = "#3F8FC5"
+_MASCOT_YELLOW = "#F4C542"
+_MASCOT_SEGMENTS = [
+    [
+        (" ", None),
+        ("\\ ", _MASCOT_YELLOW),
+        ("•   •", _MASCOT_BLUE),
+        (" /", _MASCOT_YELLOW),
+    ],
+    [
+        ("  ", None),
+        ("▝▛███▜▘", _MASCOT_BLUE),
+    ],
+    [
+        ("  ", None),
+        ("/", _MASCOT_YELLOW),
+        ("▘▘ ", _MASCOT_BLUE),
+        ("▝▝", _MASCOT_BLUE),
+        ("\\", _MASCOT_YELLOW),
+    ],
 ]
 
-_PIXEL_COLORS = {".": None, "B": _BL, "D": _DB, "Y": _YL}
-PIXEL_GRID: list[list[str | None]] = [
-    [_PIXEL_COLORS[cell] for cell in row] for row in _PIXEL_ROWS
-]
+
+def _render_mascot_lines() -> list[Text]:
+    """Render mascot rows as individual Rich text lines."""
+    lines: list[Text] = []
+    for row in _MASCOT_SEGMENTS:
+        line = Text()
+        for segment, color in row:
+            if color:
+                line.append(segment, style=color)
+            else:
+                line.append(segment)
+        lines.append(line)
+    return lines
 
 
 def render_pixel_art() -> Text:
-    """Render the mascot as half-block pixel art (9 output lines from 18 pixel rows)."""
-    from rich.style import Style
-
+    """Render the terminal mascot in Rich text."""
     text = Text()
-    row_count = len(PIXEL_GRID)
-    col_count = max((len(row) for row in PIXEL_GRID), default=0)
-    for row_idx in range(0, row_count, 2):
-        top_row = PIXEL_GRID[row_idx]
-        bot_row = (
-            PIXEL_GRID[row_idx + 1] if row_idx + 1 < row_count else [None] * col_count
-        )
-        for col in range(col_count):
-            fg = top_row[col] if col < len(top_row) else None
-            bg = bot_row[col] if col < len(bot_row) else None
-            if fg and bg:
-                text.append("\u2580", style=Style(color=fg, bgcolor=bg))
-            elif fg:
-                text.append("\u2580", style=Style(color=fg))
-            elif bg:
-                text.append("\u2584", style=Style(color=bg))
-            else:
-                text.append(" ")
-        if row_idx + 2 < row_count:
+    lines = _render_mascot_lines()
+    for row_idx, line in enumerate(lines):
+        text.append_text(line)
+        if row_idx + 1 < len(lines):
             text.append("\n")
     return text
 
@@ -100,56 +86,36 @@ def render_pixel_art() -> Text:
 def render_welcome_banner(
     config: SessionConfig, workspace: Workspace, con: Console
 ) -> None:
-    """Render the welcome banner with mascot, config info, and tips."""
-    art = render_pixel_art()
-
-    # Info lines
-    info = Text()
-    info.append(f"blueclaw v{__version__}\n", style="bold")
-    info.append(f"model: {config.model_id}\n")
+    """Render the welcome banner with mascot and config info."""
+    mascot_lines = _render_mascot_lines()
 
     history = workspace.read_history()
     run_count = len(history)
-    info.append(f"{run_count} past runs\n" if run_count else "No past runs\n")
-    info.append(f"{workspace.root}\n", style="dim")
 
+    # Third line: run count + optional status flags
+    status_parts = [f"{run_count} past runs" if run_count else "No past runs"]
     if workspace.read_last_turn_checkpoint():
-        info.append(
-            "recovery checkpoint available (.blueclaw/last_turn.md)\n", style="yellow"
-        )
-
+        status_parts.append("recovery checkpoint")
     if config.provider == "ollama":
-        info.append(
-            "running locally \u2014 no data leaves your machine\n", style="dim italic"
-        )
+        status_parts.append("local mode")
+    status_str = " \u00b7 ".join(status_parts)
 
-    # Tips
-    tips = Text()
-    tips.append("Tips:\n", style="bold")
-    tips.append("  Type a goal to get started\n")
-    tips.append("  exit/quit to leave\n")
-    tips.append("  CONTEXT.md persists across sessions\n")
+    header_lines = [
+        Text.assemble(
+            mascot_lines[0],
+            (f"   v{__version__} \u00b7 {config.model_id}", "bold"),
+        ),
+        Text.assemble(mascot_lines[1], (f"   {workspace.root}", "dim")),
+        Text.assemble(mascot_lines[2], (f"   {status_str}", "dim")),
+    ]
 
-    width = con.width or 120
-    if width < 60:
-        # Narrow: single column
-        content = Text()
-        content.append_text(art)
-        content.append("\n\n")
-        content.append_text(info)
-        content.append("\n")
-        content.append_text(tips)
-    else:
-        # Wide: two columns via group
-        from rich.columns import Columns
+    content = Text()
+    for i, line in enumerate(header_lines):
+        content.append_text(line)
+        if i < len(header_lines) - 1:
+            content.append("\n")
 
-        left = Text()
-        left.append_text(art)
-        left.append("\n\n")
-        left.append_text(info)
-        content = Columns([left, tips], padding=(0, 2))
-
-    panel = Panel(content, title=f"blueclaw v{__version__}", border_style="blue")
+    panel = Panel(content, title="BlueClaw", border_style="blue")
     con.print(panel)
 
 

@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Observable AI agent runtime with structured execution tracing.</strong><br>
-  Inspect, replay, diff, and debug agent behavior from the terminal.
+  <strong>Understand, debug, and control AI agent behavior.</strong><br>
+  Structured tracing, context management, and reproducible runs — all from the terminal.
 </p>
 
 <p align="center">
@@ -25,11 +25,20 @@
 
 ---
 
+> If you can't explain what your agent did, you can't improve it.
+
 ## Why BlueClaw
 
-Most AI agents are black boxes. When something goes wrong, you don't know whether the problem was the model reasoning, a tool input, a tool output, a retry loop, or a bad prompt.
+Most AI agents are black boxes. When something goes wrong, you don't know whether the problem was:
 
-BlueClaw records structured execution traces for every run and provides CLI tools to analyze them. Agents become observable systems, not mystery machines.
+- model reasoning
+- tool inputs or outputs
+- retry loops
+- context growth over time
+
+As agents run longer, two things happen: context grows every turn, and cost and latency increase non-linearly.
+
+BlueClaw records structured execution traces for every run and provides CLI tools to analyze them. Agents become observable, testable systems — not mystery machines.
 
 ```
 blueclaw> research the MCP ecosystem, focus on Python SDKs
@@ -171,7 +180,7 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
 
 ## What Makes BlueClaw Different
 
-Most agent tools focus on capability. BlueClaw focuses on **observability**.
+Most agent tools focus on capability. BlueClaw focuses on **behavior**.
 
 | | BlueClaw | Typical agent frameworks |
 |---|---|---|

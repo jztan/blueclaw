@@ -967,6 +967,83 @@ class TestTraceStats:
         assert result.exit_code == 0
         assert "2" in result.output
 
+    def test_stats_context_section(self, tmp_path):
+        """trace stats shows Context Management section for context traces."""
+        ws_path = tmp_path / "workspace"
+        ws = Workspace(ws_path)
+        ts = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        step = TraceStep(
+            index=1,
+            tool_name="web_search",
+            status="success",
+            start_time=ts,
+            end_time=ts,
+            duration_ms=400,
+        )
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-100000",
+                goal="test context",
+                start_time=ts,
+                end_time=datetime(2026, 3, 15, 10, 0, 5, tzinfo=timezone.utc),
+                model_id="claude-sonnet-4-6",
+                steps=[step],
+                total_tokens=1000,
+                total_cost=0.003,
+                status="success",
+                context_masked_chars=5000,
+                context_strategy="mask",
+            )
+        )
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "Context Management" in result.output
+        assert "5,000" in result.output
+
+    def test_stats_no_context_section_for_old_traces(self, tmp_path):
+        """Old traces without context fields don't trigger context section."""
+        ws_path = tmp_path / "workspace"
+        self._write_traces(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "stats"])
+        assert result.exit_code == 0
+        assert "Context Management" not in result.output
+
+
+class TestTraceShowContext:
+    def test_trace_show_displays_context_info(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        ws = Workspace(ws_path)
+        ts = datetime(2026, 3, 15, 10, 12, 1, tzinfo=timezone.utc)
+        ws.write_trace(
+            RunTrace(
+                run_id="20260315-101201",
+                goal="test context show",
+                start_time=ts,
+                end_time=ts,
+                model_id="claude-sonnet-4-6",
+                steps=[],
+                total_tokens=100,
+                status="success",
+                context_masked_chars=3500,
+                context_strategy="mask",
+            )
+        )
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "mask" in result.output
+        assert "3,500" in result.output
+
+    def test_trace_show_no_context_for_old_traces(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        _write_test_trace(ws_path)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", "20260315-101201"])
+        assert result.exit_code == 0
+        assert "Context:" not in result.output
+
 
 # --- Streaming callback CLI wiring ---
 

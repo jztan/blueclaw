@@ -1,0 +1,14 @@
+# Category 3: Mixed Workflow (Realistic Agent)
+#
+# Tool outputs: mix of small (search) and large (fetch)
+# Context dependency: medium
+# Context pressure: medium-high
+# Expected winner: varies — tests real-world scenario
+#
+name: "Cat 3: Mixed workflow"
+prompts:
+  - search for the top 3 python web frameworks in 2025
+  - search for "fastapi vs django performance benchmarks 2025"
+  - search for "flask vs fastapi developer experience comparison"
+  - search for "django 5.2 new features changelog" and fetch the official page
+  - based on all findings, recommend which python web framework to use for a new REST API project

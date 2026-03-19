@@ -262,10 +262,11 @@ BlueClaw evolves in layers:
 
 1. **Observable agent runtime** — structured tracing, model-agnostic, CLI tools (done)
 2. **Trace analytics** — aggregate stats, timeline, failure classification (done)
-3. **Agent regression testing** — define expected behavior in YAML, CI for agents (next)
-4. **Production observability** — SQLite backend, trace query, OpenTelemetry export
-5. **API gateway** — `blueclaw serve` with webhook endpoint
-6. **Multi-channel runtime** — Slack, Discord, Telegram adapters
+3. **Smart context management** — observation masking, configurable strategies, benchmarking (done)
+4. **Agent regression testing** — define expected behavior in YAML, CI for agents (next)
+5. **Production observability** — SQLite backend, trace query, OpenTelemetry export
+6. **API gateway** — `blueclaw serve` with webhook endpoint
+7. **Multi-channel runtime** — Slack, Discord, Telegram adapters
 
 ## Development
 

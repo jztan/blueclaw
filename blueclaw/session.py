@@ -17,6 +17,8 @@ from rich.console import Console
 from strands import Agent
 from strands.agent.conversation_manager import SummarizingConversationManager
 
+from blueclaw.context import ObservationMaskingManager
+
 # Lazy imports — avoid requiring all provider SDKs at module load
 AnthropicModel = None
 OllamaModel = None
@@ -181,6 +183,16 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
             "trace_retention_days"
         ]
 
+    # Context management
+    ctx = config_data.get("context", {})
+    if isinstance(ctx, dict):
+        if "strategy" in ctx:
+            kwargs["context_strategy"] = ctx["strategy"]
+        if "mask_after" in ctx:
+            kwargs["context_mask_after"] = ctx["mask_after"]
+        if "summarize_after" in ctx:
+            kwargs["context_summarize_after"] = ctx["summarize_after"]
+
     # Apply model override
     if model_override:
         provider, model_id = parse_model_override(model_override)
@@ -341,17 +353,31 @@ def create_agent(
     system_prompt = build_system_prompt(workspace, skills_dir=skills_dir)
     approval_hooks = ApprovalHooks(config, scripted=scripted)
 
+    # Build conversation manager based on config
+    if config.context_strategy == "mask":
+        conversation_manager = ObservationMaskingManager(
+            mask_after=config.context_mask_after,
+        )
+    elif config.context_strategy == "hybrid":
+        conversation_manager = ObservationMaskingManager(
+            mask_after=config.context_mask_after,
+            summarize_after=config.context_summarize_after or 43,
+        )
+    else:  # "summarize" — legacy behavior
+        conversation_manager = SummarizingConversationManager()
+
     stream_file = console.file if console else sys.stdout
     agent = Agent(
         model=model,
         tools=tools,
         hooks=[approval_hooks, observer],
         system_prompt=system_prompt,
-        conversation_manager=SummarizingConversationManager(),
+        conversation_manager=conversation_manager,
         callback_handler=_StreamingCallback(file=stream_file),
     )
-    # Attach clients for cleanup
+    # Attach refs for cleanup and metrics
     observer.mcp_clients = mcp_clients
+    observer.conversation_manager = conversation_manager
     return agent
 
 
@@ -548,6 +574,15 @@ def print_run_summary(
         datetime.fromtimestamp(start_time, tz=timezone.utc) if start_time else now
     )
     run_id = run_start.strftime("%Y%m%d-%H%M%S")
+    # Context metrics
+    context_masked_chars = None
+    context_strategy_val = None
+    cm = getattr(observer, "conversation_manager", None)
+    if cm is not None and hasattr(cm, "masked_chars"):
+        context_masked_chars = cm.masked_chars
+        context_strategy_val = config.context_strategy
+        cm.reset_metrics()
+
     trace = RunTrace(
         run_id=run_id,
         goal=goal,
@@ -558,6 +593,8 @@ def print_run_summary(
         total_tokens=total_tokens,
         total_cost=cost,
         status="success",
+        context_masked_chars=context_masked_chars,
+        context_strategy=context_strategy_val,
     )
     workspace.write_trace(trace)
 

@@ -1,0 +1,15 @@
+# Category 1: Small Output / Search-Based
+#
+# Tool outputs: ~1-2k chars (search snippets)
+# Context dependency: high (each answer builds on prior)
+# Context pressure: low
+# Expected winner: summarize
+#
+name: "Cat 1: Search (small outputs)"
+prompts:
+  - search for the current price of bitcoin
+  - search for the current price of ethereum
+  - search for the current price of solana
+  - search for the current nasdaq index value
+  - search for the current S&P 500 index value
+  - summarize all the prices and market values you found

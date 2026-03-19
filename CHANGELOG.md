@@ -14,6 +14,8 @@ All notable changes to blueclaw will be documented in this file.
 - `BeforeModelCallEvent` hook for proactive masking within multi-tool invocations (same pattern as Strands' `SlidingWindowConversationManager`)
 - `reduce_context` fallback chain: aggressive mask (M=0) then delegate to `SummarizingConversationManager`
 - 35 new tests (400 total)
+- `scripts/bench_context.py` — multi-turn benchmark runner for comparing context strategies. Delta token tracking, isolated workspaces per strategy, error recovery, response capture. Supports `--strategy`, `--model`, `--mask-after`, `--output` flags
+- Benchmark prompt files for 3 workload categories: `search-small` (small outputs), `retrieval-large` (full page fetches), `mixed-workflow` (search + fetch)
 
 ### Changed
 

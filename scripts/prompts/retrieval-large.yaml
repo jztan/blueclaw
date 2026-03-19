@@ -1,0 +1,19 @@
+# Category 2: Large Output / Retrieval-Based
+#
+# Tool outputs: ~5-50k chars (full web pages)
+# Context dependency: low (each fetch is independent)
+# Context pressure: high
+# Expected winner: mask
+#
+# IMPORTANT: Add these to blueclaw.yaml before running:
+#   allowlist_domains: [python.org, rust-lang.org, golang.org, nodejs.org]
+# Without this, http_request falls back to search snippets and
+# the "large output" test becomes invalid (outputs stay small).
+#
+name: "Cat 2: Retrieval (large outputs)"
+prompts:
+  - search for "python 3.14 release notes changelog" and fetch the official page
+  - search for "rust 1.85 release notes" and fetch the official blog post
+  - search for "go 1.24 release notes" and fetch the official page
+  - search for "node.js 22 release notes changelog" and fetch the official page
+  - based on all the release notes above, which language had the most significant changes

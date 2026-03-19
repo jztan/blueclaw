@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [1.3.0] - 2026-03-19
 ### Added
 
 - Smart context management: `ObservationMaskingManager` replaces `SummarizingConversationManager` as the default conversation manager. Based on [Lindenbauer et al. 2025 "The Complexity Trap"](https://arxiv.org/abs/2508.21433) — observation masking halves per-run costs with no quality loss

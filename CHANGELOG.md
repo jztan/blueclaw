@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [1.4.0] - 2026-03-20
 ### Added
 
 - Per-run `result.json` written to each run workspace for `--keep-workspace` inspection

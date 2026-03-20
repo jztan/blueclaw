@@ -1120,6 +1120,8 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_trace_replay_stub_tools_flag(self):
+        import re
+
         from typer.testing import CliRunner
 
         from blueclaw.cli import app
@@ -1127,4 +1129,5 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(app, ["trace", "replay", "--help"])
         assert result.exit_code == 0
-        assert "--stub-tools" in result.output
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--stub-tools" in plain

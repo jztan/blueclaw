@@ -469,6 +469,12 @@ def trace_diff(
 @trace_app.command("replay")
 def trace_replay(
     run_id: str = typer.Argument(..., help="Run ID to replay"),
+    stub_tools: bool = typer.Option(
+        False, "--stub-tools", help="Re-run with recorded outputs"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Model override"
+    ),
 ) -> None:
     """Step through a recorded trace interactively."""
     workspace = Workspace(DEFAULT_WORKSPACE)
@@ -477,6 +483,14 @@ def trace_replay(
     if trace is None:
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
+
+    if stub_tools:
+        from blueclaw.session import load_config
+        from blueclaw.testing import run_stub_replay
+
+        config = load_config(Path("blueclaw.yaml"), model_override=model)
+        run_stub_replay(trace, config)
+        return
 
     console.print(f"[bold]Run:[/bold] {trace.run_id}")
     console.print(f"[bold]Goal:[/bold] {trace.goal}")
@@ -730,3 +744,75 @@ def trace_purge(
     count = workspace.purge_old_traces(days, dry_run=dry_run)
     verb = "Would delete" if dry_run else "Deleted"
     console.print(f"{verb} {count} trace(s) older than {days} days.")
+
+
+@app.command()
+def test(
+    spec_path: Path = typer.Argument(..., help="Path to test spec YAML"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Validate spec without running"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Write results to file"
+    ),
+    output_format: str = typer.Option(
+        "tap", "--format", "-f", help="Output format: tap or junit"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Model override"
+    ),
+) -> None:
+    """Run agent regression tests from a YAML spec."""
+    import shutil
+    import sys
+    import tempfile
+
+    from blueclaw.testing import (
+        format_junit,
+        format_tap,
+        load_spec,
+        run_spec,
+        validate_spec,
+    )
+    from blueclaw.session import load_config
+
+    try:
+        spec = load_spec(spec_path)
+    except Exception as e:
+        console.print(f"Error loading spec: {e}")
+        raise typer.Exit(1)
+
+    if dry_run:
+        issues = validate_spec(spec)
+        if issues:
+            for w in issues:
+                console.print(f"  Warning: {w}")
+        else:
+            console.print(f"Spec valid: {len(spec.tests)} tests")
+        raise typer.Exit(0)
+
+    spec_warnings = validate_spec(spec)
+    if spec_warnings:
+        progress = Console(stderr=True)
+        for w in spec_warnings:
+            progress.print(f"  Warning: {w}")
+
+    config = load_config(
+        Path("blueclaw.yaml"), model_override=model or spec.model
+    )
+    workspace_dir = Path(tempfile.mkdtemp(prefix="blueclaw-test-"))
+    try:
+        results = run_spec(spec, config, workspace_dir)
+        formatted = (
+            format_junit(results)
+            if output_format == "junit"
+            else format_tap(results)
+        )
+        if output:
+            Path(output).write_text(formatted)
+        else:
+            sys.stdout.write(formatted)
+    finally:
+        shutil.rmtree(workspace_dir, ignore_errors=True)
+
+    raise typer.Exit(1 if any(r.verdict == "fail" for r in results) else 0)

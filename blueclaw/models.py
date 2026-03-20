@@ -140,3 +140,40 @@ def classify_error(error: str | None) -> str:
         if any(p in lower for p in patterns):
             return category
     return "unknown"
+
+
+class TestCase(BaseModel):
+    """A single test case from a spec YAML."""
+
+    goal: str
+    expected_tools: list[str] = []
+    expected_output_contains: str | None = None
+    max_steps: int | None = None
+    max_cost: float | None = None
+    runs: int = 1
+    threshold: float = 0.85
+
+
+class TestResult(BaseModel):
+    """Result of running a single test case."""
+
+    goal: str
+    passed: bool
+    verdict: str = "pass"
+    failures: list[str] = []
+    tools_called: list[str] = []
+    steps: int = 0
+    cost: float | None = None
+    duration_s: float = 0.0
+    error: str | None = None
+    pass_count: int | None = None
+    total_runs: int | None = None
+    ci_lower: float | None = None
+    ci_upper: float | None = None
+
+
+class TestSpec(BaseModel):
+    """Complete test specification loaded from YAML."""
+
+    tests: list[TestCase]
+    model: str | None = None

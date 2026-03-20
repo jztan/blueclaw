@@ -75,18 +75,14 @@ class TestCommands:
         mock_agent.return_value = result_obj
         mock_agent_cls.return_value = mock_agent
 
-        yaml_path = tmp_path / "blueclaw.yaml"
-        yaml_path.write_text(
-            "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n"
-            "workspace:\n  path: "
-            f"{tmp_path / 'workspace'}\n"
-            "tools: []\n"
+        config = SessionConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-6",
+            workspace_path=tmp_path / "workspace",
+            tools=[],
         )
 
-        with patch(
-            "blueclaw.cli.Path",
-            side_effect=lambda p: yaml_path if p == "blueclaw.yaml" else Path(p),
-        ):
+        with patch("blueclaw.session.load_config", return_value=config):
             result = runner.invoke(app, ["run", "hello"])
 
         assert result.exit_code == 0
@@ -1092,17 +1088,13 @@ class TestStreamingCallbackWiring:
         mock_agent.return_value = result_obj
         mock_create_agent.return_value = mock_agent
 
-        yaml_path = tmp_path / "blueclaw.yaml"
-        yaml_path.write_text(
-            "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n"
-            "workspace:\n  path: "
-            f"{tmp_path / 'workspace'}\n"
-            "tools: []\n"
+        config = SessionConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-6",
+            workspace_path=tmp_path / "workspace",
+            tools=[],
         )
-        with patch(
-            "blueclaw.cli.Path",
-            side_effect=lambda p: yaml_path if p == "blueclaw.yaml" else Path(p),
-        ):
+        with patch("blueclaw.session.load_config", return_value=config):
             runner.invoke(app, ["run", "hello"])
         assert mock_create_agent.called
         call_kwargs = mock_create_agent.call_args

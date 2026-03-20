@@ -2,6 +2,12 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Fixed
+
+- CI test failure: `patch("blueclaw.cli.Path")` broke Typer type resolution after adding `spec_path: Path` parameter — replaced with `patch("blueclaw.session.load_config")`
+- CI test failure: ANSI escape codes in Rich help output hid `--stub-tools` flag from string match — strip escape codes before assertion
+
 ## [1.4.0] - 2026-03-20
 ### Added
 

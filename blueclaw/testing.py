@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections import defaultdict
 from io import StringIO
@@ -48,6 +50,19 @@ def validate_spec(spec: TestSpec) -> list[str]:
             warnings.append(f"Test {i + 1}: threshold must be between 0 and 1")
         if case.max_cost is not None and case.max_cost < 0:
             warnings.append(f"Test {i + 1}: negative max_cost")
+        contradictory = set(case.expected_tools) & set(case.forbidden_tools)
+        if contradictory:
+            joined = ", ".join(sorted(contradictory))
+            warnings.append(
+                f"Test {i + 1}: tool(s) in both expected and forbidden: {joined}"
+            )
+        if case.output_regex is not None:
+            try:
+                re.compile(case.output_regex)
+            except re.error as e:
+                warnings.append(f"Test {i + 1}: invalid output_regex: {e}")
+        if case.max_duration_s is not None and case.max_duration_s <= 0:
+            warnings.append(f"Test {i + 1}: max_duration_s must be > 0")
     if spec.model and "/" not in spec.model:
         warnings.append(
             f"Model '{spec.model}' missing provider prefix (e.g. anthropic/...)"
@@ -69,12 +84,29 @@ def wilson_ci(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, center - margin), min(1.0, center + margin))
 
 
+def _validate_workspace_file(
+    workspace_root: Path, f: str, assertion_name: str
+) -> tuple[Path | None, str | None]:
+    """Resolve and validate a file path within workspace.
+
+    Returns (resolved_path, error_message). If error_message is set, resolved_path
+    is None. Caller must check workspace_root is not None before calling.
+    """
+    resolved = (workspace_root / f).resolve()
+    ws_prefix = str(workspace_root.resolve()) + os.sep
+    if not str(resolved).startswith(ws_prefix) and resolved != workspace_root.resolve():
+        return None, f"{assertion_name}: path outside workspace: {f}"
+    return resolved, None
+
+
 def _check_assertions(
     case: TestCase,
     tools_called: list[str],
     response_text: str,
     step_count: int,
     cost: float | None,
+    duration_s: float = 0.0,
+    workspace_root: Path | None = None,
 ) -> list[str]:
     """Check assertions for a test case, returning failure messages."""
     failures = []
@@ -94,10 +126,95 @@ def _check_assertions(
             failures.append("Cost unknown (model not in pricing table)")
         elif cost > case.max_cost:
             failures.append(f"Cost exceeded: ${cost:.4f} > ${case.max_cost}")
+
+    # --- New assertions ---
+
+    if case.forbidden_tools:
+        called = set(case.forbidden_tools) & set(tools_called)
+        if called:
+            failures.append(f"Forbidden tools called: {', '.join(sorted(called))}")
+
+    if case.expected_files:
+        if workspace_root is None:
+            failures.append("expected_files requires workspace context")
+        else:
+            for f in case.expected_files:
+                resolved, err = _validate_workspace_file(
+                    workspace_root, f, "expected_files"
+                )
+                if err:
+                    failures.append(err)
+                    continue
+                if not resolved.exists():
+                    failures.append(f"expected_files: file not found: {f}")
+
+    if case.expected_file_contains:
+        if workspace_root is None:
+            failures.append("expected_file_contains requires workspace context")
+        else:
+            for f, substring in case.expected_file_contains.items():
+                resolved, err = _validate_workspace_file(
+                    workspace_root, f, "expected_file_contains"
+                )
+                if err:
+                    failures.append(err)
+                    continue
+                if not resolved.exists():
+                    failures.append(f"expected_file_contains: file not found: {f}")
+                    continue
+                try:
+                    content = resolved.read_text(errors="replace")
+                except OSError as e:
+                    failures.append(f"expected_file_contains: cannot read '{f}': {e}")
+                    continue
+                if substring.lower() not in content.lower():
+                    failures.append(
+                        f"expected_file_contains: '{f}' does not contain:"
+                        f" '{substring}'"
+                    )
+
+    if case.forbidden_output_contains is not None:
+        if case.forbidden_output_contains.lower() in response_text.lower():
+            failures.append(
+                f"Output contains forbidden text:"
+                f" '{case.forbidden_output_contains}'"
+            )
+
+    if case.output_regex is not None:
+        try:
+            if not re.search(case.output_regex, response_text):
+                failures.append(f"Output does not match regex: '{case.output_regex}'")
+        except re.error as e:
+            failures.append(f"Invalid regex: {case.output_regex}: {e}")
+
+    if case.tool_order:
+        it = iter(tools_called)
+        for expected in case.tool_order:
+            if expected not in it:
+                failures.append(
+                    f"Tool order violation: expected {case.tool_order} in order"
+                )
+                break
+
+    if case.max_duration_s is not None:
+        if duration_s > case.max_duration_s:
+            failures.append(
+                f"Duration exceeded: {duration_s:.1f}s > {case.max_duration_s}s"
+            )
+
     return failures
 
 
 # --- Single run ---
+
+
+def _write_run_result(workspace_path: Path, result: TestResult) -> None:
+    """Write per-run result JSON for --keep-workspace inspection."""
+    try:
+        out = workspace_path / ".blueclaw" / "result.json"
+        out.write_text(result.model_dump_json(indent=2))
+    except OSError:
+        pass  # Best-effort; don't fail the test over a diagnostic write
 
 
 def _run_single(
@@ -132,10 +249,16 @@ def _run_single(
         response_text = extract_text(getattr(result, "message", result))
 
         failures = _check_assertions(
-            case, tools_called, response_text, step_count, cost
+            case,
+            tools_called,
+            response_text,
+            step_count,
+            cost,
+            duration_s=elapsed,
+            workspace_root=workspace.root,
         )
         passed = len(failures) == 0
-        return TestResult(
+        test_result = TestResult(
             goal=case.goal,
             passed=passed,
             verdict="pass" if passed else "fail",
@@ -145,14 +268,18 @@ def _run_single(
             cost=cost,
             duration_s=elapsed,
         )
+        _write_run_result(workspace_path, test_result)
+        return test_result
     except Exception as e:
-        return TestResult(
+        test_result = TestResult(
             goal=case.goal,
             passed=False,
             verdict="fail",
             error=str(e),
             duration_s=time.time() - start,
         )
+        _write_run_result(workspace_path, test_result)
+        return test_result
     finally:
         cleanup_mcp_clients(observer)
 
@@ -245,6 +372,12 @@ def format_tap(results: list[TestResult]) -> str:
                 f"ok {i} - {goal} "
                 f"# INCONCLUSIVE {r.pass_count}/{r.total_runs} passed {ci}"
             )
+            if r.failures:
+                lines.append("  ---")
+                lines.append("  failures:")
+                for f in r.failures:
+                    lines.append(f'    - "{f}"')
+                lines.append("  ...")
         elif r.verdict == "pass":
             lines.append(f"ok {i} - {goal}")
         else:
@@ -287,6 +420,8 @@ def format_junit(results: list[TestResult]) -> str:
             msg = f"INCONCLUSIVE {r.pass_count}/{r.total_runs} passed"
             if r.ci_lower is not None:
                 msg += f" [{r.ci_lower:.2f}, {r.ci_upper:.2f}]"
+            if r.failures:
+                msg += "; " + "; ".join(r.failures)
             ET.SubElement(tc, "skipped", message=msg)
         elif r.error and not r.failures:
             ET.SubElement(tc, "error", message=r.error, type="Exception")

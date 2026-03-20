@@ -5,8 +5,14 @@ All notable changes to blueclaw will be documented in this file.
 ## [Unreleased]
 ### Added
 
+- Per-run `result.json` written to each run workspace for `--keep-workspace` inspection
+- Inconclusive test verdicts now show failure diagnostics in TAP and JUnit output
+- `allowlist_domains` field on test specs — tests can declare domains needed for `http_request` without editing `blueclaw.yaml`
 - `blueclaw test` — YAML-driven agent regression testing with TAP/JUnit output, Wilson CI scoring for multi-run statistical verdicts, and CI-friendly exit codes
 - `--keep-workspace` flag for `blueclaw test` — preserves temp workspace for post-test inspection instead of cleaning up
+- 11 test assertions: `expected_tools`, `expected_output_contains`, `max_steps`, `max_cost`, `forbidden_tools`, `expected_files`, `expected_file_contains`, `forbidden_output_contains`, `output_regex`, `tool_order`, `max_duration_s` — all deterministic, no LLM-as-judge
+- Spec validation: contradictory tools, invalid regex, negative duration warnings
+- Path traversal guard on `expected_files` and `expected_file_contains`
 
 ## [1.3.0] - 2026-03-19
 ### Added

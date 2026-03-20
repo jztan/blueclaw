@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from xml.etree import ElementTree as ET
@@ -111,6 +112,35 @@ class TestValidateSpec:
         warnings = validate_spec(spec)
         assert warnings == []
 
+    def test_validate_spec_contradictory_tools(self):
+        from blueclaw.testing import validate_spec
+
+        spec = TestSpec(
+            tests=[
+                TestCase(
+                    goal="test",
+                    expected_tools=["shell_command"],
+                    forbidden_tools=["shell_command"],
+                )
+            ]
+        )
+        warnings = validate_spec(spec)
+        assert any("both expected and forbidden" in w for w in warnings)
+
+    def test_validate_spec_invalid_regex(self):
+        from blueclaw.testing import validate_spec
+
+        spec = TestSpec(tests=[TestCase(goal="test", output_regex="[invalid")])
+        warnings = validate_spec(spec)
+        assert any("invalid output_regex" in w for w in warnings)
+
+    def test_validate_spec_negative_duration(self):
+        from blueclaw.testing import validate_spec
+
+        spec = TestSpec(tests=[TestCase(goal="test", max_duration_s=-5.0)])
+        warnings = validate_spec(spec)
+        assert any("max_duration_s must be > 0" in w for w in warnings)
+
 
 class TestWilsonCI:
     def test_wilson_ci_all_pass(self):
@@ -218,6 +248,242 @@ class TestCheckAssertions:
         failures = _check_assertions(sample_test_case, ["web_search"], "done", 10, 0.05)
         assert len(failures) >= 3
 
+    # --- forbidden_tools ---
+
+    def test_forbidden_tools_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_tools=["http_request"])
+        failures = _check_assertions(case, ["web_search"], "ok", 1, 0.01)
+        assert failures == []
+
+    def test_forbidden_tools_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_tools=["http_request"])
+        failures = _check_assertions(
+            case, ["web_search", "http_request"], "ok", 1, 0.01
+        )
+        assert any("Forbidden tools called: http_request" in f for f in failures)
+
+    # --- expected_files ---
+
+    def test_expected_files_pass(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        (tmp_path / "hello.txt").write_text("hi")
+        case = TestCase(goal="test", expected_files=["hello.txt"])
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert failures == []
+
+    def test_expected_files_fail(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", expected_files=["missing.txt"])
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any("expected_files: file not found: missing.txt" in f for f in failures)
+
+    def test_expected_files_no_workspace(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", expected_files=["hello.txt"])
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=None)
+        assert any("expected_files requires workspace context" in f for f in failures)
+
+    def test_expected_files_path_traversal(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", expected_files=["../../etc/passwd"])
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any("path outside workspace" in f for f in failures)
+
+    def test_expected_files_dir_prefix_attack(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        # Create sibling dir with shared prefix
+        sibling = tmp_path.parent / (tmp_path.name + "bar")
+        sibling.mkdir(exist_ok=True)
+        (sibling / "secret.txt").write_text("secret")
+        try:
+            # Relative path that resolves to sibling
+            rel = f"../{sibling.name}/secret.txt"
+            case = TestCase(goal="test", expected_files=[rel])
+            failures = _check_assertions(
+                case, [], "ok", 1, 0.01, workspace_root=tmp_path
+            )
+            assert any("path outside workspace" in f for f in failures)
+        finally:
+            (sibling / "secret.txt").unlink(missing_ok=True)
+            sibling.rmdir()
+
+    # --- expected_file_contains ---
+
+    def test_expected_file_contains_pass(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        (tmp_path / "notes.txt").write_text("Hello World")
+        case = TestCase(goal="test", expected_file_contains={"notes.txt": "hello"})
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert failures == []
+
+    def test_expected_file_contains_fail_missing(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", expected_file_contains={"missing.txt": "hello"})
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any(
+            "expected_file_contains: file not found: missing.txt" in f for f in failures
+        )
+
+    def test_expected_file_contains_fail_content(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        (tmp_path / "notes.txt").write_text("something else")
+        case = TestCase(goal="test", expected_file_contains={"notes.txt": "hello"})
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any("does not contain: 'hello'" in f for f in failures)
+
+    def test_expected_file_contains_no_workspace(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", expected_file_contains={"notes.txt": "hello"})
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=None)
+        assert any(
+            "expected_file_contains requires workspace context" in f for f in failures
+        )
+
+    def test_expected_file_contains_path_traversal(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(
+            goal="test",
+            expected_file_contains={"../../etc/passwd": "root"},
+        )
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any("path outside workspace" in f for f in failures)
+
+    def test_expected_file_contains_case_insensitive(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        (tmp_path / "notes.txt").write_text("HELLO WORLD")
+        case = TestCase(
+            goal="test", expected_file_contains={"notes.txt": "hello world"}
+        )
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert failures == []
+
+    def test_expected_file_contains_unreadable(self, tmp_path):
+        from blueclaw.testing import _check_assertions
+
+        # A directory is not readable as text
+        subdir = tmp_path / "adir"
+        subdir.mkdir()
+        case = TestCase(goal="test", expected_file_contains={"adir": "hello"})
+        failures = _check_assertions(case, [], "ok", 1, 0.01, workspace_root=tmp_path)
+        assert any("expected_file_contains: cannot read" in f for f in failures)
+
+    # --- forbidden_output_contains ---
+
+    def test_forbidden_output_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_contains="error")
+        failures = _check_assertions(case, [], "all good", 1, 0.01)
+        assert failures == []
+
+    def test_forbidden_output_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_contains="error")
+        failures = _check_assertions(case, [], "An ERROR occurred", 1, 0.01)
+        assert any("Output contains forbidden text" in f for f in failures)
+
+    # --- output_regex ---
+
+    def test_output_regex_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", output_regex=r"\d+ results")
+        failures = _check_assertions(case, [], "Found 42 results", 1, 0.01)
+        assert failures == []
+
+    def test_output_regex_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", output_regex=r"\d+ results")
+        failures = _check_assertions(case, [], "no matches", 1, 0.01)
+        assert any("Output does not match regex" in f for f in failures)
+
+    def test_output_regex_invalid(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", output_regex=r"[invalid")
+        failures = _check_assertions(case, [], "text", 1, 0.01)
+        assert any("Invalid regex" in f for f in failures)
+
+    def test_output_regex_case_sensitive(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", output_regex=r"Hello")
+        failures = _check_assertions(case, [], "hello world", 1, 0.01)
+        assert any("Output does not match regex" in f for f in failures)
+
+    # --- tool_order ---
+
+    def test_tool_order_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", tool_order=["web_search", "shell_command"])
+        failures = _check_assertions(
+            case, ["web_search", "shell_command"], "ok", 2, 0.01
+        )
+        assert failures == []
+
+    def test_tool_order_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", tool_order=["shell_command", "web_search"])
+        failures = _check_assertions(
+            case, ["web_search", "shell_command"], "ok", 2, 0.01
+        )
+        assert any("Tool order violation" in f for f in failures)
+
+    def test_tool_order_with_extras(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", tool_order=["web_search", "shell_command"])
+        failures = _check_assertions(
+            case,
+            ["web_search", "http_request", "shell_command"],
+            "ok",
+            3,
+            0.01,
+        )
+        assert failures == []
+
+    def test_tool_order_empty(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", tool_order=[])
+        failures = _check_assertions(case, ["web_search"], "ok", 1, 0.01)
+        assert not any("Tool order" in f for f in failures)
+
+    # --- max_duration_s ---
+
+    def test_max_duration_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", max_duration_s=10.0)
+        failures = _check_assertions(case, [], "ok", 1, 0.01, duration_s=5.0)
+        assert failures == []
+
+    def test_max_duration_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", max_duration_s=10.0)
+        failures = _check_assertions(case, [], "ok", 1, 0.01, duration_s=15.0)
+        assert any("Duration exceeded" in f for f in failures)
+
 
 # --- Group B: Output formatters ---
 
@@ -293,6 +559,27 @@ class TestFormatTAP:
         assert "INCONCLUSIVE" in output
         assert "24/30" in output
         assert "[0.63, 0.93]" in output
+
+    def test_format_tap_inconclusive_with_failures(self):
+        from blueclaw.testing import format_tap
+
+        results = [
+            TestResult(
+                goal="test goal",
+                passed=False,
+                verdict="inconclusive",
+                pass_count=24,
+                total_runs=30,
+                ci_lower=0.63,
+                ci_upper=0.93,
+                failures=["Missing tools: fetch_url", "Cost exceeded: $0.05"],
+            )
+        ]
+        output = format_tap(results)
+        assert "INCONCLUSIVE" in output
+        assert "failures:" in output
+        assert '"Missing tools: fetch_url"' in output
+        assert '"Cost exceeded: $0.05"' in output
 
 
 class TestFormatJUnit:
@@ -378,6 +665,30 @@ class TestFormatJUnit:
         skipped = root.find(".//skipped")
         assert skipped is not None
         assert "INCONCLUSIVE" in skipped.attrib["message"]
+
+    def test_format_junit_inconclusive_with_failures(self):
+        from blueclaw.testing import format_junit
+
+        results = [
+            TestResult(
+                goal="test",
+                passed=False,
+                verdict="inconclusive",
+                pass_count=24,
+                total_runs=30,
+                ci_lower=0.63,
+                ci_upper=0.93,
+                failures=["Missing tools: fetch_url", "Cost exceeded: $0.05"],
+            )
+        ]
+        output = format_junit(results)
+        root = ET.fromstring(output)
+        skipped = root.find(".//skipped")
+        assert skipped is not None
+        msg = skipped.attrib["message"]
+        assert "INCONCLUSIVE" in msg
+        assert "Missing tools: fetch_url" in msg
+        assert "Cost exceeded: $0.05" in msg
 
     def test_format_junit_suite_counts(self):
         from blueclaw.testing import format_junit
@@ -475,6 +786,31 @@ class TestRunTestCase:
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
         assert result.passed
         assert result.verdict == "pass"
+
+    @patch("blueclaw.testing.create_agent")
+    @patch("blueclaw.testing.build_model")
+    def test_single_run_writes_result_json(self, mock_bm, mock_ca, sample_config):
+        from blueclaw.testing import _run_single
+
+        mock_agent = MagicMock()
+        mock_agent.return_value = _make_mock_agent_result()
+        mock_ca.return_value = mock_agent
+
+        case = TestCase(
+            goal="create hello.txt",
+            expected_output_contains="hello.txt",
+        )
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            (ws / ".blueclaw").mkdir(parents=True)
+            result = _run_single(case, sample_config, ws, None)
+            result_file = ws / ".blueclaw" / "result.json"
+            assert result_file.exists()
+            data = json.loads(result_file.read_text())
+            assert data["goal"] == "create hello.txt"
+            assert data["verdict"] == result.verdict
 
     @patch("blueclaw.testing.create_agent")
     @patch("blueclaw.testing.build_model")
@@ -636,6 +972,57 @@ class TestMultiRun:
         case = TestCase(goal="test", runs=3)
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
         assert any("Error: boom" in f for f in result.failures)
+
+    @patch("blueclaw.testing.create_agent")
+    def test_multi_run_writes_per_run_results(self, mock_ca, sample_config):
+        """Each run-NNN dir gets .blueclaw/result.json."""
+        from blueclaw.testing import run_test_case
+
+        def make_agent(*args, **kwargs):
+            agent = MagicMock()
+            agent.return_value = _make_mock_agent_result()
+            return agent
+
+        mock_ca.side_effect = make_agent
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            case = TestCase(goal="test", runs=3)
+            run_test_case(case, sample_config, ws, None)
+            for i in range(3):
+                result_file = ws / f"run-{i:03d}" / ".blueclaw" / "result.json"
+                assert result_file.exists(), f"run-{i:03d}/result.json missing"
+
+    @patch("blueclaw.testing.create_agent")
+    def test_result_json_contains_failures(self, mock_ca, sample_config):
+        """Failed assertion shows up in result.json."""
+        from blueclaw.testing import run_test_case
+
+        def make_agent(*args, **kwargs):
+            agent = MagicMock()
+            result = _make_mock_agent_result()
+            result.message = {"content": [{"text": "no match"}]}
+            agent.return_value = result
+            return agent
+
+        mock_ca.side_effect = make_agent
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            case = TestCase(
+                goal="test",
+                expected_output_contains="hello",
+                runs=1,
+            )
+            run_test_case(case, sample_config, ws, None)
+            result_file = ws / ".blueclaw" / "result.json"
+            data = json.loads(result_file.read_text())
+            assert data["verdict"] == "fail"
+            assert any("hello" in f for f in data["failures"])
 
     @patch("blueclaw.testing.create_agent")
     def test_single_run_ignores_threshold(self, mock_ca, sample_config):

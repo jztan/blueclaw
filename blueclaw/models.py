@@ -150,6 +150,13 @@ class TestCase(BaseModel):
     expected_output_contains: str | None = None
     max_steps: int | None = None
     max_cost: float | None = None
+    forbidden_tools: list[str] = []
+    expected_files: list[str] = []
+    expected_file_contains: dict[str, str] = {}
+    forbidden_output_contains: str | None = None
+    output_regex: str | None = None
+    tool_order: list[str] = []
+    max_duration_s: float | None = None
     runs: int = 1
     threshold: float = 0.85
 
@@ -177,3 +184,4 @@ class TestSpec(BaseModel):
 
     tests: list[TestCase]
     model: str | None = None
+    allowlist_domains: list[str] = []

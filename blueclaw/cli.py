@@ -472,9 +472,7 @@ def trace_replay(
     stub_tools: bool = typer.Option(
         False, "--stub-tools", help="Re-run with recorded outputs"
     ),
-    model: Optional[str] = typer.Option(
-        None, "--model", "-m", help="Model override"
-    ),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
 ) -> None:
     """Step through a recorded trace interactively."""
     workspace = Workspace(DEFAULT_WORKSPACE)
@@ -758,9 +756,7 @@ def test(
     output_format: str = typer.Option(
         "tap", "--format", "-f", help="Output format: tap or junit"
     ),
-    model: Optional[str] = typer.Option(
-        None, "--model", "-m", help="Model override"
-    ),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
     keep_workspace: bool = typer.Option(
         False, "--keep-workspace", help="Keep temp workspace for inspection"
     ),
@@ -800,16 +796,16 @@ def test(
         for w in spec_warnings:
             progress.print(f"  Warning: {w}")
 
-    config = load_config(
-        Path("blueclaw.yaml"), model_override=model or spec.model
-    )
+    config = load_config(Path("blueclaw.yaml"), model_override=model or spec.model)
+    if spec.allowlist_domains:
+        for d in spec.allowlist_domains:
+            if d not in config.allowlist_domains:
+                config.allowlist_domains.append(d)
     workspace_dir = Path(tempfile.mkdtemp(prefix="blueclaw-test-"))
     try:
         results = run_spec(spec, config, workspace_dir)
         formatted = (
-            format_junit(results)
-            if output_format == "junit"
-            else format_tap(results)
+            format_junit(results) if output_format == "junit" else format_tap(results)
         )
         if output:
             Path(output).write_text(formatted)

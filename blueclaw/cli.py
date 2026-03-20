@@ -600,10 +600,7 @@ def trace_stats(
     ),
 ) -> None:
     """Show aggregate trace statistics."""
-    from collections import Counter
     from datetime import datetime, timedelta, timezone
-
-    from blueclaw.models import classify_error
 
     workspace = Workspace(DEFAULT_WORKSPACE)
 
@@ -621,106 +618,88 @@ def trace_stats(
         console.print("No traces yet.")
         return
 
-    # --- Compute metrics ---
-    total_runs = len(traces)
-    all_steps = [s for t in traces for s in t.steps]
-    total_steps = len(all_steps)
-    failed_steps = [s for s in all_steps if s.status == "error"]
+    from blueclaw.web import compute_stats
 
-    avg_steps = total_steps / total_runs
-    avg_tokens = sum(t.total_tokens for t in traces) / total_runs
-
-    costs = [t.total_cost for t in traces if t.total_cost is not None]
-    avg_cost = sum(costs) / len(costs) if costs else None
-    total_cost = sum(costs) if costs else None
-
-    # Timing
-    wall_times = []
-    tool_times = []
-    for t in traces:
-        wall_ms = int((t.end_time - t.start_time).total_seconds() * 1000)
-        tool_ms = sum(s.duration_ms for s in t.steps)
-        wall_times.append(wall_ms)
-        tool_times.append(tool_ms)
-
-    avg_wall = sum(wall_times) / total_runs
-    avg_tool = sum(tool_times) / total_runs
-
-    durations_sorted = sorted(wall_times)
-    median = durations_sorted[len(durations_sorted) // 2]
-    p95 = durations_sorted[int(len(durations_sorted) * 0.95)]
-
-    tool_pct = (avg_tool / avg_wall * 100) if avg_wall > 0 else 0
-
-    # Tool frequency
-    tool_counts = Counter(s.tool_name for s in all_steps)
+    stats = compute_stats(traces)
 
     # --- Display ---
-    header = f"Trace Stats \u00b7 {total_runs} runs"
+    header = f"Trace Stats \u00b7 {stats['total_runs']} runs"
     if since is not None:
         header += f" \u00b7 last {since} days"
     console.print(f"\n[bold]{header}[/bold]\n")
 
     # Overview
     console.print("[bold]Overview[/bold]")
-    console.print(f"  Total runs:     {total_runs}")
-    console.print(f"  Total steps:    {total_steps}")
-    console.print(f"  Avg steps/run:  {avg_steps:.1f}")
-    console.print(f"  Avg tokens/run: {avg_tokens:,.0f}")
-    if avg_cost is not None:
-        console.print(f"  Avg cost/run:   ${avg_cost:.4f}")
-    if total_cost is not None:
-        console.print(f"  Total cost:     ${total_cost:.2f}")
+    console.print(f"  Total runs:     {stats['total_runs']}")
+    console.print(f"  Total steps:    {stats['total_steps']}")
+    console.print(f"  Avg steps/run:  {stats['avg_steps_per_run']}")
+    console.print(f"  Avg tokens/run: {stats['avg_tokens_per_run']:,}")
+    if stats["avg_cost_per_run"] is not None:
+        console.print(f"  Avg cost/run:   ${stats['avg_cost_per_run']:.4f}")
+    if stats["total_cost"] is not None:
+        console.print(f"  Total cost:     ${stats['total_cost']:.2f}")
     console.print()
 
     # Timing
     console.print("[bold]Timing[/bold]")
-    console.print(f"  Avg duration:    {avg_wall / 1000:.1f}s")
-    console.print(f"  Median duration: {median / 1000:.1f}s")
-    console.print(f"  p95 duration:    {p95 / 1000:.1f}s")
-    console.print(
-        f"  Avg tool time:   {avg_tool / 1000:.1f}s ({tool_pct:.0f}% of wall)"
-    )
+    console.print(f"  Median duration: {stats['median_duration_s']}s")
+    console.print(f"  p95 duration:    {stats['p95_duration_s']}s")
+    console.print(f"  Avg tool time:   {stats['avg_tool_time_pct']:.0f}% of wall")
     console.print()
 
     # Context management
-    traces_with_ctx = [t for t in traces if t.context_masked_chars is not None]
-    if traces_with_ctx:
-        total_masked = sum(t.context_masked_chars for t in traces_with_ctx)
-        avg_masked = total_masked / len(traces_with_ctx)
-        strategies = Counter(
-            t.context_strategy for t in traces_with_ctx if t.context_strategy
-        )
+    ctx = stats["context"]
+    if ctx["runs_with_masking"] > 0:
         console.print("[bold]Context Management[/bold]")
-        console.print(f"  Runs with masking: {len(traces_with_ctx)}/{total_runs}")
-        console.print(f"  Avg chars masked:  {avg_masked:,.0f}")
-        console.print(f"  Total chars saved: {total_masked:,.0f}")
-        for strat, cnt in strategies.most_common():
+        console.print(
+            f"  Runs with masking: " f"{ctx['runs_with_masking']}/{stats['total_runs']}"
+        )
+        console.print(f"  Avg chars masked:  {ctx['avg_masked_chars']:,}")
+        for strat, cnt in ctx["strategies"].items():
             console.print(f"  Strategy {strat}: {cnt} runs")
         console.print()
 
     # Top tools
     console.print("[bold]Top Tools[/bold] (by frequency)")
-    for tool_name, count in tool_counts.most_common(10):
-        pct = count / total_steps * 100
-        console.print(f"  {tool_name:<20} {count} calls ({pct:.0f}%)")
+    for tool in stats["top_tools"]:
+        console.print(f"  {tool['name']:<20} {tool['count']} calls ({tool['pct']}%)")
     console.print()
 
     # Failed steps
-    if failed_steps:
-        failure_counts = Counter(classify_error(s.error) for s in failed_steps)
-        fail_rate = len(failed_steps) / total_steps * 100
-        runs_with_failures = len(
-            set(t.run_id for t in traces for s in t.steps if s.status == "error")
-        )
+    if stats["failed_steps"] > 0:
         console.print(
             f"[bold]Failed Steps[/bold] "
-            f"({len(failed_steps)} across {runs_with_failures} runs "
-            f"\u00b7 {fail_rate:.1f}% step failure rate)"
+            f"({stats['failed_steps']} across {stats['runs_with_failures']} "
+            f"runs \u00b7 {stats['error_rate']}% step failure rate)"
         )
-        for category, count in failure_counts.most_common():
-            pct = count / len(failed_steps) * 100
-            console.print(f"  {category:<20} {count} ({pct:.0f}%)")
+        for err in stats["errors"]:
+            console.print(f"  {err['category']:<20} {err['count']} ({err['pct']}%)")
+
+
+@trace_app.command("ui")
+def trace_ui(
+    port: int = typer.Option(8111, "--port", "-p", help="Port to listen on"),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Don't open browser automatically"
+    ),
+) -> None:
+    """Launch trace visualization dashboard in browser."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from blueclaw.web import create_app
+
+    workspace = Workspace(DEFAULT_WORKSPACE)
+    app = create_app(workspace)
+    url = f"http://localhost:{port}"
+    console.print(f"Trace UI: {url}")
+
+    if not no_open:
+        threading.Timer(0.5, webbrowser.open, args=[url]).start()
+
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 @trace_app.command("purge")

@@ -162,7 +162,18 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
 | `trace replay <id>` | Step-through debugger for tool calls |
 | `trace replay <id> --stub-tools` | Re-run with recorded outputs, compare tool sequence |
 | `trace stats` | Aggregate performance across all runs |
+| `trace ui` | Browser dashboard with charts and waterfall |
 | `trace purge` | Delete old traces (default: 30 days) |
+
+### Trace Web UI
+
+```bash
+blueclaw trace ui                    # open dashboard at localhost:8111
+blueclaw trace ui --port 9000        # custom port
+blueclaw trace ui --no-open          # don't auto-open browser
+```
+
+Browser-based dashboard with 4 views: trace list with search/filter, trace detail with interactive waterfall timeline, side-by-side trace comparison, and aggregate stats with charts. Light/dark theme, auto-refresh, zero external dependencies.
 
 ## Regression Testing
 

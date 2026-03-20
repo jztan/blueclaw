@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlueClaw Trace Dashboard</title>
+<style>
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── Light Theme (default) ─── */
+[data-theme="light"] {
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f1f5f9;
+  --border: rgba(0,0,0,0.06);
+  --text-1: #0f172a;
+  --text-2: #64748b;
+  --text-3: #94a3b8;
+  --blue: #2563eb;
+  --yellow: #ca8a04;
+  --red: #dc2626;
+  --green: #16a34a;
+}
+
+/* ─── Dark Theme ─── */
+[data-theme="dark"] {
+  --bg-base: #0a0e17;
+  --bg-surface: #111827;
+  --bg-card: #151d2e;
+  --bg-hover: #1a2540;
+  --border: rgba(255,255,255,0.06);
+  --text-1: #f8f9fb;
+  --text-2: #a8b8cc;
+  --text-3: #6b7d95;
+  --blue: #3b8fd4;
+  --yellow: #eab308;
+  --red: #ef4444;
+  --green: #22c55e;
+}
+
+/* ─── Typography ─── */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: var(--bg-base);
+}
+
+code, .mono {
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 13px;
+}
+
+/* ─── Layout ─── */
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header img {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.sidebar-header .title {
+  font-weight: 700;
+  font-size: 16px;
+  flex: 1;
+}
+
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* Sun/moon icon visibility */
+[data-theme="light"] .icon-sun { display: none; }
+[data-theme="light"] .icon-moon { display: block; }
+[data-theme="dark"] .icon-sun { display: block; }
+[data-theme="dark"] .icon-moon { display: none; }
+
+.sidebar-nav {
+  flex: 1;
+  padding: 8px 0;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--text-2);
+  border-left: 3px solid transparent;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.nav-item.active {
+  color: var(--blue);
+  border-left-color: var(--blue);
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.sidebar-footer .trace-count {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* ─── Main Content ─── */
+.main {
+  flex: 1;
+  margin-left: 220px;
+  padding: 24px 32px;
+  min-width: 0;
+}
+
+/* ─── Views ─── */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ─── Search & Filters ─── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input::placeholder { color: var(--text-3); }
+
+.search-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+}
+
+.filter-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chip:hover { background: var(--bg-hover); }
+
+.chip.active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
+/* ─── Table ─── */
+.trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.trace-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.trace-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.trace-table tr:last-child td { border-bottom: none; }
+
+.trace-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.trace-table tbody tr:hover { background: var(--bg-hover); }
+
+.trace-table tbody tr.error-row { background: rgba(239,68,68,0.04); }
+.trace-table tbody tr.error-row:hover { background: rgba(239,68,68,0.08); }
+
+.run-id-link {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.run-id-link:hover { text-decoration: underline; }
+
+.goal-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: var(--bg-hover);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.cost-cell { color: var(--yellow); font-weight: 500; }
+.duration-cell { color: var(--text-3); }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.success { background: rgba(34,197,94,0.1); color: var(--green); }
+.status-badge.error { background: rgba(239,68,68,0.1); color: var(--red); }
+
+.checkbox-cell { width: 36px; text-align: center; }
+.checkbox-cell input[type="checkbox"] { cursor: pointer; }
+
+/* ─── Metric Cards ─── */
+.metric-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.metric-card .label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+.metric-card .value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.metric-card .value.blue { color: var(--blue); }
+.metric-card .value.yellow { color: var(--yellow); }
+.metric-card .value.red { color: var(--red); }
+.metric-card .value.green { color: var(--green); }
+
+/* ─── Detail View ─── */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.back-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.detail-header .status-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.detail-header .status-icon.success { background: rgba(34,197,94,0.12); color: var(--green); }
+.detail-header .status-icon.error { background: rgba(239,68,68,0.12); color: var(--red); }
+
+.detail-header .info { flex: 1; }
+.detail-header .goal-text { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+
+.detail-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.detail-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ─── Waterfall ─── */
+.waterfall {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.waterfall-header {
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.waterfall-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+  gap: 12px;
+}
+
+.waterfall-row:last-child { border-bottom: none; }
+.waterfall-row:hover { background: var(--bg-hover); }
+.waterfall-row.selected { background: var(--bg-hover); }
+
+.waterfall-tool {
+  width: 140px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waterfall-bar-container {
+  flex: 1;
+  height: 20px;
+  position: relative;
+  background: var(--bg-card);
+  border-radius: 3px;
+}
+
+.waterfall-bar {
+  position: absolute;
+  height: 100%;
+  border-radius: 3px;
+  min-width: 3px;
+}
+
+.waterfall-bar.web_search { background: var(--blue); }
+.waterfall-bar.http_request { background: var(--yellow); }
+.waterfall-bar.shell_command { background: var(--green); }
+.waterfall-bar.other { background: var(--text-3); }
+
+.waterfall-duration {
+  width: 60px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ─── Step Detail Panel ─── */
+.step-detail {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+  display: none;
+}
+
+.step-detail.visible { display: block; }
+
+.step-detail h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-2);
+}
+
+.step-detail pre {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+
+/* ─── Compare View ─── */
+.compare-placeholder {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-3);
+  font-size: 15px;
+}
+
+.compare-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.compare-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.compare-panel .panel-label {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.compare-panel .panel-label.a { background: rgba(37,99,235,0.12); color: var(--blue); }
+.compare-panel .panel-label.b { background: rgba(202,138,4,0.12); color: var(--yellow); }
+
+.compare-panel .panel-goal {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.compare-panel .panel-model {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.delta-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.delta-table th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.delta-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.delta-table tr:last-child td { border-bottom: none; }
+
+.delta-better { color: var(--green); }
+.delta-worse { color: var(--red); }
+.delta-neutral { color: var(--text-3); }
+
+/* ─── Stats View ─── */
+.stats-section {
+  margin-bottom: 24px;
+}
+
+.stats-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 12px;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.chart-card h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 12px;
+}
+
+/* CSS Bar Charts */
+.bar-chart-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.bar-chart-item .bar-label {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-chart-item .bar-track {
+  flex: 1;
+  height: 20px;
+  background: var(--bg-base);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar-chart-item .bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--blue);
+  transition: width 0.3s;
+}
+
+.bar-chart-item .bar-value {
+  width: 50px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* Sparkline (daily costs) */
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 100px;
+}
+
+.sparkline-bar {
+  flex: 1;
+  background: var(--yellow);
+  border-radius: 2px 2px 0 0;
+  min-width: 6px;
+  position: relative;
+}
+
+.sparkline-bar:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* Error list */
+.error-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.error-list-item:last-child { border-bottom: none; }
+
+.error-list-item .error-cat { color: var(--red); font-weight: 500; }
+.error-list-item .error-count { color: var(--text-3); }
+
+/* Histogram */
+.histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 80px;
+}
+
+.histogram-bar {
+  flex: 1;
+  background: var(--blue);
+  border-radius: 2px 2px 0 0;
+  min-width: 6px;
+  position: relative;
+}
+
+.histogram-bar:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* ─── Empty State ─── */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-3);
+}
+
+.empty-state .empty-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+
+.empty-state p { font-size: 15px; }
+
+/* ─── Utilities ─── */
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ─── Sidebar ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="/blueclaw-crab.png" alt="BlueClaw">
+      <span class="title">BlueClaw</span>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-view="list">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+        <span>Traces</span>
+      </div>
+      <div class="nav-item" data-view="detail">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+        <span>Detail</span>
+      </div>
+      <div class="nav-item" data-view="compare">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        <span>Compare</span>
+      </div>
+      <div class="nav-item" data-view="stats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+        <span>Stats</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div>Traces: <span class="trace-count" id="sidebarTraceCount">--</span></div>
+      <div style="margin-top:4px;">{{VERSION}}</div>
+    </div>
+  </aside>
+
+  <!-- ─── Main Content ─── -->
+  <main class="main">
+
+    <!-- ── Trace List View ── -->
+    <div class="view active" id="viewList">
+      <h2 class="section-title">Traces</h2>
+      <div class="toolbar">
+        <input class="search-input" id="searchInput" type="text" placeholder="Search by goal, model, or run ID...">
+        <div class="filter-chips">
+          <span class="chip active" data-filter="all">All</span>
+          <span class="chip" data-filter="success">Success</span>
+          <span class="chip" data-filter="error">Error</span>
+          <span class="chip" data-filter="7d">Last 7d</span>
+        </div>
+      </div>
+      <div id="traceTableContainer">
+        <table class="trace-table">
+          <thead>
+            <tr>
+              <th class="checkbox-cell"></th>
+              <th>Run ID</th>
+              <th>Goal</th>
+              <th>Model</th>
+              <th>Steps</th>
+              <th>Tokens</th>
+              <th>Cost</th>
+              <th>Duration</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="traceTableBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state hidden" id="listEmpty">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+        </div>
+        <p>No traces found. Run an agent session to generate traces.</p>
+      </div>
+    </div>
+
+    <!-- ── Trace Detail View ── -->
+    <div class="view" id="viewDetail">
+      <button class="back-btn" id="backToList">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        Back to traces
+      </button>
+      <div id="detailContent">
+        <div class="empty-state">
+          <p>Select a trace from the list to view details.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Compare View ── -->
+    <div class="view" id="viewCompare">
+      <h2 class="section-title">Compare Traces</h2>
+      <div id="compareContent">
+        <div class="compare-placeholder">
+          Select 2 traces from the list using the checkboxes, then switch to Compare.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Stats View ── -->
+    <div class="view" id="viewStats">
+      <h2 class="section-title">Stats</h2>
+      <div class="toolbar" style="margin-bottom:16px;">
+        <div class="filter-chips">
+          <span class="chip stats-chip active" data-days="7">Last 7 days</span>
+          <span class="chip stats-chip" data-days="30">Last 30 days</span>
+          <span class="chip stats-chip" data-days="0">All time</span>
+        </div>
+      </div>
+      <div id="statsContent">
+        <div class="empty-state" id="statsEmpty">
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
+          </div>
+          <p>No stats available yet. Run some agent sessions first.</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ─── State ───
+  let allTraces = [];
+  let currentFilter = 'all';
+  let searchQuery = '';
+  let selectedRunIds = new Set();
+  let currentDetailRunId = null;
+  let currentDetailTrace = null;
+  let latestRunId = null;
+  let statsData = null;
+  let statsDaysFilter = 7;
+  let refreshTimer = null;
+
+  // ─── DOM Refs ───
+  const html = document.documentElement;
+  const themeToggle = document.getElementById('themeToggle');
+  const navItems = document.querySelectorAll('.nav-item');
+  const views = document.querySelectorAll('.view');
+  const searchInput = document.getElementById('searchInput');
+  const filterChips = document.querySelectorAll('.chip:not(.stats-chip)');
+  const statsChips = document.querySelectorAll('.stats-chip');
+  const traceTableBody = document.getElementById('traceTableBody');
+  const listEmpty = document.getElementById('listEmpty');
+  const traceTableContainer = document.getElementById('traceTableContainer');
+  const sidebarTraceCount = document.getElementById('sidebarTraceCount');
+  const backToList = document.getElementById('backToList');
+  const detailContent = document.getElementById('detailContent');
+  const compareContent = document.getElementById('compareContent');
+  const statsContent = document.getElementById('statsContent');
+  const statsEmpty = document.getElementById('statsEmpty');
+
+  // ─── Theme ───
+  function initTheme() {
+    var saved = localStorage.getItem('blueclaw-theme');
+    if (saved === 'dark' || saved === 'light') {
+      html.setAttribute('data-theme', saved);
+    }
+  }
+  initTheme();
+
+  themeToggle.addEventListener('click', function() {
+    var current = html.getAttribute('data-theme');
+    var next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('blueclaw-theme', next);
+  });
+
+  // ─── Navigation ───
+  function switchView(viewName) {
+    navItems.forEach(function(n) {
+      n.classList.toggle('active', n.getAttribute('data-view') === viewName);
+    });
+    views.forEach(function(v) {
+      v.classList.toggle('active', v.id === 'view' + viewName.charAt(0).toUpperCase() + viewName.slice(1));
+    });
+
+    if (viewName === 'stats') {
+      loadStats();
+    }
+    if (viewName === 'compare') {
+      renderCompare();
+    }
+  }
+
+  navItems.forEach(function(item) {
+    item.addEventListener('click', function() {
+      switchView(item.getAttribute('data-view'));
+    });
+  });
+
+  backToList.addEventListener('click', function() {
+    switchView('list');
+  });
+
+  // ─── Filter Chips ───
+  filterChips.forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      filterChips.forEach(function(c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      currentFilter = chip.getAttribute('data-filter');
+      renderTraceTable();
+    });
+  });
+
+  statsChips.forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      statsChips.forEach(function(c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      statsDaysFilter = parseInt(chip.getAttribute('data-days'), 10);
+      loadStats();
+    });
+  });
+
+  // ─── Search ───
+  searchInput.addEventListener('input', function() {
+    searchQuery = searchInput.value.toLowerCase().trim();
+    renderTraceTable();
+  });
+
+  // ─── Helpers ───
+  function formatCost(v) {
+    if (v == null) return '--';
+    return '$' + v.toFixed(4);
+  }
+
+  function formatDuration(s) {
+    if (s == null) return '--';
+    if (s < 1) return (s * 1000).toFixed(0) + 'ms';
+    if (s < 60) return s.toFixed(1) + 's';
+    return (s / 60).toFixed(1) + 'm';
+  }
+
+  function formatTokens(n) {
+    if (n == null) return '--';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return n.toString();
+  }
+
+  function truncate(str, len) {
+    if (!str) return '';
+    return str.length > len ? str.substring(0, len) + '...' : str;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function isWithin7Days(dateStr) {
+    if (!dateStr) return false;
+    var d = new Date(dateStr);
+    var now = new Date();
+    var diff = now - d;
+    return diff <= 7 * 24 * 60 * 60 * 1000;
+  }
+
+  // ─── API ───
+  function fetchJSON(url) {
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+  }
+
+  // ─── Load Traces ───
+  function loadTraces() {
+    fetchJSON('/api/traces').then(function(data) {
+      allTraces = data.traces || [];
+      sidebarTraceCount.textContent = data.total != null ? data.total : allTraces.length;
+
+      if (allTraces.length > 0) {
+        var newestId = allTraces[0].run_id;
+        latestRunId = newestId;
+      }
+
+      renderTraceTable();
+    }).catch(function(err) {
+      console.error('Failed to load traces:', err);
+      allTraces = [];
+      renderTraceTable();
+    });
+  }
+
+  // ─── Auto-refresh ───
+  function startAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function() {
+      fetchJSON('/api/traces').then(function(data) {
+        var traces = data.traces || [];
+        if (traces.length > 0 && traces[0].run_id !== latestRunId) {
+          allTraces = traces;
+          latestRunId = traces[0].run_id;
+          sidebarTraceCount.textContent = data.total != null ? data.total : traces.length;
+          renderTraceTable();
+        }
+      }).catch(function() {});
+    }, 10000);
+  }
+
+  // ─── Render Trace Table ───
+  function renderTraceTable() {
+    var filtered = allTraces.filter(function(t) {
+      // Status filter
+      if (currentFilter === 'success' && t.status !== 'success') return false;
+      if (currentFilter === 'error' && t.status !== 'error') return false;
+      if (currentFilter === '7d' && !isWithin7Days(t.start_time)) return false;
+
+      // Search filter
+      if (searchQuery) {
+        var haystack = ((t.goal || '') + ' ' + (t.model_id || '') + ' ' + (t.run_id || '')).toLowerCase();
+        if (haystack.indexOf(searchQuery) === -1) return false;
+      }
+
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      traceTableContainer.classList.add('hidden');
+      listEmpty.classList.remove('hidden');
+      return;
+    }
+
+    traceTableContainer.classList.remove('hidden');
+    listEmpty.classList.add('hidden');
+
+    var html = '';
+    filtered.forEach(function(t) {
+      var isError = t.status === 'error';
+      var rowClass = isError ? 'error-row' : '';
+      var statusClass = isError ? 'error' : 'success';
+      var statusLabel = isError ? 'Error' : 'Success';
+      var checked = selectedRunIds.has(t.run_id) ? 'checked' : '';
+
+      html += '<tr class="' + rowClass + '" data-run-id="' + escapeHtml(t.run_id) + '">';
+      html += '<td class="checkbox-cell"><input type="checkbox" data-check-id="' + escapeHtml(t.run_id) + '" ' + checked + '></td>';
+      html += '<td><span class="run-id-link mono">' + escapeHtml(truncate(t.run_id, 12)) + '</span></td>';
+      html += '<td class="goal-cell" title="' + escapeHtml(t.goal) + '">' + escapeHtml(truncate(t.goal, 50)) + '</td>';
+      html += '<td><span class="pill">' + escapeHtml(t.model_id || '--') + '</span></td>';
+      html += '<td>' + (t.steps != null ? t.steps : '--') + '</td>';
+      html += '<td>' + formatTokens(t.total_tokens) + '</td>';
+      html += '<td class="cost-cell">' + formatCost(t.total_cost) + '</td>';
+      html += '<td class="duration-cell">' + formatDuration(t.duration_s) + '</td>';
+      html += '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>';
+      html += '</tr>';
+    });
+
+    traceTableBody.innerHTML = html;
+
+    // Row click handlers
+    traceTableBody.querySelectorAll('tr').forEach(function(row) {
+      row.addEventListener('click', function(e) {
+        // If clicking checkbox, handle selection
+        if (e.target.type === 'checkbox') {
+          var cid = e.target.getAttribute('data-check-id');
+          if (e.target.checked) {
+            selectedRunIds.add(cid);
+          } else {
+            selectedRunIds.delete(cid);
+          }
+          // Enforce max 2
+          if (selectedRunIds.size > 2) {
+            var arr = Array.from(selectedRunIds);
+            selectedRunIds.delete(arr[0]);
+            renderTraceTable();
+          }
+          return;
+        }
+        // Otherwise open detail
+        var runId = row.getAttribute('data-run-id');
+        openDetail(runId);
+      });
+    });
+  }
+
+  // ─── Open Trace Detail ───
+  function openDetail(runId) {
+    currentDetailRunId = runId;
+    switchView('detail');
+
+    detailContent.innerHTML = '<div class="empty-state"><p>Loading trace...</p></div>';
+
+    fetchJSON('/api/traces/' + encodeURIComponent(runId)).then(function(trace) {
+      currentDetailTrace = trace;
+      renderDetail(trace);
+    }).catch(function(err) {
+      detailContent.innerHTML = '<div class="empty-state"><p>Failed to load trace: ' + escapeHtml(err.message) + '</p></div>';
+    });
+  }
+
+  // ─── Render Detail ───
+  function renderDetail(trace) {
+    var isError = trace.status === 'error';
+    var statusClass = isError ? 'error' : 'success';
+    var statusIcon = isError
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+    var steps = trace.steps || [];
+    var traceStartMs = steps.length > 0 && steps[0].start_time ? new Date(steps[0].start_time).getTime() : 0;
+    var traceEndMs = steps.length > 0 && steps[steps.length - 1].end_time ? new Date(steps[steps.length - 1].end_time).getTime() : 0;
+    var traceTotalMs = traceEndMs - traceStartMs;
+    if (traceTotalMs <= 0) traceTotalMs = 1;
+
+    // Compute overhead %
+    var totalToolTime = 0;
+    steps.forEach(function(s) { totalToolTime += (s.duration_ms || 0); });
+    var wallMs = (trace.duration_s || 0) * 1000;
+    var overheadPct = wallMs > 0 ? Math.max(0, ((wallMs - totalToolTime) / wallMs) * 100) : 0;
+
+    var h = '';
+
+    // Header
+    h += '<div class="detail-header">';
+    h += '<div class="status-icon ' + statusClass + '">' + statusIcon + '</div>';
+    h += '<div class="info">';
+    h += '<div class="goal-text">' + escapeHtml(trace.goal || 'Untitled') + '</div>';
+    h += '<div class="detail-meta">';
+    h += '<span class="mono">' + escapeHtml(trace.run_id || '') + '</span>';
+    h += '<span class="pill">' + escapeHtml(trace.model_id || '--') + '</span>';
+    if (trace.context_strategy) {
+      h += '<span>Context: ' + escapeHtml(trace.context_strategy) + '</span>';
+    }
+    h += '</div></div></div>';
+
+    // Metric cards
+    h += '<div class="metric-cards">';
+    h += '<div class="metric-card"><div class="label">Steps</div><div class="value blue">' + (trace.steps ? trace.steps.length : (trace.steps_count || '--')) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Tokens</div><div class="value">' + formatTokens(trace.total_tokens) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Cost</div><div class="value yellow">' + formatCost(trace.total_cost) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Wall Time</div><div class="value">' + formatDuration(trace.duration_s) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Overhead</div><div class="value">' + overheadPct.toFixed(1) + '%</div></div>';
+    h += '</div>';
+
+    // Waterfall
+    h += '<div class="waterfall">';
+    h += '<div class="waterfall-header">Timeline</div>';
+
+    steps.forEach(function(step, i) {
+      var toolName = step.tool_name || 'unknown';
+      var barClass = 'other';
+      if (toolName === 'web_search') barClass = 'web_search';
+      else if (toolName === 'http_request') barClass = 'http_request';
+      else if (toolName === 'shell_command') barClass = 'shell_command';
+
+      var stepStartMs = step.start_time ? new Date(step.start_time).getTime() : 0;
+      var stepDurMs = step.duration_ms || 0;
+      var leftPct = traceStartMs ? ((stepStartMs - traceStartMs) / traceTotalMs * 100) : 0;
+      var widthPct = (stepDurMs / traceTotalMs * 100);
+      if (leftPct < 0) leftPct = 0;
+      if (leftPct > 100) leftPct = 100;
+      if (widthPct < 0.5) widthPct = 0.5;
+      if (leftPct + widthPct > 100) widthPct = 100 - leftPct;
+
+      h += '<div class="waterfall-row" data-step-idx="' + i + '">';
+      h += '<span class="waterfall-tool">' + escapeHtml(toolName) + '</span>';
+      h += '<div class="waterfall-bar-container">';
+      h += '<div class="waterfall-bar ' + barClass + '" style="left:' + leftPct.toFixed(1) + '%;width:' + widthPct.toFixed(1) + '%"></div>';
+      h += '</div>';
+      h += '<span class="waterfall-duration">' + (stepDurMs != null ? stepDurMs + 'ms' : '--') + '</span>';
+      h += '</div>';
+    });
+
+    if (steps.length === 0) {
+      h += '<div style="padding:20px;text-align:center;color:var(--text-3);">No steps recorded.</div>';
+    }
+
+    h += '</div>';
+
+    // Step detail panel placeholder
+    h += '<div class="step-detail" id="stepDetailPanel"></div>';
+
+    detailContent.innerHTML = h;
+
+    // Waterfall row click
+    detailContent.querySelectorAll('.waterfall-row').forEach(function(row) {
+      row.addEventListener('click', function() {
+        var idx = parseInt(row.getAttribute('data-step-idx'), 10);
+        var step = steps[idx];
+        if (!step) return;
+
+        // Toggle selected
+        detailContent.querySelectorAll('.waterfall-row').forEach(function(r) { r.classList.remove('selected'); });
+        row.classList.add('selected');
+
+        var panel = document.getElementById('stepDetailPanel');
+        var ph = '';
+        ph += '<h4>' + escapeHtml(step.tool_name || 'Step ' + step.index) + ' &mdash; ' + (step.status || '') + '</h4>';
+
+        if (step.input_summary) {
+          ph += '<h4>Input</h4>';
+          ph += '<pre class="mono">' + escapeHtml(typeof step.input_summary === 'string' ? step.input_summary : JSON.stringify(step.input_summary, null, 2)) + '</pre>';
+        }
+
+        if (step.output_summary) {
+          ph += '<h4>Output</h4>';
+          ph += '<pre class="mono">' + escapeHtml(step.output_summary) + '</pre>';
+        }
+
+        if (step.error) {
+          ph += '<h4 style="color:var(--red)">Error</h4>';
+          ph += '<pre class="mono" style="border-color:var(--red);color:var(--red)">' + escapeHtml(step.error) + '</pre>';
+        }
+
+        panel.innerHTML = ph;
+        panel.classList.add('visible');
+      });
+    });
+  }
+
+  // ─── Compare ───
+  function renderCompare() {
+    if (selectedRunIds.size !== 2) {
+      compareContent.innerHTML = '<div class="compare-placeholder">Select 2 traces from the list using the checkboxes, then switch to Compare.</div>';
+      return;
+    }
+
+    var ids = Array.from(selectedRunIds);
+    compareContent.innerHTML = '<div class="empty-state"><p>Loading comparison...</p></div>';
+
+    Promise.all([
+      fetchJSON('/api/traces/' + encodeURIComponent(ids[0])),
+      fetchJSON('/api/traces/' + encodeURIComponent(ids[1]))
+    ]).then(function(results) {
+      var a = results[0];
+      var b = results[1];
+      renderCompareResult(a, b);
+    }).catch(function(err) {
+      compareContent.innerHTML = '<div class="empty-state"><p>Failed to load traces: ' + escapeHtml(err.message) + '</p></div>';
+    });
+  }
+
+  function renderCompareResult(a, b) {
+    var h = '';
+
+    // Side-by-side panels
+    h += '<div class="compare-panels">';
+
+    h += '<div class="compare-panel">';
+    h += '<span class="panel-label a">Run A</span>';
+    h += '<div class="panel-goal">' + escapeHtml(truncate(a.goal, 80)) + '</div>';
+    h += '<div class="panel-model"><span class="pill">' + escapeHtml(a.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(truncate(a.run_id, 16)) + '</span></div>';
+    h += '</div>';
+
+    h += '<div class="compare-panel">';
+    h += '<span class="panel-label b">Run B</span>';
+    h += '<div class="panel-goal">' + escapeHtml(truncate(b.goal, 80)) + '</div>';
+    h += '<div class="panel-model"><span class="pill">' + escapeHtml(b.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(truncate(b.run_id, 16)) + '</span></div>';
+    h += '</div>';
+
+    h += '</div>';
+
+    // Delta table
+    h += '<table class="delta-table">';
+    h += '<thead><tr><th>Metric</th><th>Run A</th><th>Run B</th><th>Delta</th></tr></thead>';
+    h += '<tbody>';
+
+    var stepsA = a.steps ? a.steps.length : (a.steps_count || 0);
+    var stepsB = b.steps ? b.steps.length : (b.steps_count || 0);
+
+    var metrics = [
+      { label: 'Steps', va: stepsA, vb: stepsB, fmt: function(v) { return v; }, lower_better: true },
+      { label: 'Tokens', va: a.total_tokens, vb: b.total_tokens, fmt: formatTokens, lower_better: true },
+      { label: 'Cost', va: a.total_cost, vb: b.total_cost, fmt: formatCost, lower_better: true },
+      { label: 'Duration', va: a.duration_s, vb: b.duration_s, fmt: formatDuration, lower_better: true }
+    ];
+
+    metrics.forEach(function(m) {
+      var va = m.va != null ? m.va : 0;
+      var vb = m.vb != null ? m.vb : 0;
+      var diff = vb - va;
+      var arrow = '';
+      var cls = 'delta-neutral';
+
+      if (diff > 0) {
+        arrow = ' &#9650;'; // up arrow
+        cls = m.lower_better ? 'delta-worse' : 'delta-better';
+      } else if (diff < 0) {
+        arrow = ' &#9660;'; // down arrow
+        cls = m.lower_better ? 'delta-better' : 'delta-worse';
+      }
+
+      var diffStr = '';
+      if (m.label === 'Cost') {
+        diffStr = (diff >= 0 ? '+' : '') + formatCost(diff);
+      } else if (m.label === 'Duration') {
+        diffStr = (diff >= 0 ? '+' : '') + formatDuration(diff);
+      } else if (m.label === 'Tokens') {
+        diffStr = (diff >= 0 ? '+' : '') + formatTokens(diff);
+      } else {
+        diffStr = (diff >= 0 ? '+' : '') + diff;
+      }
+
+      h += '<tr>';
+      h += '<td style="font-weight:600">' + m.label + '</td>';
+      h += '<td>' + m.fmt(m.va) + '</td>';
+      h += '<td>' + m.fmt(m.vb) + '</td>';
+      h += '<td class="' + cls + '">' + diffStr + arrow + '</td>';
+      h += '</tr>';
+    });
+
+    h += '</tbody></table>';
+
+    compareContent.innerHTML = h;
+  }
+
+  // ─── Stats ───
+  function loadStats() {
+    var url = '/api/stats';
+    if (statsDaysFilter > 0) {
+      url += '?days=' + statsDaysFilter;
+    }
+
+    fetchJSON(url).then(function(data) {
+      statsData = data;
+      renderStats(data);
+    }).catch(function(err) {
+      console.error('Failed to load stats:', err);
+      statsContent.innerHTML = '<div class="empty-state"><p>Failed to load stats: ' + escapeHtml(err.message) + '</p></div>';
+    });
+  }
+
+  function renderStats(data) {
+    if (!data || data.total_runs === 0) {
+      statsContent.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg></div><p>No stats available yet. Run some agent sessions first.</p></div>';
+      return;
+    }
+
+    var h = '';
+
+    // Metric cards
+    h += '<div class="metric-cards">';
+    h += '<div class="metric-card"><div class="label">Total Runs</div><div class="value blue">' + (data.total_runs || 0) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Total Cost</div><div class="value yellow">' + formatCost(data.total_cost) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Median Duration</div><div class="value">' + formatDuration(data.median_duration_s) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Error Rate</div><div class="value red">' + (data.error_rate != null ? (data.error_rate * 100).toFixed(1) + '%' : '--') + '</div></div>';
+    h += '</div>';
+
+    // Chart row 1: Top Tools + Cost Over Time
+    h += '<div class="chart-row">';
+
+    // Top Tools
+    h += '<div class="chart-card">';
+    h += '<h4>Top Tools</h4>';
+    var topTools = data.top_tools || [];
+    if (topTools.length === 0) {
+      h += '<div style="color:var(--text-3);font-size:13px;">No tool data available.</div>';
+    } else {
+      var maxCount = 0;
+      topTools.forEach(function(t) { if (t.count > maxCount) maxCount = t.count; });
+      topTools.forEach(function(t) {
+        var pct = maxCount > 0 ? (t.count / maxCount * 100) : 0;
+        h += '<div class="bar-chart-item">';
+        h += '<span class="bar-label">' + escapeHtml(t.name) + '</span>';
+        h += '<span class="bar-track"><span class="bar-fill" style="width:' + pct.toFixed(1) + '%"></span></span>';
+        h += '<span class="bar-value">' + t.count + ' (' + (t.pct != null ? t.pct.toFixed(0) : '0') + '%)</span>';
+        h += '</div>';
+      });
+    }
+    h += '</div>';
+
+    // Cost Over Time
+    h += '<div class="chart-card">';
+    h += '<h4>Cost Over Time</h4>';
+    var dailyCosts = data.daily_costs || [];
+    if (dailyCosts.length === 0) {
+      h += '<div style="color:var(--text-3);font-size:13px;">No cost data available.</div>';
+    } else {
+      var maxCost = 0;
+      dailyCosts.forEach(function(d) { if (d.cost > maxCost) maxCost = d.cost; });
+      h += '<div class="sparkline">';
+      dailyCosts.forEach(function(d) {
+        var pct = maxCost > 0 ? (d.cost / maxCost * 100) : 0;
+        h += '<div class="sparkline-bar" style="height:' + Math.max(pct, 2).toFixed(1) + '%" data-tooltip="' + escapeHtml(d.date) + ': ' + formatCost(d.cost) + '"></div>';
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+
+    h += '</div>';
+
+    // Chart row 2: Error Breakdown + Duration Distribution
+    h += '<div class="chart-row">';
+
+    // Error Breakdown
+    h += '<div class="chart-card">';
+    h += '<h4>Error Breakdown</h4>';
+    var errors = data.errors || [];
+    if (errors.length === 0) {
+      h += '<div style="color:var(--text-3);font-size:13px;">No errors recorded.</div>';
+    } else {
+      errors.forEach(function(e) {
+        h += '<div class="error-list-item">';
+        h += '<span class="error-cat">' + escapeHtml(e.category) + '</span>';
+        h += '<span class="error-count">' + e.count + ' (' + (e.pct != null ? e.pct.toFixed(0) : '0') + '%)</span>';
+        h += '</div>';
+      });
+    }
+    h += '</div>';
+
+    // Duration Distribution
+    h += '<div class="chart-card">';
+    h += '<h4>Duration Distribution</h4>';
+    // Build histogram from trace data
+    if (data.median_duration_s != null && data.p95_duration_s != null) {
+      var p95 = data.p95_duration_s;
+      var bucketCount = 10;
+      var bucketSize = p95 > 0 ? p95 / bucketCount : 1;
+      // We don't have raw durations from stats API, show key percentiles
+      h += '<div style="display:flex;gap:16px;align-items:baseline;margin-top:8px;">';
+      h += '<div><span style="font-size:12px;color:var(--text-3);">Median</span><div style="font-weight:600;">' + formatDuration(data.median_duration_s) + '</div></div>';
+      h += '<div><span style="font-size:12px;color:var(--text-3);">P95</span><div style="font-weight:600;">' + formatDuration(data.p95_duration_s) + '</div></div>';
+      h += '<div><span style="font-size:12px;color:var(--text-3);">Avg Steps</span><div style="font-weight:600;">' + (data.avg_steps_per_run != null ? data.avg_steps_per_run.toFixed(1) : '--') + '</div></div>';
+      h += '<div><span style="font-size:12px;color:var(--text-3);">Avg Tokens</span><div style="font-weight:600;">' + formatTokens(data.avg_tokens_per_run) + '</div></div>';
+      h += '</div>';
+    } else {
+      h += '<div style="color:var(--text-3);font-size:13px;">Insufficient data.</div>';
+    }
+    h += '</div>';
+
+    h += '</div>';
+
+    statsContent.innerHTML = h;
+  }
+
+  // ─── Init ───
+  loadTraces();
+  startAutoRefresh();
+
+})();
+</script>
+</body>
+</html>

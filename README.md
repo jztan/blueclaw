@@ -3,16 +3,17 @@
 </p>
 
 <p align="center">
-  <strong>Observable AI agent runtime with structured execution tracing.</strong><br>
-  Inspect, replay, diff, and debug agent behavior from the terminal.
+  <strong>Understand, debug, and control AI agent behavior.</strong><br>
+  Structured tracing, context management, and reproducible runs — all from the terminal.
 </p>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> &middot;
   <a href="#tracing--observability">Tracing</a> &middot;
-  <a href="#what-makes-blueclaw-different">Why BlueClaw</a> &middot;
+  <a href="#regression-testing">Testing</a> &middot;
   <a href="#model-support">Models</a> &middot;
-  <a href="#roadmap">Roadmap</a>
+  <a href="#roadmap">Roadmap</a> &middot;
+  <a href="#license">License</a>
 </p>
 
 <p align="center">
@@ -25,22 +26,15 @@
 
 ---
 
-## Why BlueClaw
-
-Most AI agents are black boxes. When something goes wrong, you don't know whether the problem was the model reasoning, a tool input, a tool output, a retry loop, or a bad prompt.
-
-BlueClaw records structured execution traces for every run and provides CLI tools to analyze them. Agents become observable systems, not mystery machines.
-
-```
-blueclaw> research the MCP ecosystem, focus on Python SDKs
-● web_search({"query": "MCP Model Context Protocol Python SDK"})
-  ✓ 1.2s
-● http_request({"url": "https://modelcontextprotocol.io/..."})
-  ✓ 0.8s
-Done · 2 steps · 1840 tokens · $0.0073 · 4.1s
-```
-
-Every tool call is recorded with timing, inputs, outputs, and errors. Then you debug it.
+| | BlueClaw | Typical agent frameworks |
+|---|---|---|
+| Structured execution traces | Every run, automatic | None or manual logging |
+| Regression testing | YAML specs, TAP/JUnit, Wilson CI | Not available |
+| Trace replay | Step-through debugger | Not available |
+| Trace diff | A/B test prompt changes | Not available |
+| Trace explain | LLM post-hoc analysis | Not available |
+| Aggregate stats | Cost, timing, failure rates | Not available |
+| CLI-first debugging | No dashboards required | Dashboard or nothing |
 
 ## Quickstart
 
@@ -166,37 +160,125 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
 | `trace explain <id>` | LLM explains what happened and why |
 | `trace diff <id1> <id2>` | Compare two runs (A/B test prompts) |
 | `trace replay <id>` | Step-through debugger for tool calls |
+| `trace replay <id> --stub-tools` | Re-run with recorded outputs, compare tool sequence |
 | `trace stats` | Aggregate performance across all runs |
 | `trace purge` | Delete old traces (default: 30 days) |
 
-## What Makes BlueClaw Different
+## Regression Testing
 
-Most agent tools focus on capability. BlueClaw focuses on **observability**.
+Define expected agent behavior in YAML, run it as a test suite, get CI-friendly output.
 
-| | BlueClaw | Typical agent frameworks |
-|---|---|---|
-| Structured execution traces | Every run, automatic | None or manual logging |
-| Trace replay | Step-through debugger | Not available |
-| Trace diff | A/B test prompt changes | Not available |
-| Trace explain | LLM post-hoc analysis | Not available |
-| Aggregate stats | Cost, timing, failure rates | Not available |
-| CLI-first debugging | No dashboards required | Dashboard or nothing |
+### Test spec
 
-Future versions will use trace history to generate runtime hints, allowing agents to avoid repeating past failures.
+```yaml
+# test-spec.yaml
+tests:
+  - goal: search for Python web frameworks and save to frameworks.txt
+    expected_tools: [web_search, shell_command]
+    expected_file_contains:
+      frameworks.txt: "Django"
+    tool_order: [web_search, shell_command]
+    forbidden_tools: [http_request]
+    max_steps: 5
 
-## Features
+  - goal: check the current weather in Tokyo using wttr.in
+    expected_tools: [http_request]
+    expected_output_contains: Tokyo
+    max_cost: 0.05
+    runs: 5
+    threshold: 0.55
 
-- **Execution tracing** — structured JSON traces with full observability tooling
-- **Model-agnostic** — Claude, Ollama, OpenAI, Gemini with one flag
-- **Web search** — DuckDuckGo via `ddgs`, top 5 results with snippets
-- **Persistent memory** — `CONTEXT.md` updates in the background, `history.jsonl` logs every run
-- **Interactive + scripted** — `blueclaw` for chat, `blueclaw run "..."` for one-shot
-- **Shell execution** — sandboxed with deny-list, 30s timeout, interactive approval
-- **Workspace sandbox** — path validation + destructive command deny-list
-- **Crash recovery** — per-turn checkpoints
-- **Output truncation** — 12k char limit prevents context blowout
-- **MCP support** — bundled `pdf-mcp`, custom stdio/SSE servers via config
-- **Trace lessons** — past failures automatically inform future runs
+model: anthropic/claude-haiku-4-5-20251001
+allowlist_domains:
+  - wttr.in
+```
+
+### Run tests
+
+```bash
+$ blueclaw test test-spec.yaml
+
+TAP version 13
+1..2
+ok 1 - search for Python web frameworks and save to frameworks.txt
+ok 2 - check the current weather in Tokyo using wttr.in
+```
+
+### Assertions
+
+| Field | Check |
+|---|---|
+| `expected_tools` | Every listed tool was called (subset match) |
+| `expected_output_contains` | Case-insensitive substring match on response |
+| `max_steps` | Agent used no more than N tool calls |
+| `max_cost` | Run cost stayed under budget |
+| `forbidden_tools` | None of these tools were called |
+| `expected_files` | Each path exists in workspace after the run |
+| `expected_file_contains` | File exists AND contains substring (case-insensitive) |
+| `forbidden_output_contains` | Substring must NOT appear in response |
+| `output_regex` | Regex pattern must match response |
+| `tool_order` | Tools appear in this subsequence order |
+| `max_duration_s` | Wall-clock time under budget |
+
+### Spec-level fields
+
+| Field | Purpose |
+|---|---|
+| `model` | Override model for all tests in the spec |
+| `allowlist_domains` | Domains allowed for `http_request` (merged with `blueclaw.yaml`) |
+
+### Multi-run with Wilson CI
+
+LLMs are non-deterministic. Set `runs: N` (N > 1) to execute multiple times and get a statistically valid verdict instead of brittle pass/fail:
+
+- **Pass** — Wilson CI lower bound >= threshold
+- **Fail** — Wilson CI upper bound < threshold
+- **Inconclusive** — CI straddles the threshold (needs more runs)
+
+Inconclusive tests exit 0 so they don't break CI, but surface as `# INCONCLUSIVE` in TAP and `<skipped>` in JUnit XML.
+
+### Output formats
+
+```bash
+blueclaw test spec.yaml                          # TAP to stdout (default)
+blueclaw test spec.yaml --format junit           # JUnit XML to stdout
+blueclaw test spec.yaml -o results.xml -f junit  # write to file
+blueclaw test spec.yaml --dry-run                # validate spec, no API calls
+blueclaw test spec.yaml --keep-workspace         # preserve workspaces for inspection
+blueclaw test spec.yaml --model anthropic/claude-haiku-4-5-20251001  # override model
+```
+
+Exit code: `0` on all pass/inconclusive, `1` on any failure.
+
+### Per-run diagnostics
+
+With `--keep-workspace`, each run directory contains `.blueclaw/result.json` — the full `TestResult` with verdict, failures, tools called, cost, and duration. Inspect individual runs to understand why a multi-run case passed or failed:
+
+```bash
+$ cat /tmp/blueclaw-test-.../case-007/run-002/.blueclaw/result.json
+{
+  "goal": "check the current weather in Tokyo using wttr.in",
+  "passed": true,
+  "verdict": "pass",
+  "tools_called": ["http_request"],
+  "cost": 0.009,
+  "duration_s": 4.4
+}
+```
+
+### Stub replay
+
+Re-run a recorded trace with stubbed tool outputs — no real execution, no API cost for tools:
+
+```bash
+$ blueclaw trace replay 20260315-054426 --stub-tools
+
+Original: web_search -> http_request
+Replayed: web_search -> http_request
+Result: MATCH (same tool sequence)
+```
+
+Use `--model` to test whether a different model makes the same tool choices given the same context.
 
 ## Model Support
 
@@ -251,6 +333,7 @@ allowlist_domains:
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O |
 | `observer.py` | Structured tool tracing + output truncation |
 | `models.py` | Pydantic models, trace schema, cost calculation, error classification |
+| `testing.py` | Test spec loading, runner, assertions, formatters, stub replay |
 | `tools/` | Web, shell, MCP wiring (factory pattern) |
 | `approval.py` | Shell command + domain allowlist hooks |
 
@@ -258,15 +341,7 @@ Built on [Strands Agents SDK](https://github.com/strands-agents/sdk-python). The
 
 ## Roadmap
 
-BlueClaw evolves in layers:
-
-1. **Observable agent runtime** — structured tracing, model-agnostic, CLI tools (done)
-2. **Trace analytics** — aggregate stats, timeline, failure classification (done)
-3. **Smart context management** — observation masking, configurable strategies, benchmarking (done)
-4. **Agent regression testing** — define expected behavior in YAML, CI for agents (next)
-5. **Production observability** — SQLite backend, trace query, OpenTelemetry export
-6. **API gateway** — `blueclaw serve` with webhook endpoint
-7. **Multi-channel runtime** — Slack, Discord, Telegram adapters
+See [docs/roadmap.md](docs/roadmap.md) for the full roadmap with milestone details.
 
 ## Development
 
@@ -279,4 +354,4 @@ black --check blueclaw/ tests/
 
 ## License
 
-MIT
+[MIT](LICENSE)

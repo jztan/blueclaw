@@ -761,6 +761,9 @@ def test(
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Model override"
     ),
+    keep_workspace: bool = typer.Option(
+        False, "--keep-workspace", help="Keep temp workspace for inspection"
+    ),
 ) -> None:
     """Run agent regression tests from a YAML spec."""
     import shutil
@@ -813,6 +816,9 @@ def test(
         else:
             sys.stdout.write(formatted)
     finally:
-        shutil.rmtree(workspace_dir, ignore_errors=True)
+        if keep_workspace:
+            console.print(f"Workspace kept at: {workspace_dir}")
+        else:
+            shutil.rmtree(workspace_dir, ignore_errors=True)
 
     raise typer.Exit(1 if any(r.verdict == "fail" for r in results) else 0)

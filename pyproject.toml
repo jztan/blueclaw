@@ -48,5 +48,8 @@ include = ["blueclaw*"]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::pytest.PytestCollectionWarning"]
+
 [tool.black]
 line-length = 88

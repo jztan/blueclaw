@@ -2,6 +2,12 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+
+- `blueclaw test` — YAML-driven agent regression testing with TAP/JUnit output, Wilson CI scoring for multi-run statistical verdicts, and CI-friendly exit codes
+- `--keep-workspace` flag for `blueclaw test` — preserves temp workspace for post-test inspection instead of cleaning up
+
 ## [1.3.0] - 2026-03-19
 ### Added
 

@@ -2,7 +2,7 @@
 
 > Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → multi-channel runtime.
 
-**Current:** v1.4 complete. v1.5 next.
+**Current:** v1.5 complete. v2 next.
 
 ---
 
@@ -34,7 +34,7 @@ Define expected agent behavior in YAML and validate automatically. CI for agents
 - `allowlist_domains` on test specs — declare domains for `http_request` without editing `blueclaw.yaml`
 - `blueclaw trace replay --stub-tools` — replay model reasoning with recorded tool outputs
 
-## v1.5 — Trace Web UI
+## v1.5 — Trace Web UI ✅
 
 Local browser-based dashboard for trace visualization. `blueclaw trace ui` serves a self-contained single-page app on localhost — no npm, no node, no external dependencies.
 

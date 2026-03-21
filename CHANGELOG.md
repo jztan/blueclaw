@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [1.5.0] - 2026-03-21
 ### Added
 
 - `blueclaw trace ui` — local browser dashboard for trace visualization with 4 views (list, detail, compare, stats), light/dark theme, auto-refresh

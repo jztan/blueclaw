@@ -22,6 +22,7 @@
   <a href="https://pypi.org/project/blueclaw/"><img src="https://img.shields.io/pypi/pyversions/blueclaw.svg" alt="Python Version"></a>
   <a href="https://github.com/jztan/blueclaw/issues"><img src="https://img.shields.io/github/issues/jztan/blueclaw.svg" alt="GitHub Issues"></a>
   <a href="https://github.com/jztan/blueclaw/actions/workflows/ci.yml"><img src="https://github.com/jztan/blueclaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pepy.tech/project/blueclaw"><img src="https://pepy.tech/badge/blueclaw" alt="Downloads"></a>
 </p>
 
 ---
@@ -162,7 +163,18 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
 | `trace replay <id>` | Step-through debugger for tool calls |
 | `trace replay <id> --stub-tools` | Re-run with recorded outputs, compare tool sequence |
 | `trace stats` | Aggregate performance across all runs |
+| `trace ui` | Browser dashboard with charts and waterfall |
 | `trace purge` | Delete old traces (default: 30 days) |
+
+### Trace Web UI
+
+```bash
+blueclaw trace ui                    # open dashboard at localhost:8111
+blueclaw trace ui --port 9000        # custom port
+blueclaw trace ui --no-open          # don't auto-open browser
+```
+
+Browser-based dashboard with 4 views: trace list with search/filter, trace detail with interactive waterfall timeline, side-by-side trace comparison, and aggregate stats with charts. Light/dark theme, auto-refresh, zero external dependencies.
 
 ## Regression Testing
 

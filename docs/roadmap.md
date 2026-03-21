@@ -1,8 +1,8 @@
 # BlueClaw Roadmap
 
-> Observable agent runtime → trace analytics → smart context management → agent testing → production observability → API gateway → multi-channel runtime.
+> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → multi-channel runtime.
 
-**Current:** v1.4 complete. v2 next.
+**Current:** v1.4 complete. v1.5 next.
 
 ---
 
@@ -34,15 +34,20 @@ Define expected agent behavior in YAML and validate automatically. CI for agents
 - `allowlist_domains` on test specs — declare domains for `http_request` without editing `blueclaw.yaml`
 - `blueclaw trace replay --stub-tools` — replay model reasoning with recorded tool outputs
 
-## v2 — Production Observability
+## v1.5 — Trace Web UI
 
-Move trace storage beyond local JSON files. SQLite backend, `trace query` with filtering, retention policies, optional OpenTelemetry export. Optional local web UI for trace visualization.
+Local browser-based dashboard for trace visualization. `blueclaw trace ui` serves a self-contained single-page app on localhost — no npm, no node, no external dependencies.
 
-## v3 — Agent API Gateway
+- Trace list with search/filter (goal, model, status, date range)
+- Trace detail with interactive waterfall timeline and expandable steps
+- Side-by-side trace comparison with delta indicators
+- Stats dashboard with charts (tool frequency, cost over time, timing distribution, error breakdown)
+
+## v2 — Agent API Gateway
 
 `POST /message` endpoint via `blueclaw serve`. Stateless webhook first, then per-conversation persistence via Strands `FileSessionManager`.
 
-## v4 — Multi-Channel Runtime
+## v3 — Multi-Channel Runtime
 
 Channel adapters (Slack, Discord, Telegram) as skills, conversation routing, optional Docker sandbox.
 
@@ -56,3 +61,5 @@ Channel adapters (Slack, Discord, Telegram) as skills, conversation routing, opt
 | Multi-agent collaboration | Add when there's a real use case |
 | Browser automation | Can be an MCP server, not core |
 | Network-level domain isolation | Requires Docker; deferred to v4 |
+| SQLite trace backend | JSON files work fine; agent reads them directly |
+| OpenTelemetry export | No current need; revisit when external observability is required |

@@ -2,6 +2,14 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+
+- `blueclaw trace ui` — local browser dashboard for trace visualization with 4 views (list, detail, compare, stats), light/dark theme, auto-refresh
+- `compute_stats()` extracted from `trace stats` CLI into reusable function shared by CLI and web API
+- REST API: `/api/traces`, `/api/traces/{run_id}`, `/api/stats` for trace data access
+- Path traversal guard on trace API run_id parameter
+
 ## [1.4.1] - 2026-03-20
 ### Fixed
 

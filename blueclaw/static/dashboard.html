@@ -1110,7 +1110,7 @@ code, .mono {
 
       html += '<tr class="' + rowClass + '" data-run-id="' + escapeHtml(t.run_id) + '">';
       html += '<td class="checkbox-cell"><input type="checkbox" data-check-id="' + escapeHtml(t.run_id) + '" ' + checked + '></td>';
-      html += '<td><span class="run-id-link mono">' + escapeHtml(truncate(t.run_id, 12)) + '</span></td>';
+      html += '<td><span class="run-id-link mono">' + escapeHtml(t.run_id) + '</span></td>';
       html += '<td class="goal-cell" title="' + escapeHtml(t.goal) + '">' + escapeHtml(truncate(t.goal, 50)) + '</td>';
       html += '<td><span class="pill">' + escapeHtml(t.model_id || '--') + '</span></td>';
       html += '<td>' + (t.steps != null ? t.steps : '--') + '</td>';
@@ -1315,13 +1315,13 @@ code, .mono {
     h += '<div class="compare-panel">';
     h += '<span class="panel-label a">Run A</span>';
     h += '<div class="panel-goal">' + escapeHtml(truncate(a.goal, 80)) + '</div>';
-    h += '<div class="panel-model"><span class="pill">' + escapeHtml(a.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(truncate(a.run_id, 16)) + '</span></div>';
+    h += '<div class="panel-model"><span class="pill">' + escapeHtml(a.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(a.run_id) + '</span></div>';
     h += '</div>';
 
     h += '<div class="compare-panel">';
     h += '<span class="panel-label b">Run B</span>';
     h += '<div class="panel-goal">' + escapeHtml(truncate(b.goal, 80)) + '</div>';
-    h += '<div class="panel-model"><span class="pill">' + escapeHtml(b.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(truncate(b.run_id, 16)) + '</span></div>';
+    h += '<div class="panel-model"><span class="pill">' + escapeHtml(b.model_id || '--') + '</span> &middot; <span class="mono">' + escapeHtml(b.run_id) + '</span></div>';
     h += '</div>';
 
     h += '</div>';

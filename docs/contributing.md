@@ -70,7 +70,7 @@ git checkout -b fix/issue-description
 
 - Follow existing code style and patterns
 - Keep changes focused — one concern per PR
-- Stay within the **1,500-line core source budget** (see Design Constraints below)
+- Stay within the **complexity budget** (see Design Constraints below)
 - Before adding anything, ask: does Strands already do this?
 
 ### 3. Write tests
@@ -163,7 +163,7 @@ Fixes #123
 - [ ] Regression spec added (for agent behavior changes)
 
 ## Checklist
-- [ ] Stays within 1,500-line core source budget
+- [ ] Complexity cost justified (see Design Constraints)
 - [ ] No reimplementation of Strands built-ins
 - [ ] Documentation updated if behaviour changed
 - [ ] CHANGELOG.md updated under `[Unreleased]`
@@ -186,13 +186,13 @@ These constraints keep BlueClaw understandable and maintainable. Please read the
 | **MCP-first tools** | Prefer `MCPClient` over custom `@tool` functions |
 | **Workspace sandbox** | All file I/O must stay inside `~/blueclaw/workspace/` |
 | **Skills over features** | New integrations belong in `.claude/skills/`, not core files |
-| **Simplicity budget** | Core source must stay under 1,500 lines across ~5 files |
+| **Simplicity budget** | Core source must stay at the one-sitting readable limit (~3,600 lines across ~12 files). New additions must justify their complexity. |
 
 Before opening a PR for a new feature, ask:
 
 1. Does Strands already do this?
 2. Can this be a skill file instead of a core change?
-3. Does adding this keep us under 1,500 lines?
+3. Does the complexity cost justify the value?
 4. Can a developer understand the full system in one sitting?
 
 ## Code Guidelines
@@ -254,7 +254,9 @@ from blueclaw.testing import _check_assertions
 
 def test_missing_tool_fails():
     case = TestCase(goal="test", expected_tools=["web_search"])
-    failures = _check_assertions(case, tools_called=[], response_text="", step_count=0, cost=None)
+    failures = _check_assertions(
+        case, tools_called=[], response_text="", step_count=0, cost=None
+    )
     assert any("web_search" in f for f in failures)
 ```
 
@@ -306,6 +308,7 @@ Update documentation when you:
 
 ```
 Terminal input → cli.py → session.py → Strands Agent → Tools → workspace.py → observer.py → Response
+HTTP request   → server.py ──────────────────────────────────────────────────────────────────────────^
 ```
 
 | Module | Purpose |

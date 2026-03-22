@@ -47,6 +47,10 @@ Local browser-based dashboard for trace visualization. `blueclaw trace ui` serve
 
 Expose the agent over HTTP via `blueclaw serve`. `POST /message` returns a reply, run ID, token count, and cost. Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. Per-conversation context persistence via Strands `FileSessionManager`. Every API request writes a trace visible in `blueclaw trace ui`.
 
+## v2.1 — API Hardening
+
+Concurrency and streaming for the HTTP API. `asyncio.Semaphore` caps simultaneous agent runs to prevent resource exhaustion under load. SSE streaming delivers token-by-token response chunks so callers see output as it is generated rather than waiting for the full reply.
+
 ## v3 — Multi-Channel Runtime
 
 Channel adapters (Slack, Discord, Telegram) as skills, conversation routing, optional Docker sandbox.

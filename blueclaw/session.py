@@ -336,6 +336,60 @@ class _StreamingCallback:
             print(data, end="\n" if complete else "", file=self._file, flush=True)
 
 
+_UNSET = object()
+
+
+def build_trace_and_record(
+    result,
+    goal: str,
+    observer,
+    config: SessionConfig,
+    run_id: str,
+    start_time: datetime,
+    end_time: datetime,
+    source: str = "terminal",
+) -> tuple:
+    """Build RunTrace and RunRecord from an agent result. Pure function — no side effects."""
+    usage = result.metrics.accumulated_usage
+    input_tokens = usage.get("inputTokens", 0)
+    output_tokens = usage.get("outputTokens", 0)
+    total_tokens = usage.get("totalTokens", 0)
+
+    cost = calculate_cost(config.model_id, input_tokens, output_tokens)
+
+    context_masked_chars = None
+    context_strategy_val = None
+    cm = getattr(observer, "conversation_manager", None)
+    if cm is not None and hasattr(cm, "masked_chars"):
+        context_masked_chars = cm.masked_chars
+        context_strategy_val = config.context_strategy
+
+    trace = RunTrace(
+        run_id=run_id,
+        goal=goal,
+        start_time=start_time,
+        end_time=end_time,
+        model_id=config.model_id,
+        steps=list(observer.trace_steps),
+        total_tokens=total_tokens,
+        total_cost=cost,
+        status="success",
+        context_masked_chars=context_masked_chars,
+        context_strategy=context_strategy_val,
+        source=source,
+    )
+
+    record = RunRecord(
+        ts=end_time,
+        goal=goal,
+        tools=list(observer.tools_called),
+        tokens=total_tokens,
+        cost=cost,
+    )
+
+    return trace, record
+
+
 def create_agent(
     config: SessionConfig,
     workspace: Workspace,
@@ -344,6 +398,8 @@ def create_agent(
     skills_dir: Path | None = None,
     scripted: bool = False,
     console: Console | None = None,
+    callback_handler=_UNSET,
+    session_manager=None,
 ) -> Agent:
     """Construct and return a Strands Agent."""
     tools = load_tools(config, workspace=workspace)
@@ -367,14 +423,22 @@ def create_agent(
         conversation_manager = SummarizingConversationManager()
 
     stream_file = console.file if console else sys.stdout
-    agent = Agent(
+    resolved_callback = (
+        _StreamingCallback(file=stream_file)
+        if callback_handler is _UNSET
+        else callback_handler
+    )
+    agent_kwargs = dict(
         model=model,
         tools=tools,
         hooks=[approval_hooks, observer],
         system_prompt=system_prompt,
         conversation_manager=conversation_manager,
-        callback_handler=_StreamingCallback(file=stream_file),
+        callback_handler=resolved_callback,
     )
+    if session_manager is not None:
+        agent_kwargs["session_manager"] = session_manager
+    agent = Agent(**agent_kwargs)
     # Attach refs for cleanup and metrics
     observer.mcp_clients = mcp_clients
     observer.conversation_manager = conversation_manager
@@ -551,11 +615,12 @@ def print_run_summary(
     """Print end-of-run summary and record to history + trace."""
     now = datetime.now(timezone.utc)
     usage = result.metrics.accumulated_usage
-    input_tokens = usage.get("inputTokens", 0)
-    output_tokens = usage.get("outputTokens", 0)
     total_tokens = usage.get("totalTokens", 0)
-
-    cost = calculate_cost(config.model_id, input_tokens, output_tokens)
+    cost = calculate_cost(
+        config.model_id,
+        usage.get("inputTokens", 0),
+        usage.get("outputTokens", 0),
+    )
     steps = len(observer.tools_called)
 
     # Ensure summary starts on a new line after streamed response
@@ -569,45 +634,25 @@ def print_run_summary(
         parts.append(f"{elapsed:.1f}s")
     console.print(" \u00b7 ".join(parts))
 
-    # Build and write trace
     run_start = (
         datetime.fromtimestamp(start_time, tz=timezone.utc) if start_time else now
     )
     run_id = run_start.strftime("%Y%m%d-%H%M%S")
-    # Context metrics
-    context_masked_chars = None
-    context_strategy_val = None
+
+    trace, record = build_trace_and_record(
+        result, goal, observer, config, run_id, run_start, now, source="terminal"
+    )
+
+    # Reset context metrics after capturing them in build_trace_and_record
     cm = getattr(observer, "conversation_manager", None)
-    if cm is not None and hasattr(cm, "masked_chars"):
-        context_masked_chars = cm.masked_chars
-        context_strategy_val = config.context_strategy
+    if cm is not None and hasattr(cm, "reset_metrics"):
         cm.reset_metrics()
 
-    trace = RunTrace(
-        run_id=run_id,
-        goal=goal,
-        start_time=run_start,
-        end_time=now,
-        model_id=config.model_id,
-        steps=list(observer.trace_steps),
-        total_tokens=total_tokens,
-        total_cost=cost,
-        status="success",
-        context_masked_chars=context_masked_chars,
-        context_strategy=context_strategy_val,
-    )
     workspace.write_trace(trace)
-
-    # Record to history
-    record = RunRecord(
-        ts=now,
-        goal=goal,
-        tools=list(observer.tools_called),
-        tokens=total_tokens,
-        cost=cost,
-    )
     workspace.append_history(record)
 
+    # observer.reset() stays here — NOT in build_trace_and_record
+    # (API handler discards observer without reset)
     observer.reset()
 
 

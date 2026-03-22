@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 300" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 400" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
   <defs>
     <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.10"/>
@@ -9,10 +9,13 @@
     <marker id="arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#c9a84c"/>
     </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#5a9a72"/>
+    </marker>
   </defs>
 
   <!-- Background -->
-  <rect width="780" height="300" fill="#f8fafc" rx="12"/>
+  <rect width="780" height="400" fill="#f8fafc" rx="12"/>
 
   <!-- ===== Terminal ===== -->
   <rect x="30" y="90" width="100" height="80" rx="14" fill="#d6e6f0" filter="url(#shadow)"/>
@@ -67,9 +70,28 @@
   <text x="324" y="232" text-anchor="middle" font-size="9" font-weight="600" fill="#7a6420">Trace Lessons</text>
 
   <!-- ===== Response arrow back ===== -->
-  <path d="M 178 150 L 155 150 L 155 230 L 80 230 L 80 176" stroke="#7a9bb5" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <rect x="90" y="220" width="74" height="22" rx="11" fill="#d6e6f0"/>
-  <text x="127" y="236" text-anchor="middle" font-size="11" font-weight="600" fill="#2c5f7c">Response</text>
+  <path d="M 178 150 L 155 150 L 155 245 L 80 245 L 80 176" stroke="#7a9bb5" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <rect x="90" y="235" width="74" height="22" rx="11" fill="#d6e6f0"/>
+  <text x="127" y="251" text-anchor="middle" font-size="11" font-weight="600" fill="#2c5f7c">Response</text>
+
+  <!-- ===== HTTP API path ===== -->
+
+  <!-- HTTP Client box -->
+  <rect x="30" y="295" width="100" height="72" rx="14" fill="#d8edd8" filter="url(#shadow)"/>
+  <text x="80" y="328" text-anchor="middle" font-size="18">🌐</text>
+  <text x="80" y="350" text-anchor="middle" font-size="12" font-weight="600" fill="#2a6642">HTTP Client</text>
+
+  <!-- Arrow: HTTP Client → server.py -->
+  <line x1="130" y1="331" x2="168" y2="331" stroke="#5a9a72" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- server.py box -->
+  <rect x="178" y="300" width="100" height="62" rx="12" fill="#d8edd8" filter="url(#shadow)"/>
+  <text x="228" y="328" text-anchor="middle" font-size="12" font-weight="600" fill="#2a6642">server.py</text>
+  <text x="228" y="344" text-anchor="middle" font-size="9" fill="#3d7a54">POST /message</text>
+  <text x="228" y="356" text-anchor="middle" font-size="9" fill="#3d7a54">auth · CORS</text>
+
+  <!-- Arrow: server.py up to Session -->
+  <line x1="228" y1="300" x2="228" y2="168" stroke="#5a9a72" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
 
   <!-- ===== Right: Workspace ===== -->
   <line x1="488" y1="115" x2="530" y2="115" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
@@ -92,5 +114,5 @@
   <text x="641" y="252" text-anchor="middle" font-size="9" fill="#b09a3e">traces/ · timeline · stats</text>
 
   <!-- Bottom credit -->
-  <text x="390" y="290" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK</text>
+  <text x="390" y="390" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK</text>
 </svg>

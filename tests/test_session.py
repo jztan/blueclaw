@@ -13,6 +13,7 @@ from blueclaw.session import (
     _StreamingCallback,
     build_model,
     build_system_prompt,
+    build_trace_and_record,
     cleanup_mcp_clients,
     create_agent,
     extract_text,
@@ -903,3 +904,167 @@ class TestStreamingCallback:
         assert mock_print.call_count == 2
         for call in mock_print.call_args_list:
             assert call.kwargs["flush"] is True
+
+
+# --- build_trace_and_record ---
+
+
+class TestBuildTraceAndRecord:
+    def test_returns_trace_and_record(
+        self, mock_agent_result, sample_observer, sample_config, sample_workspace
+    ):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
+        start = datetime(2026, 3, 22, 13, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 22, 13, 0, 5, tzinfo=timezone.utc)
+        trace, record = build_trace_and_record(
+            mock_agent_result,
+            "test goal",
+            sample_observer,
+            sample_config,
+            "20260322-130000-a3f1",
+            start,
+            end,
+            source="api",
+        )
+        assert trace.run_id == "20260322-130000-a3f1"
+        assert trace.source == "api"
+        assert trace.goal == "test goal"
+        assert isinstance(record, RunRecord)
+        assert record.goal == "test goal"
+
+    def test_source_terminal_by_default(
+        self, mock_agent_result, sample_observer, sample_config
+    ):
+        from datetime import datetime, timezone
+
+        start = datetime(2026, 3, 22, 13, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 22, 13, 0, 5, tzinfo=timezone.utc)
+        trace, _ = build_trace_and_record(
+            mock_agent_result,
+            "goal",
+            sample_observer,
+            sample_config,
+            "20260322-130000",
+            start,
+            end,
+            source="terminal",
+        )
+        assert trace.source == "terminal"
+
+    def test_start_time_is_timezone_aware(
+        self, mock_agent_result, sample_observer, sample_config
+    ):
+        from datetime import datetime, timezone
+
+        start = datetime(2026, 3, 22, 13, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 22, 13, 0, 5, tzinfo=timezone.utc)
+        trace, _ = build_trace_and_record(
+            mock_agent_result,
+            "goal",
+            sample_observer,
+            sample_config,
+            "20260322-130000",
+            start,
+            end,
+        )
+        assert trace.start_time.tzinfo is not None
+
+    def test_print_run_summary_still_works(
+        self, mock_agent_result, sample_observer, sample_config, sample_workspace
+    ):
+        from io import StringIO
+        from unittest.mock import patch
+
+        from rich.console import Console
+
+        console = Console(file=StringIO())
+        with (
+            patch.object(sample_workspace, "write_trace"),
+            patch.object(sample_workspace, "append_history") as mock_append,
+        ):
+            print_run_summary(
+                result=mock_agent_result,
+                goal="test goal",
+                observer=sample_observer,
+                workspace=sample_workspace,
+                config=sample_config,
+                console=console,
+                elapsed=1.0,
+            )
+            mock_append.assert_called_once()
+        assert sample_observer.tools_called == []
+
+
+# --- create_agent callback_handler / session_manager ---
+
+
+class TestCreateAgentCallbackHandler:
+    @patch("blueclaw.session.Agent")
+    def test_default_behavior_unchanged(
+        self, mock_agent_cls, sample_workspace, sample_config
+    ):
+        from blueclaw.session import _StreamingCallback
+
+        observer = MagicMock()
+        create_agent(sample_config, sample_workspace, observer, model=MagicMock())
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert isinstance(call_kwargs["callback_handler"], _StreamingCallback)
+
+    @patch("blueclaw.session.Agent")
+    def test_callback_handler_none_suppresses_streaming(
+        self, mock_agent_cls, sample_workspace, sample_config
+    ):
+        observer = MagicMock()
+        create_agent(
+            sample_config,
+            sample_workspace,
+            observer,
+            model=MagicMock(),
+            callback_handler=None,
+        )
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert call_kwargs["callback_handler"] is None
+
+    @patch("blueclaw.session.Agent")
+    def test_callback_handler_custom_value_passed_through(
+        self, mock_agent_cls, sample_workspace, sample_config
+    ):
+        observer = MagicMock()
+        custom_cb = MagicMock()
+        create_agent(
+            sample_config,
+            sample_workspace,
+            observer,
+            model=MagicMock(),
+            callback_handler=custom_cb,
+        )
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert call_kwargs["callback_handler"] is custom_cb
+
+    @patch("blueclaw.session.Agent")
+    def test_session_manager_none_by_default(
+        self, mock_agent_cls, sample_workspace, sample_config
+    ):
+        observer = MagicMock()
+        create_agent(sample_config, sample_workspace, observer, model=MagicMock())
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert call_kwargs.get("session_manager") is None
+
+    @patch("blueclaw.session.Agent")
+    def test_session_manager_forwarded(
+        self, mock_agent_cls, sample_workspace, sample_config
+    ):
+        observer = MagicMock()
+        mock_fsm = MagicMock()
+        create_agent(
+            sample_config,
+            sample_workspace,
+            observer,
+            model=MagicMock(),
+            session_manager=mock_fsm,
+        )
+        call_kwargs = mock_agent_cls.call_args.kwargs
+        assert call_kwargs["session_manager"] is mock_fsm

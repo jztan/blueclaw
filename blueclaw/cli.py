@@ -724,6 +724,29 @@ def trace_purge(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind host"),
+    port: int = typer.Option(8420, help="Bind port"),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="Model override (provider/model_id)"
+    ),
+    cors_origin: Optional[str] = typer.Option(
+        None, "--cors-origin", help="Additional allowed CORS origin"
+    ),
+) -> None:
+    """Start the blueclaw HTTP API server."""
+    import uvicorn
+    from blueclaw.server import create_server_app
+    from blueclaw.session import load_config
+
+    config = load_config(Path("blueclaw.yaml"), model_override=model)
+    workspace = Workspace(config.workspace_path)
+    server_app = create_server_app(config, workspace, cors_origin=cors_origin)
+    console.print(f"[bold]blueclaw serve[/bold] listening on http://{host}:{port}")
+    uvicorn.run(server_app, host=host, port=port)
+
+
+@app.command()
 def test(
     spec_path: Path = typer.Argument(..., help="Path to test spec YAML"),
     dry_run: bool = typer.Option(

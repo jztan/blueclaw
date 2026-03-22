@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -60,6 +61,34 @@ class RunRecord(BaseModel):
         return cls.model_validate(data)
 
 
+class MessageRequest(BaseModel):
+    """Incoming request for POST /message."""
+
+    message: str
+    conversation_id: str | None = None
+
+    @field_validator("conversation_id")
+    @classmethod
+    def validate_conversation_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", v):
+            raise ValueError(
+                "conversation_id must be 1-64 alphanumeric/dash/underscore chars"
+            )
+        return v
+
+
+class MessageResponse(BaseModel):
+    """Response body for POST /message."""
+
+    reply: str
+    run_id: str
+    conversation_id: str | None
+    tokens: int
+    cost: float | None
+
+
 # Pricing: {model_id: (input_per_1k_tokens, output_per_1k_tokens)}
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (0.003, 0.015),
@@ -100,6 +129,7 @@ class RunTrace(BaseModel):
     status: str  # "success" | "error"
     context_masked_chars: int | None = None
     context_strategy: str | None = None
+    source: str = "terminal"  # "terminal" | "api"
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)

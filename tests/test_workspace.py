@@ -470,3 +470,39 @@ class TestTracePurge:
         count = ws.purge_old_traces(30, dry_run=True)
         assert count == 1
         assert (ws.traces_dir / "20250101-120000.json").exists()
+
+
+class TestPurgeOldSessions:
+    def _make_session_dir(self, ws: Workspace, name: str, mtime_days_ago: int) -> Path:
+        import os
+        import time
+
+        sessions_dir = ws.root / ".blueclaw" / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        d = sessions_dir / name
+        d.mkdir()
+        old_time = time.time() - mtime_days_ago * 86400
+        os.utime(d, (old_time, old_time))
+        return d
+
+    def test_purge_removes_old_session_dir(self, sample_workspace):
+        d = self._make_session_dir(sample_workspace, "sess-old", 40)
+        count = sample_workspace.purge_old_sessions(retention_days=30)
+        assert count == 1
+        assert not d.exists()
+
+    def test_purge_keeps_recent_session_dir(self, sample_workspace):
+        d = self._make_session_dir(sample_workspace, "sess-new", 5)
+        count = sample_workspace.purge_old_sessions(retention_days=30)
+        assert count == 0
+        assert d.exists()
+
+    def test_purge_sessions_dir_missing_is_noop(self, sample_workspace):
+        count = sample_workspace.purge_old_sessions(retention_days=30)
+        assert count == 0
+
+    def test_purge_dry_run_does_not_delete(self, sample_workspace):
+        d = self._make_session_dir(sample_workspace, "sess-old", 40)
+        count = sample_workspace.purge_old_sessions(retention_days=30, dry_run=True)
+        assert count == 1
+        assert d.exists()

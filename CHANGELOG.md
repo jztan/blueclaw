@@ -2,6 +2,21 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+
+- `blueclaw serve` — local HTTP API server (`POST /message`, `GET /health`) exposing the agent over HTTP with Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, and CORS for localhost/127.0.0.1
+- `MessageRequest` and `MessageResponse` Pydantic models for the API request/response contract
+- `RunTrace.source` field (`"terminal"` | `"api"`) — API traces are tagged and visible in `blueclaw trace ui`
+- `build_trace_and_record()` extracted from `print_run_summary()` — pure function, shared by terminal and API paths
+- `callback_handler` and `session_manager` parameters on `create_agent()` — `None` suppresses streaming for API use
+- `Workspace.purge_old_sessions()` — cleans up old session directories on server startup
+- `--host`, `--port`, `--model`, `--cors-origin` flags on `blueclaw serve`
+
+### Fixed
+
+- Trace UI rejected API-format run IDs (`YYYYMMDD-HHMMSS-<4hex>`) — regex updated to `^\d{8}-\d{6}(-[0-9a-f]{4})?$`
+
 ## [1.5.0] - 2026-03-21
 ### Added
 

@@ -638,7 +638,8 @@ class TestRunTraceSourceField:
         json_str = (
             '{"run_id":"20260322-130000","goal":"test",'
             '"start_time":"2026-03-22T00:00:00Z","end_time":"2026-03-22T00:00:00Z",'
-            '"model_id":"claude-sonnet-4-6","steps":[],"total_tokens":0,"status":"success"}'
+            '"model_id":"claude-sonnet-4-6","steps":[],'
+            '"total_tokens":0,"status":"success"}'
         )
         trace = RunTrace.from_json(json_str)
         assert trace.source == "terminal"

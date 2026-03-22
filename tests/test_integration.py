@@ -74,7 +74,8 @@ class TestInitThenRun:
                 # Need to also patch the config path
                 yaml_path = tmp_path / "blueclaw.yaml"
                 yaml_path.write_text(
-                    "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\ntools: []\n"
+                    "model:\n  provider: anthropic\n"
+                    "  model_id: claude-sonnet-4-6\ntools: []\n"
                 )
                 with patch("blueclaw.session.Path"):
                     # This is complex; let's test the pipeline more directly

@@ -349,7 +349,9 @@ def build_trace_and_record(
     end_time: datetime,
     source: str = "terminal",
 ) -> tuple:
-    """Build RunTrace and RunRecord from an agent result. Pure function — no side effects.
+    """Build RunTrace and RunRecord from an agent result.
+
+    Pure function — no side effects.
     """
     usage = result.metrics.accumulated_usage
     input_tokens = usage.get("inputTokens", 0)

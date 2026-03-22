@@ -254,7 +254,8 @@ class TestBuildSystemPrompt:
         skills_dir = tmp_path / ".claude" / "skills"
         skills_dir.mkdir(parents=True)
         (skills_dir / "summarize.md").write_text(
-            "# Summarize\nThis is the full skill content that should NOT be in the prompt."
+            "# Summarize\n"
+            "This is the full skill content that should NOT be in the prompt."
         )
         prompt = build_system_prompt(ws, skills_dir=skills_dir)
         assert "full skill content that should NOT" not in prompt
@@ -841,7 +842,8 @@ import sys
 
 class TestStreamingCallback:
     def test_data_chunk_flushed_immediately(self):
-        """Core fix: each chunk is available in the buffer without waiting for complete."""
+        """Core fix: each chunk is available in the buffer without waiting for
+        complete."""
         buf = StringIO()
         cb = _StreamingCallback(file=buf)
         cb(data="hello")
@@ -856,7 +858,8 @@ class TestStreamingCallback:
         assert buf.getvalue() == "done\n"
 
     def test_multi_chunk_then_complete(self):
-        """Simulates realistic streaming: several data chunks followed by a complete signal."""
+        """Simulates realistic streaming: several data chunks followed by a
+        complete signal."""
         buf = StringIO()
         cb = _StreamingCallback(file=buf)
         cb(data="The answer")
@@ -896,7 +899,8 @@ class TestStreamingCallback:
 
     @patch("builtins.print")
     def test_flush_called_on_every_write(self, mock_print):
-        """Regression guard: removing flush=True would break streaming responsiveness."""
+        """Regression guard: removing flush=True would break streaming
+        responsiveness."""
         fake_file = MagicMock()
         cb = _StreamingCallback(file=fake_file)
         cb(data="chunk1")

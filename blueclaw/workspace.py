@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -199,6 +200,22 @@ class Workspace:
                 continue
             traces.append(trace)
         return traces
+
+    def purge_old_sessions(self, retention_days: int, dry_run: bool = False) -> int:
+        """Delete session dirs older than retention_days. Returns count deleted."""
+        sessions_dir = self.root / ".blueclaw" / "sessions"
+        if not sessions_dir.exists():
+            return 0
+        cutoff = datetime.now().timestamp() - retention_days * 86400
+        count = 0
+        for session_dir in sessions_dir.iterdir():
+            if not session_dir.is_dir():
+                continue
+            if session_dir.stat().st_mtime < cutoff:
+                if not dry_run:
+                    shutil.rmtree(session_dir)
+                count += 1
+        return count
 
     def purge_old_traces(self, retention_days: int, dry_run: bool = False) -> int:
         """Delete traces older than retention_days. Returns count."""

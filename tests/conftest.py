@@ -177,3 +177,47 @@ def error_trace():
         total_cost=0.002,
         status="error",
     )
+
+
+@pytest.fixture
+def mock_observer():
+    """MagicMock for ObserverHooks — used when Agent is patched."""
+    obs = MagicMock()
+    obs.tools_called = []
+    obs.trace_steps = []
+    obs.mcp_clients = []
+    return obs
+
+
+@pytest.fixture
+def sample_observer():
+    """Real ObserverHooks instance — used in TestBuildTraceAndRecord."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from blueclaw.observer import ObserverHooks
+
+    return ObserverHooks(console=Console(file=StringIO()), quiet=True)
+
+
+@pytest.fixture
+def sample_workspace(tmp_path):
+    """Real Workspace instance backed by a temp directory."""
+    from blueclaw.workspace import Workspace
+
+    return Workspace(tmp_path / "workspace")
+
+
+@pytest.fixture
+def mock_agent_result():
+    """Shared by test_session.py and test_server.py."""
+    result = MagicMock()
+    result.message = [{"type": "text", "text": "The answer is 42."}]
+    result.metrics.accumulated_usage = {
+        "inputTokens": 50,
+        "outputTokens": 100,
+        "totalTokens": 150,
+    }
+    result.stop_reason = "end_turn"
+    return result

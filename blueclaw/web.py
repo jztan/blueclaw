@@ -38,6 +38,7 @@ def _serialize_trace_summary(t: RunTrace) -> dict:
         "start_time": t.start_time.isoformat(),
         "context_strategy": t.context_strategy,
         "context_masked_chars": t.context_masked_chars,
+        "source": t.source,
     }
 
 
@@ -234,7 +235,7 @@ def create_app(workspace: Workspace) -> Starlette:
 
     async def get_trace(request):
         run_id = request.path_params["run_id"]
-        if not re.match(r"^\d{8}-\d{6}$", run_id):
+        if not re.match(r"^\d{8}-\d{6}(-[0-9a-f]{4})?$", run_id):
             return JSONResponse({"error": "invalid run_id"}, status_code=400)
         trace = workspace.read_trace(run_id)
         if not trace:

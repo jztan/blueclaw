@@ -163,6 +163,18 @@ class TestGetTrace:
         r = client.get("/api/traces/not-a-valid-id")
         assert r.status_code == 400
 
+    def test_get_trace_api_format_run_id_accepted(self, web_client, sample_trace):
+        client, ws = web_client
+        trace = sample_trace.model_copy(update={"run_id": "20260322-130015-a3f1"})
+        ws.write_trace(trace)
+        r = client.get("/api/traces/20260322-130015-a3f1")
+        assert r.status_code == 200
+
+    def test_get_trace_api_format_invalid_hex_rejected(self, web_client):
+        client, _ = web_client
+        r = client.get("/api/traces/20260322-130015-ZZZZ")
+        assert r.status_code == 400
+
 
 # --- Stats API ---
 

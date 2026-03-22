@@ -1128,3 +1128,51 @@ class TestTracePurge:
         assert result.exit_code == 0
         assert "would delete" in result.output.lower()
         assert (traces_dir / "20250101-120000.json").exists()
+
+
+class TestServeCommand:
+    """CLI: blueclaw serve command."""
+
+    def test_serve_help_shows_flags(self):
+        import re as re_mod
+
+        result = runner.invoke(app, ["serve", "--help"])
+        assert result.exit_code == 0
+        plain = re_mod.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--host" in plain
+        assert "--port" in plain
+        assert "--model" in plain
+        assert "--cors-origin" in plain
+
+    def test_serve_calls_uvicorn(self):
+        with (
+            patch("uvicorn.run") as mock_uvicorn_run,
+            patch("blueclaw.server.create_server_app"),
+            patch("blueclaw.session.load_config"),
+            patch("blueclaw.cli.Workspace"),
+        ):
+            runner.invoke(app, ["serve", "--host", "0.0.0.0", "--port", "9000"])
+        mock_uvicorn_run.assert_called_once()
+        assert mock_uvicorn_run.call_args.kwargs["host"] == "0.0.0.0"
+        assert mock_uvicorn_run.call_args.kwargs["port"] == 9000
+
+    def test_serve_default_binds_localhost(self):
+        with (
+            patch("uvicorn.run") as mock_uvicorn_run,
+            patch("blueclaw.server.create_server_app"),
+            patch("blueclaw.session.load_config"),
+            patch("blueclaw.cli.Workspace"),
+        ):
+            runner.invoke(app, ["serve"])
+        assert mock_uvicorn_run.call_args.kwargs["host"] == "127.0.0.1"
+        assert mock_uvicorn_run.call_args.kwargs["port"] == 8420
+
+    def test_serve_passes_cors_origin(self):
+        with (
+            patch("uvicorn.run"),
+            patch("blueclaw.server.create_server_app") as mock_app,
+            patch("blueclaw.session.load_config"),
+            patch("blueclaw.cli.Workspace"),
+        ):
+            runner.invoke(app, ["serve", "--cors-origin", "https://app.example.com"])
+        assert mock_app.call_args.kwargs.get("cors_origin") == "https://app.example.com"

@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from blueclaw.models import (
     MODEL_PRICING,
+    MessageRequest,
+    MessageResponse,
     RunRecord,
     RunTrace,
     SessionConfig,
@@ -547,3 +549,96 @@ class TestRunTraceContextFields:
         restored = RunTrace.from_json(trace.to_json())
         assert restored.context_masked_chars == 1234
         assert restored.context_strategy == "hybrid"
+
+
+# --- MessageRequest ---
+
+
+class TestMessageRequest:
+    def test_message_required(self):
+        with pytest.raises(ValidationError):
+            MessageRequest()
+
+    def test_message_only(self):
+        req = MessageRequest(message="hello")
+        assert req.message == "hello"
+        assert req.conversation_id is None
+
+    def test_conversation_id_valid_chars(self):
+        req = MessageRequest(message="hi", conversation_id="abc-123_XYZ")
+        assert req.conversation_id == "abc-123_XYZ"
+
+    def test_conversation_id_rejects_slash(self):
+        with pytest.raises(ValidationError, match="conversation_id"):
+            MessageRequest(message="hi", conversation_id="../../etc/passwd")
+
+    def test_conversation_id_rejects_too_long(self):
+        with pytest.raises(ValidationError):
+            MessageRequest(message="hi", conversation_id="a" * 65)
+
+    def test_conversation_id_rejects_empty_string(self):
+        with pytest.raises(ValidationError):
+            MessageRequest(message="hi", conversation_id="")
+
+
+# --- MessageResponse ---
+
+
+class TestMessageResponse:
+    def test_fields_present(self):
+        resp = MessageResponse(
+            reply="answer",
+            run_id="20260322-130015-a3f1",
+            conversation_id="sess-001",
+            tokens=150,
+            cost=0.0023,
+        )
+        assert resp.reply == "answer"
+        assert resp.cost == 0.0023
+        assert resp.conversation_id == "sess-001"
+
+    def test_cost_nullable(self):
+        resp = MessageResponse(
+            reply="answer",
+            run_id="20260322-130015-a3f1",
+            conversation_id=None,
+            tokens=100,
+            cost=None,
+        )
+        assert resp.cost is None
+
+
+# --- RunTrace.source field ---
+
+
+class TestRunTraceSourceField:
+    def _base_trace(self, **kwargs):
+        ts = datetime(2026, 3, 22, tzinfo=timezone.utc)
+        return RunTrace(
+            run_id="20260322-130000",
+            goal="test",
+            start_time=ts,
+            end_time=ts,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=0,
+            status="success",
+            **kwargs,
+        )
+
+    def test_default_source_is_terminal(self):
+        trace = self._base_trace()
+        assert trace.source == "terminal"
+
+    def test_source_api(self):
+        trace = self._base_trace(source="api")
+        assert trace.source == "api"
+
+    def test_existing_traces_without_source_deserialize_ok(self):
+        json_str = (
+            '{"run_id":"20260322-130000","goal":"test",'
+            '"start_time":"2026-03-22T00:00:00Z","end_time":"2026-03-22T00:00:00Z",'
+            '"model_id":"claude-sonnet-4-6","steps":[],"total_tokens":0,"status":"success"}'
+        )
+        trace = RunTrace.from_json(json_str)
+        assert trace.source == "terminal"

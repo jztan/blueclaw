@@ -163,7 +163,7 @@ flake8 blueclaw/ tests/
 black --check blueclaw/ tests/
 ```
 
-Bug reports and pull requests are welcome. For significant changes, open an issue first to discuss the approach.
+Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contributing.md) for the full guide.
 
 ## License
 

@@ -37,6 +37,7 @@ def client(server_config, server_workspace, mock_agent_result):
         patch("blueclaw.server.cleanup_mcp_clients"),
         patch.object(server_workspace, "write_trace"),
         patch.object(server_workspace, "append_history"),
+        patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
     ):
         mock_ca.return_value.return_value = mock_agent_result
         mock_btr.return_value = (MagicMock(), MagicMock())
@@ -46,7 +47,10 @@ def client(server_config, server_workspace, mock_agent_result):
 
 @pytest.fixture
 def integration_client(server_config, server_workspace, mock_agent_result):
-    with patch("blueclaw.server.create_agent") as mock_ca:
+    with (
+        patch("blueclaw.server.create_agent") as mock_ca,
+        patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+    ):
         mock_ca.return_value.return_value = mock_agent_result
         app = create_server_app(server_config, server_workspace, model=MagicMock())
         yield TestClient(app)

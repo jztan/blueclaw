@@ -2,7 +2,7 @@
 
 > Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → multi-channel runtime.
 
-**Current:** v2 complete. v3 next.
+**Current:** v2 complete. v2.1 next.
 
 ---
 

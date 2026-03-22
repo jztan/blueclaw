@@ -13,6 +13,7 @@
   <a href="#model-support">Models</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
   <a href="#roadmap">Roadmap</a> &middot;
+  <a href="#contributing">Contributing</a> &middot;
   <a href="#license">License</a>
 </p>
 
@@ -27,14 +28,12 @@
 
 ---
 
-| | BlueClaw | Typical agent frameworks |
-|---|---|---|
-| Structured execution traces | Every run, automatic | None or manual logging |
-| Regression testing | YAML specs, TAP/JUnit, Wilson CI | Not available |
-| Trace replay | Step-through debugger | Not available |
-| Trace diff | A/B test prompt changes | Not available |
-| HTTP API | `blueclaw serve` | Not available |
-| CLI-first debugging | No dashboards required | Dashboard or nothing |
+- **Structured traces** — every run writes a structured JSON trace, queryable from the terminal with no external service
+- **Regression testing** — define expected behavior in YAML; run as CI with TAP or JUnit output and Wilson CI scoring
+- **Context management** — observation masking keeps token cost low across long sessions without losing quality
+- **Trace replay** — step through any recorded run interactively
+- **Trace diff** — compare steps, tokens, and cost between any two runs
+- **HTTP API** — `blueclaw serve` exposes the agent over HTTP with bearer auth and CORS
 
 ## Quickstart
 
@@ -49,7 +48,7 @@ blueclaw
 
 ### Tracing & Observability — [docs/tracing.md](docs/tracing.md)
 
-Every run produces a structured JSON trace. Ten CLI commands let you inspect, compare, and replay runs without a dashboard.
+Every run produces a structured JSON trace. Ten CLI commands let you inspect, compare, and replay runs without a hosted dashboard.
 
 ```
 $ blueclaw trace graph 20260315-054426
@@ -60,7 +59,7 @@ search for Python 3.13 new features
 └── http_request (366ms) ✓  url: https://docs.python.org/3.13/whatsnew/3.13.html
 ```
 
-`trace graph` · `trace timeline` · `trace diff` · `trace explain` · `trace replay` · `trace stats` · `trace ui`
+`trace list` · `trace show` · `trace graph` · `trace timeline` · `trace diff` · `trace explain` · `trace replay` · `trace stats` · `trace ui` · `trace purge`
 
 ### Regression Testing — [docs/testing.md](docs/testing.md)
 
@@ -72,6 +71,10 @@ blueclaw test spec.yaml --format junit -o results.xml
 ```
 
 11 deterministic assertions: tools called, output content, file existence, cost, step count, duration, tool order.
+
+### Context Management
+
+Tool outputs from older turns are automatically masked to keep token cost low across long sessions without losing model reasoning quality. A hybrid summarization mode is available for very long conversations.
 
 ### HTTP API — [docs/api.md](docs/api.md)
 
@@ -138,6 +141,8 @@ allowlist_domains:
 | `server.py` | HTTP API gateway (`blueclaw serve`) — POST /message, auth, CORS |
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O |
 | `observer.py` | Structured tool tracing + output truncation |
+| `context.py` | Observation masking and hybrid summarization for context management |
+| `lessons.py` | Extracts behavioral hints from past traces and injects into system prompt |
 | `models.py` | Pydantic models, trace schema, cost calculation, error classification |
 | `testing.py` | Test spec loading, runner, assertions, formatters, stub replay |
 | `tools/` | Web, shell, MCP wiring (factory pattern) |
@@ -149,7 +154,7 @@ Built on [Strands Agents SDK](https://github.com/strands-agents/sdk-python).
 
 See [docs/roadmap.md](docs/roadmap.md) for the full roadmap with milestone details.
 
-## Development
+## Contributing
 
 ```bash
 pip install -e ".[dev]"
@@ -157,6 +162,8 @@ pytest
 flake8 blueclaw/ tests/
 black --check blueclaw/ tests/
 ```
+
+Bug reports and pull requests are welcome. For significant changes, open an issue first to discuss the approach.
 
 ## License
 

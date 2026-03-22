@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [2.0.0] - 2026-03-22
 ### Added
 
 - `blueclaw serve` — local HTTP API server (`POST /message`, `GET /health`) exposing the agent over HTTP with Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, and CORS for localhost/127.0.0.1

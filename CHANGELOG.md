@@ -2,6 +2,11 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Fixed
+
+- `TestTracePurge` CI failures — `test_purge_deletes_old_traces` and `test_purge_keeps_recent_traces` used hardcoded date `20260315` which aged past the 30-day retention window; replaced with dates computed dynamically relative to `datetime.now()`
+
 ## [2.0.0] - 2026-03-22
 ### Added
 

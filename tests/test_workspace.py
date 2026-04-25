@@ -429,20 +429,29 @@ class TestTracePurge:
         (ws.traces_dir / filename).write_text("{}")
 
     def test_purge_deletes_old_traces(self, tmp_path):
+        from datetime import timedelta
+
         ws = Workspace(tmp_path)
-        self._write_trace_file(ws, "20250101-120000.json")
-        self._write_trace_file(ws, "20260315-120000.json")
+        now = datetime.now(timezone.utc)
+        old_name = (now - timedelta(days=60)).strftime("%Y%m%d-120000") + ".json"
+        recent_name = (now - timedelta(days=5)).strftime("%Y%m%d-120000") + ".json"
+        self._write_trace_file(ws, old_name)
+        self._write_trace_file(ws, recent_name)
         count = ws.purge_old_traces(30)
         assert count == 1
-        assert not (ws.traces_dir / "20250101-120000.json").exists()
-        assert (ws.traces_dir / "20260315-120000.json").exists()
+        assert not (ws.traces_dir / old_name).exists()
+        assert (ws.traces_dir / recent_name).exists()
 
     def test_purge_keeps_recent_traces(self, tmp_path):
+        from datetime import timedelta
+
         ws = Workspace(tmp_path)
-        self._write_trace_file(ws, "20260315-120000.json")
+        now = datetime.now(timezone.utc)
+        recent_name = (now - timedelta(days=5)).strftime("%Y%m%d-120000") + ".json"
+        self._write_trace_file(ws, recent_name)
         count = ws.purge_old_traces(30)
         assert count == 0
-        assert (ws.traces_dir / "20260315-120000.json").exists()
+        assert (ws.traces_dir / recent_name).exists()
 
     def test_purge_zero_keeps_all(self, tmp_path):
         ws = Workspace(tmp_path)

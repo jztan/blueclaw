@@ -166,6 +166,10 @@ black --check blueclaw/ tests/
 
 Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contributing.md) for the full guide.
 
+## Links
+
+- [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — The story behind blueclaw's design: why we built structured tracing into the terminal instead of a hosted service
+
 ## License
 
 [MIT](LICENSE)

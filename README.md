@@ -169,6 +169,7 @@ Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contr
 ## Links
 
 - [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — The story behind blueclaw's design: why we built structured tracing into the terminal instead of a hosted service
+- [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/) — Benchmarks behind blueclaw's `ObservationMaskingManager`: why replacing stale tool outputs with placeholders beats LLM summarization on cost and speed
 
 ## License
 

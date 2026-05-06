@@ -1,8 +1,8 @@
 # BlueClaw Roadmap
 
-> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → multi-channel runtime.
+> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → multi-channel runtime → production hardening.
 
-**Current:** v2.1 complete. v3 next.
+**Current:** v2.1 complete. v2.2 next.
 
 ---
 
@@ -51,9 +51,17 @@ Expose the agent over HTTP via `blueclaw serve`. `POST /message` returns a reply
 
 Concurrency and streaming for the HTTP API. A shared `asyncio.Semaphore` (default 4, configurable via `server.max_concurrent_runs` or `--max-concurrent`) caps simultaneous agent runs across `/message` and `/message/stream` to prevent resource exhaustion under load. The new `POST /message/stream` endpoint emits Server-Sent Events with token-by-token `delta` chunks followed by a `done` payload carrying `run_id`, tokens, and cost — callers see output as it is generated rather than waiting for the full reply.
 
+## v2.2 — Stateful Conversations
+
+- Per-conversation memory across API requests. Wire up Strands `FileSessionManager` keyed by `conversation_id` — already validated and echoed in v2 responses but not yet used to persist history. Callers that supply the same `conversation_id` across requests get a continuous conversation; omitting it keeps the current stateless behavior.
+- `blueclaw serve --install` to generate launchd/systemd service configs.
+
+## v2.3 - Subagent support
+- `Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls.
+
 ## v3 — Multi-Channel Runtime
 
-Channel adapters (Slack, Discord, Telegram) as skills, conversation routing, optional Docker sandbox.
+Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack, Discord, and Telegram ship as thin skill files on top of this core.
 
 ---
 
@@ -62,8 +70,7 @@ Channel adapters (Slack, Discord, Telegram) as skills, conversation routing, opt
 | Feature | Reason |
 |---|---|
 | Task scheduling | Can be a skill, not core |
-| Multi-agent collaboration | Add when there's a real use case |
 | Browser automation | Can be an MCP server, not core |
-| Network-level domain isolation | Requires Docker; deferred to v4 |
-| SQLite trace backend | JSON files work fine; agent reads them directly |
+| Docker sandbox | Optional container isolation (`sandbox: docker` config, volume mount, resource caps); add when there's a real security requirement |
+| Network-level domain isolation | Requires Docker proxy; deferred until Docker sandbox lands |
 | OpenTelemetry export | No current need; revisit when external observability is required |

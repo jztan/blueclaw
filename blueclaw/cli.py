@@ -733,6 +733,11 @@ def serve(
     cors_origin: Optional[str] = typer.Option(
         None, "--cors-origin", help="Additional allowed CORS origin"
     ),
+    max_concurrent: Optional[int] = typer.Option(
+        None,
+        "--max-concurrent",
+        help="Cap simultaneous agent runs (overrides server.max_concurrent_runs)",
+    ),
 ) -> None:
     """Start the blueclaw HTTP API server."""
     import uvicorn
@@ -740,6 +745,8 @@ def serve(
     from blueclaw.session import load_config
 
     config = load_config(Path("blueclaw.yaml"), model_override=model)
+    if max_concurrent is not None:
+        config = config.model_copy(update={"max_concurrent_runs": max_concurrent})
     workspace = Workspace(config.workspace_path)
     server_app = create_server_app(config, workspace, cors_origin=cors_origin)
     console.print(f"[bold]blueclaw serve[/bold] listening on http://{host}:{port}")

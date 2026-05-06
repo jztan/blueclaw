@@ -3,6 +3,13 @@
 All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
+### Added
+
+- `POST /message/stream` — Server-Sent Events endpoint emitting token-by-token `event: delta` chunks followed by an `event: done` payload (reply, run_id, tokens, cost). Same auth, body cap, and trace recording as `/message`. Errors after the stream opens are signaled via `event: error`
+- `SessionConfig.max_concurrent_runs` (default `4`) — `asyncio.Semaphore` shared across `/message` and `/message/stream` caps simultaneous agent runs to prevent resource exhaustion
+- `server.max_concurrent_runs` config key in `blueclaw.yaml`
+- `--max-concurrent` flag on `blueclaw serve` to override the cap
+
 ### Fixed
 
 - `TestTracePurge` CI failures — `test_purge_deletes_old_traces` and `test_purge_keeps_recent_traces` used hardcoded date `20260315` which aged past the 30-day retention window; replaced with dates computed dynamically relative to `datetime.now()`

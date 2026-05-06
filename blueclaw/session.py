@@ -183,6 +183,10 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
             "trace_retention_days"
         ]
 
+    server_section = config_data.get("server", {})
+    if isinstance(server_section, dict) and "max_concurrent_runs" in server_section:
+        kwargs["max_concurrent_runs"] = server_section["max_concurrent_runs"]
+
     # Context management
     ctx = config_data.get("context", {})
     if isinstance(ctx, dict):

@@ -23,6 +23,7 @@ class SessionConfig(BaseModel):
     context_strategy: str = "mask"
     context_mask_after: int = 10
     context_summarize_after: int | None = None
+    max_concurrent_runs: int = 4
 
     @field_validator("trace_retention_days")
     @classmethod
@@ -34,6 +35,13 @@ class SessionConfig(BaseModel):
     def validate_context_strategy(cls, v: str) -> str:
         if v not in ("mask", "summarize", "hybrid"):
             raise ValueError(f"context_strategy must be mask|summarize|hybrid, got {v}")
+        return v
+
+    @field_validator("max_concurrent_runs")
+    @classmethod
+    def validate_max_concurrent(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"max_concurrent_runs must be >= 1, got {v}")
         return v
 
 

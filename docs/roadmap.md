@@ -2,7 +2,7 @@
 
 > Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → multi-channel runtime.
 
-**Current:** v2 complete. v2.1 next.
+**Current:** v2.1 complete. v3 next.
 
 ---
 
@@ -47,9 +47,9 @@ Local browser-based dashboard for trace visualization. `blueclaw trace ui` serve
 
 Expose the agent over HTTP via `blueclaw serve`. `POST /message` returns a reply, run ID, token count, and cost. Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. Per-conversation context persistence via Strands `FileSessionManager`. Every API request writes a trace visible in `blueclaw trace ui`.
 
-## v2.1 — API Hardening
+## v2.1 — API Hardening ✅
 
-Concurrency and streaming for the HTTP API. `asyncio.Semaphore` caps simultaneous agent runs to prevent resource exhaustion under load. SSE streaming delivers token-by-token response chunks so callers see output as it is generated rather than waiting for the full reply.
+Concurrency and streaming for the HTTP API. A shared `asyncio.Semaphore` (default 4, configurable via `server.max_concurrent_runs` or `--max-concurrent`) caps simultaneous agent runs across `/message` and `/message/stream` to prevent resource exhaustion under load. The new `POST /message/stream` endpoint emits Server-Sent Events with token-by-token `delta` chunks followed by a `done` payload carrying `run_id`, tokens, and cost — callers see output as it is generated rather than waiting for the full reply.
 
 ## v3 — Multi-Channel Runtime
 

@@ -9,6 +9,7 @@ blueclaw serve                                        # http://127.0.0.1:8420
 blueclaw serve --host 0.0.0.0 --port 9000            # custom bind
 blueclaw serve --model ollama/llama3                 # different model
 blueclaw serve --cors-origin https://app.example.com # extra CORS origin
+blueclaw serve --max-concurrent 8                    # raise concurrency cap
 ```
 
 ## Endpoints
@@ -43,15 +44,66 @@ Run the agent and get a reply.
 }
 ```
 
+### `POST /message/stream`
+
+Same request schema as `/message`. Returns `Content-Type: text/event-stream` and emits Server-Sent Events as the agent generates output.
+
+```bash
+curl -N -X POST http://127.0.0.1:8420/message/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "summarize today’s python.org news"}'
+```
+
+**Event sequence**
+
+```
+event: delta
+data: {"text": "Today the Python "}
+
+event: delta
+data: {"text": "Steering Council "}
+
+event: done
+data: {"reply": "Today the Python Steering Council ...",
+       "run_id": "20260506-125758-ae79",
+       "conversation_id": null,
+       "tokens": 7230,
+       "cost": null}
+```
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `delta` | `{"text": "..."}` | One model output chunk. Concatenate to reconstruct the full reply. |
+| `done` | Same shape as `/message` response (`reply`, `run_id`, `conversation_id`, `tokens`, `cost`) | Final event. Emitted once. |
+| `error` | `{"error": "..."}` | Failure after the stream opened. The connection then closes. |
+
+Auth, body cap (1 MB), and timeout (300 s) work the same as `/message`. Failures *before* the stream opens (`401`, `413`, `400`) return JSON with the appropriate HTTP status; failures *after* the stream opens are signaled via `event: error` because the status line is already on the wire.
+
+The `done` payload's `conversation_id` echoes the request value (or `null`).
+
 ### `GET /health`
 
 ```json
-{"status": "ok", "version": "1.5.0"}
+{"status": "ok", "version": "2.0.0"}
 ```
+
+## Concurrency
+
+A single `asyncio.Semaphore` shared across `/message` and `/message/stream` caps simultaneous in-flight agent runs. Defaults:
+
+- `max_concurrent_runs: 4` in `SessionConfig`
+- override in `blueclaw.yaml`:
+  ```yaml
+  server:
+    max_concurrent_runs: 8
+  ```
+- override at the CLI: `blueclaw serve --max-concurrent 8`
+
+Requests above the cap queue (no 503) and are bounded by the existing 300 s per-request timeout.
 
 ## Authentication
 
-Set `BLUECLAW_API_KEY` in `.env` to require a Bearer token on all `/message` requests:
+Set `BLUECLAW_API_KEY` in `.env` to require a Bearer token on `/message` and `/message/stream`:
 
 ```
 BLUECLAW_API_KEY=my-secret

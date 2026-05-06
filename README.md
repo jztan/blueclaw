@@ -34,7 +34,7 @@
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
 - **Trace replay** — step through any recorded run interactively
 - **Trace diff** — compare steps, tokens, and cost between any two runs
-- **HTTP API** — `blueclaw serve` exposes the agent over HTTP with bearer auth and CORS
+- **HTTP API** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, and a concurrency cap
 
 ## Quickstart
 
@@ -85,9 +85,13 @@ Expose the agent over HTTP for programmatic access or tool integration.
 blueclaw serve                          # http://127.0.0.1:8420
 curl -X POST http://127.0.0.1:8420/message \
   -d '{"message": "what is in the workspace?"}' | jq .
+
+# Stream tokens as they're generated:
+curl -N -X POST http://127.0.0.1:8420/message/stream \
+  -d '{"message": "what is in the workspace?"}'
 ```
 
-Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. Every API request writes a trace visible in `blueclaw trace ui`.
+Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
 
 ## Model Support
 

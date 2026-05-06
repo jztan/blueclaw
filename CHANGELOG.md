@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [2.1.0] - 2026-05-06
 ### Added
 
 - `POST /message/stream` — Server-Sent Events endpoint emitting token-by-token `event: delta` chunks followed by an `event: done` payload (reply, run_id, tokens, cost). Same auth, body cap, and trace recording as `/message`. Errors after the stream opens are signaled via `event: error`

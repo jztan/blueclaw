@@ -253,8 +253,18 @@ def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> lis
     return get_tools(config.tools, config, workspace=workspace)
 
 
-def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) -> str:
-    """Build system prompt from context, history, and skill index."""
+def build_system_prompt(
+    workspace: Workspace,
+    skills_dir: Path | None = None,
+    include_history: bool = True,
+) -> str:
+    """Build system prompt from context, history, and skill index.
+
+    `include_history` should be False when an external session manager
+    (e.g. FileSessionManager) is replaying actual messages — otherwise the
+    model sees the conversation twice (history narration + replayed turns)
+    and tends to recap each reply.
+    """
     parts = []
 
     # Context
@@ -263,13 +273,15 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         parts.append(f"## Persistent Context\n\n{context}")
 
     # History summary
-    history = workspace.read_history()
-    if history:
-        parts.append("## Recent History\n")
-        for rec in history[-10:]:
-            parts.append(
-                f"- [{rec.ts.isoformat()}] {rec.goal} (tools: {', '.join(rec.tools)})"
-            )
+    if include_history:
+        history = workspace.read_history()
+        if history:
+            parts.append("## Recent History\n")
+            for rec in history[-10:]:
+                parts.append(
+                    f"- [{rec.ts.isoformat()}] {rec.goal} "
+                    f"(tools: {', '.join(rec.tools)})"
+                )
 
     # Skill index (names only, not full content)
     if skills_dir and skills_dir.exists():
@@ -416,7 +428,11 @@ def create_agent(
     mcp_clients = get_mcp_servers(config)
     tools.extend(mcp_clients)
 
-    system_prompt = build_system_prompt(workspace, skills_dir=skills_dir)
+    system_prompt = build_system_prompt(
+        workspace,
+        skills_dir=skills_dir,
+        include_history=session_manager is None,
+    )
     approval_hooks = ApprovalHooks(config, scripted=scripted)
 
     # Build conversation manager based on config

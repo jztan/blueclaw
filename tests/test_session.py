@@ -268,6 +268,26 @@ class TestBuildSystemPrompt:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         assert f"Today's date is {today}" in prompt
 
+    def test_system_prompt_omits_history_when_include_history_false(
+        self, tmp_workspace
+    ):
+        ws = Workspace(tmp_workspace)
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
+        ws.append_history(
+            RunRecord(
+                ts=datetime(2026, 3, 14, tzinfo=timezone.utc),
+                goal="searched docs",
+                tools=["web_search"],
+                tokens=100,
+            )
+        )
+        prompt = build_system_prompt(ws, include_history=False)
+        assert "searched docs" not in prompt
+        assert "Recent History" not in prompt
+
 
 # --- Agent construction ---
 

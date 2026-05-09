@@ -11,6 +11,7 @@ All notable changes to blueclaw will be documented in this file.
 
 ### Changed
 - `build_trace_and_record(...)` accepts an optional `conversation_id` kwarg.
+- `build_system_prompt(...)` accepts `include_history`. `create_agent` automatically passes `False` whenever a `session_manager` is attached, so the system prompt no longer narrates a "Recent History" recap that overlaps with the messages the session manager replays. Stops the model from prefacing each stateful reply with a conversation summary.
 
 ### Notes
 - Concurrent requests for the same `conversation_id` are serialized by an in-process per-id lock, acquired *before* the global concurrency semaphore. Different conversation ids run in parallel (subject to the existing `max_concurrent_runs` cap).

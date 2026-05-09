@@ -264,3 +264,44 @@ class TestCLI:
         plain = re_mod.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "--port" in plain
         assert "--no-open" in plain
+
+
+# --- Serialization tests ---
+
+
+def test_serialize_trace_summary_includes_conversation_id():
+    from blueclaw.web import _serialize_trace_summary
+
+    now = datetime.now(timezone.utc)
+    t = RunTrace(
+        run_id="20260509-120000-abcd",
+        goal="g",
+        start_time=now,
+        end_time=now,
+        model_id="claude-sonnet-4-6",
+        steps=[],
+        total_tokens=0,
+        total_cost=0.0,
+        status="success",
+        conversation_id="conv-9",
+    )
+    summary = _serialize_trace_summary(t)
+    assert summary["conversation_id"] == "conv-9"
+
+
+def test_serialize_trace_summary_conversation_id_null_by_default():
+    from blueclaw.web import _serialize_trace_summary
+
+    now = datetime.now(timezone.utc)
+    t = RunTrace(
+        run_id="20260509-120000-abcd",
+        goal="g",
+        start_time=now,
+        end_time=now,
+        model_id="claude-sonnet-4-6",
+        steps=[],
+        total_tokens=0,
+        total_cost=0.0,
+        status="success",
+    )
+    assert _serialize_trace_summary(t)["conversation_id"] is None

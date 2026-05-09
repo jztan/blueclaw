@@ -39,6 +39,7 @@ def _serialize_trace_summary(t: RunTrace) -> dict:
         "context_strategy": t.context_strategy,
         "context_masked_chars": t.context_masked_chars,
         "source": t.source,
+        "conversation_id": t.conversation_id,
     }
 
 

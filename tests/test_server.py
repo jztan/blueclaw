@@ -845,3 +845,63 @@ class TestStatefulConcurrency:
 
         elapsed = asyncio.run(run())
         assert elapsed < 0.28, f"expected <0.28 s, got {elapsed:.3f}"
+
+
+class TestStatefulStream:
+    def test_stream_passes_session_manager_when_conversation_id_set(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+            patch("blueclaw.server.FileSessionManager") as mock_fsm,
+        ):
+            agent = MagicMock()
+
+            async def fake_stream(msg):
+                yield {"data": "hello"}
+                yield {"result": mock_agent_result}
+
+            agent.stream_async = fake_stream
+            mock_ca.return_value = agent
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            with TestClient(app) as tc:
+                r = tc.post(
+                    "/message/stream",
+                    json={"message": "hi", "conversation_id": "cs"},
+                )
+            assert r.status_code == 200
+            mock_fsm.assert_called_once()
+            assert mock_fsm.call_args.kwargs["session_id"] == "cs"
+            assert mock_btr.call_args.kwargs["conversation_id"] == "cs"
+
+    def test_stream_no_session_manager_when_id_absent(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+            patch("blueclaw.server.FileSessionManager") as mock_fsm,
+        ):
+            agent = MagicMock()
+
+            async def fake_stream(msg):
+                yield {"data": "hi"}
+                yield {"result": mock_agent_result}
+
+            agent.stream_async = fake_stream
+            mock_ca.return_value = agent
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            with TestClient(app) as tc:
+                tc.post("/message/stream", json={"message": "hi"})
+            mock_fsm.assert_not_called()

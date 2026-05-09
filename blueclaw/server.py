@@ -215,69 +215,96 @@ def create_server_app(
         if err is not None:
             return err
 
+        cid = req.conversation_id
+        conv_lock = await conv_locks.get(cid) if cid else None
+        session_manager = (
+            FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+            if cid
+            else None
+        )
+
         async def event_stream():
             observer = None
             try:
-                async with semaphore:
-                    observer = ObserverHooks(
-                        console=Console(file=StringIO()), quiet=True
-                    )
-                    agent = create_agent(
-                        config,
-                        workspace,
-                        observer,
-                        model=model,
-                        scripted=True,
-                        callback_handler=None,
-                    )
-                    start_time = datetime.now(timezone.utc)
-                    final_result: Any = None
-                    try:
-                        async with asyncio.timeout(_TIMEOUT):
-                            async for event in agent.stream_async(req.message):
-                                chunk = (
-                                    event.get("data")
-                                    if isinstance(event, dict)
-                                    else None
-                                )
-                                if chunk:
-                                    yield _sse("delta", {"text": chunk})
-                                if (
-                                    isinstance(event, dict)
-                                    and event.get("result") is not None
-                                ):
-                                    final_result = event["result"]
-                    except asyncio.TimeoutError:
-                        yield _sse("error", {"error": "agent timed out"})
-                        return
 
-                    if final_result is None:
-                        yield _sse("error", {"error": "agent did not return a result"})
-                        return
-
-                    end_time = datetime.now(timezone.utc)
-                    run_id = _make_run_id(start_time)
-                    try:
-                        trace, record = build_trace_and_record(
-                            final_result,
-                            req.message,
-                            observer,
-                            config,
-                            run_id,
-                            start_time,
-                            end_time,
-                            source="api",
+                async def _run():
+                    nonlocal observer
+                    async with semaphore:
+                        observer = ObserverHooks(
+                            console=Console(file=StringIO()), quiet=True
                         )
-                        workspace.write_trace(trace)
-                        workspace.append_history(record)
-                    except WorkspaceError as exc:
-                        yield _sse("error", {"error": f"workspace error: {exc}"})
-                        return
+                        agent = create_agent(
+                            config,
+                            workspace,
+                            observer,
+                            model=model,
+                            scripted=True,
+                            callback_handler=None,
+                            session_manager=session_manager,
+                        )
+                        start_time = datetime.now(timezone.utc)
+                        final_result: Any = None
+                        try:
+                            async with asyncio.timeout(_TIMEOUT):
+                                async for event in agent.stream_async(req.message):
+                                    chunk = (
+                                        event.get("data")
+                                        if isinstance(event, dict)
+                                        else None
+                                    )
+                                    if chunk:
+                                        yield _sse("delta", {"text": chunk})
+                                    if (
+                                        isinstance(event, dict)
+                                        and event.get("result") is not None
+                                    ):
+                                        final_result = event["result"]
+                        except asyncio.TimeoutError:
+                            yield _sse("error", {"error": "agent timed out"})
+                            return
 
-                    yield _sse(
-                        "done",
-                        _build_response_payload(final_result, req, config, run_id),
-                    )
+                        if final_result is None:
+                            yield _sse(
+                                "error",
+                                {"error": "agent did not return a result"},
+                            )
+                            return
+
+                        end_time = datetime.now(timezone.utc)
+                        run_id = _make_run_id(start_time)
+                        try:
+                            trace, record = build_trace_and_record(
+                                final_result,
+                                req.message,
+                                observer,
+                                config,
+                                run_id,
+                                start_time,
+                                end_time,
+                                source="api",
+                                conversation_id=cid,
+                            )
+                            workspace.write_trace(trace)
+                            workspace.append_history(record)
+                        except WorkspaceError as exc:
+                            yield _sse(
+                                "error",
+                                {"error": f"workspace error: {exc}"},
+                            )
+                            return
+
+                        yield _sse(
+                            "done",
+                            _build_response_payload(final_result, req, config, run_id),
+                        )
+
+                if conv_lock is not None:
+                    async with conv_lock:
+                        async for evt in _run():
+                            yield evt
+                else:
+                    async for evt in _run():
+                        yield evt
             except Exception as exc:
                 yield _sse("error", {"error": str(exc)})
             finally:

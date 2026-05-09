@@ -179,6 +179,7 @@ def create_server_app(
                         scripted=True,
                         callback_handler=None,
                         session_manager=session_manager,
+                        channel="api",
                     )
                     start_time = datetime.now(timezone.utc)
                     result = await asyncio.wait_for(

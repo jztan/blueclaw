@@ -268,6 +268,24 @@ class TestBuildSystemPrompt:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         assert f"Today's date is {today}" in prompt
 
+    def test_system_prompt_terminal_channel_forbids_markdown(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws, channel="terminal")
+        assert "No markdown formatting" in prompt
+        assert "raw text in a terminal" in prompt
+
+    def test_system_prompt_api_channel_omits_terminal_rule(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws, channel="api")
+        assert "raw text in a terminal" not in prompt
+        assert "do not recap" in prompt.lower()
+        assert "No emojis" in prompt
+
+    def test_system_prompt_default_channel_is_terminal(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws)
+        assert "raw text in a terminal" in prompt
+
     def test_system_prompt_omits_history_when_include_history_false(
         self, tmp_workspace
     ):

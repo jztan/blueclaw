@@ -668,3 +668,180 @@ class TestConversationLock:
             i for i, e in enumerate(events) if e[0] == "start" and i > first_end_idx
         )
         assert second_start_idx == first_end_idx + 1
+
+
+class TestStatefulMessage:
+    def test_session_manager_passed_when_conversation_id_set(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+            patch("blueclaw.server.FileSessionManager") as mock_fsm,
+        ):
+            mock_ca.return_value.return_value = mock_agent_result
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            with TestClient(app) as tc:
+                r = tc.post("/message", json={"message": "hi", "conversation_id": "c1"})
+            assert r.status_code == 200
+            mock_fsm.assert_called_once()
+            kwargs = mock_fsm.call_args.kwargs
+            assert kwargs["session_id"] == "c1"
+            expected_dir = str(server_workspace.root / ".blueclaw" / "sessions")
+            assert kwargs["storage_dir"] == expected_dir
+            ca_kwargs = mock_ca.call_args.kwargs
+            assert ca_kwargs.get("session_manager") is mock_fsm.return_value
+
+    def test_no_session_manager_when_conversation_id_absent(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+            patch("blueclaw.server.FileSessionManager") as mock_fsm,
+        ):
+            mock_ca.return_value.return_value = mock_agent_result
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            with TestClient(app) as tc:
+                r = tc.post("/message", json={"message": "hi"})
+            assert r.status_code == 200
+            mock_fsm.assert_not_called()
+            ca_kwargs = mock_ca.call_args.kwargs
+            assert ca_kwargs.get("session_manager") is None
+
+    def test_conversation_id_threaded_into_trace_builder(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+            patch("blueclaw.server.FileSessionManager"),
+        ):
+            mock_ca.return_value.return_value = mock_agent_result
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            with TestClient(app) as tc:
+                tc.post("/message", json={"message": "hi", "conversation_id": "cX"})
+            assert mock_btr.call_args.kwargs["conversation_id"] == "cX"
+
+
+class TestStatefulConcurrency:
+    """Project does not use pytest-asyncio. Follow the existing pattern in
+    tests/test_server.py (TestSemaphore around line 478): sync test method,
+    `asyncio.run(run())` inside, all patches set up inline within `run()`."""
+
+    def test_same_id_requests_are_serialized(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        def slow_agent(_msg):
+            import time
+
+            time.sleep(0.15)
+            return mock_agent_result
+
+        agent = MagicMock(side_effect=slow_agent)
+
+        async def run():
+            with (
+                patch("blueclaw.server.create_agent", return_value=agent),
+                patch(
+                    "blueclaw.server.build_trace_and_record",
+                    return_value=(MagicMock(), MagicMock()),
+                ),
+                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch.object(server_workspace, "write_trace"),
+                patch.object(server_workspace, "append_history"),
+                patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+                patch("blueclaw.server.FileSessionManager"),
+            ):
+                app = create_server_app(
+                    server_config, server_workspace, model=MagicMock()
+                )
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as ac:
+                    start = asyncio.get_event_loop().time()
+                    responses = await asyncio.gather(
+                        ac.post(
+                            "/message",
+                            json={"message": "x", "conversation_id": "s"},
+                            timeout=10,
+                        ),
+                        ac.post(
+                            "/message",
+                            json={"message": "y", "conversation_id": "s"},
+                            timeout=10,
+                        ),
+                    )
+                    elapsed = asyncio.get_event_loop().time() - start
+                    assert all(r.status_code == 200 for r in responses)
+                    return elapsed
+
+        elapsed = asyncio.run(run())
+        assert elapsed >= 0.30, f"expected >=0.30 s, got {elapsed:.3f}"
+
+    def test_distinct_ids_run_in_parallel(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        def slow_agent(_msg):
+            import time
+
+            time.sleep(0.15)
+            return mock_agent_result
+
+        agent = MagicMock(side_effect=slow_agent)
+
+        async def run():
+            with (
+                patch("blueclaw.server.create_agent", return_value=agent),
+                patch(
+                    "blueclaw.server.build_trace_and_record",
+                    return_value=(MagicMock(), MagicMock()),
+                ),
+                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch.object(server_workspace, "write_trace"),
+                patch.object(server_workspace, "append_history"),
+                patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+                patch("blueclaw.server.FileSessionManager"),
+            ):
+                app = create_server_app(
+                    server_config, server_workspace, model=MagicMock()
+                )
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as ac:
+                    start = asyncio.get_event_loop().time()
+                    responses = await asyncio.gather(
+                        ac.post(
+                            "/message",
+                            json={"message": "x", "conversation_id": "a"},
+                            timeout=10,
+                        ),
+                        ac.post(
+                            "/message",
+                            json={"message": "y", "conversation_id": "b"},
+                            timeout=10,
+                        ),
+                    )
+                    elapsed = asyncio.get_event_loop().time() - start
+                    assert all(r.status_code == 200 for r in responses)
+                    return elapsed
+
+        elapsed = asyncio.run(run())
+        assert elapsed < 0.28, f"expected <0.28 s, got {elapsed:.3f}"

@@ -35,6 +35,7 @@ from blueclaw.session import (
     extract_text,
 )
 from blueclaw.workspace import Workspace, WorkspaceError
+from strands.session.file_session_manager import FileSessionManager
 
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
@@ -138,6 +139,8 @@ def create_server_app(
     workspace.purge_old_sessions(config.trace_retention_days)
 
     semaphore = asyncio.Semaphore(config.max_concurrent_runs)
+    conv_locks = _LockRegistry()
+    sessions_dir = str(workspace.root / ".blueclaw" / "sessions")
 
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
@@ -148,37 +151,56 @@ def create_server_app(
             return err
         observer = None
         try:
-            async with semaphore:
-                observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
-                agent = create_agent(
-                    config,
-                    workspace,
-                    observer,
-                    model=model,
-                    scripted=True,
-                    callback_handler=None,
-                )
-                start_time = datetime.now(timezone.utc)
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(agent, req.message), timeout=_TIMEOUT
-                )
-                end_time = datetime.now(timezone.utc)
-                run_id = _make_run_id(start_time)
-                trace, record = build_trace_and_record(
-                    result,
-                    req.message,
-                    observer,
-                    config,
-                    run_id,
-                    start_time,
-                    end_time,
-                    source="api",
-                )
-                workspace.write_trace(trace)
-                workspace.append_history(record)
-                return JSONResponse(
-                    _build_response_payload(result, req, config, run_id)
-                )
+            cid = req.conversation_id
+            conv_lock = await conv_locks.get(cid) if cid else None
+            session_manager = (
+                FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+                if cid
+                else None
+            )
+
+            async def _run():
+                async with semaphore:
+                    nonlocal observer
+                    observer = ObserverHooks(
+                        console=Console(file=StringIO()), quiet=True
+                    )
+                    agent = create_agent(
+                        config,
+                        workspace,
+                        observer,
+                        model=model,
+                        scripted=True,
+                        callback_handler=None,
+                        session_manager=session_manager,
+                    )
+                    start_time = datetime.now(timezone.utc)
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(agent, req.message), timeout=_TIMEOUT
+                    )
+                    end_time = datetime.now(timezone.utc)
+                    run_id = _make_run_id(start_time)
+                    trace, record = build_trace_and_record(
+                        result,
+                        req.message,
+                        observer,
+                        config,
+                        run_id,
+                        start_time,
+                        end_time,
+                        source="api",
+                        conversation_id=cid,
+                    )
+                    workspace.write_trace(trace)
+                    workspace.append_history(record)
+                    return JSONResponse(
+                        _build_response_payload(result, req, config, run_id)
+                    )
+
+            if conv_lock is not None:
+                async with conv_lock:
+                    return await _run()
+            return await _run()
         except asyncio.TimeoutError:
             return JSONResponse({"error": "agent timed out"}, status_code=504)
         except WorkspaceError as exc:

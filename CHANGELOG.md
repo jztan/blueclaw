@@ -2,6 +2,19 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Stateful conversations: when `POST /message` (or `/message/stream`) supplies a `conversation_id`, history is persisted via Strands `FileSessionManager` under `<workspace>/.blueclaw/sessions/<id>/`. Subsequent requests with the same id replay prior turns. Omitting `conversation_id` keeps stateless behavior.
+- `conversation_id` field on `RunTrace` and `RunRecord` (also exposed in `/api/traces` summary) so traces and history rows can be grouped by conversation.
+
+### Changed
+- `build_trace_and_record(...)` accepts an optional `conversation_id` kwarg.
+
+### Notes
+- Concurrent requests for the same `conversation_id` are serialized by an in-process per-id lock, acquired *before* the global concurrency semaphore. Different conversation ids run in parallel (subject to the existing `max_concurrent_runs` cap).
+- Session directories are purged on server start by `purge_old_sessions(trace_retention_days)` (no new config knob).
+
 ## [2.1.0] - 2026-05-06
 ### Added
 

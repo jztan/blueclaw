@@ -643,3 +643,61 @@ class TestRunTraceSourceField:
         )
         trace = RunTrace.from_json(json_str)
         assert trace.source == "terminal"
+
+
+# --- v2.2: conversation_id field ---
+
+
+def test_run_record_conversation_id_defaults_to_none():
+    rec = RunRecord(
+        ts=datetime.now(timezone.utc),
+        goal="hi",
+        tools=[],
+        tokens=0,
+    )
+    assert rec.conversation_id is None
+
+
+def test_run_record_accepts_conversation_id():
+    rec = RunRecord(
+        ts=datetime.now(timezone.utc),
+        goal="hi",
+        tools=[],
+        tokens=0,
+        conversation_id="abc-123",
+    )
+    assert rec.conversation_id == "abc-123"
+    assert "abc-123" in rec.to_jsonl()
+
+
+def test_run_trace_conversation_id_defaults_to_none():
+    now = datetime.now(timezone.utc)
+    t = RunTrace(
+        run_id="20260509-120000-abcd",
+        goal="hi",
+        start_time=now,
+        end_time=now,
+        model_id="claude-sonnet-4-6",
+        steps=[],
+        total_tokens=0,
+        total_cost=0.0,
+        status="success",
+    )
+    assert t.conversation_id is None
+
+
+def test_run_trace_accepts_conversation_id():
+    now = datetime.now(timezone.utc)
+    t = RunTrace(
+        run_id="20260509-120000-abcd",
+        goal="hi",
+        start_time=now,
+        end_time=now,
+        model_id="claude-sonnet-4-6",
+        steps=[],
+        total_tokens=0,
+        total_cost=0.0,
+        status="success",
+        conversation_id="abc-123",
+    )
+    assert t.conversation_id == "abc-123"

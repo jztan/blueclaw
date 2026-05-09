@@ -59,8 +59,10 @@ Concurrency and streaming for the HTTP API. A shared `asyncio.Semaphore` (defaul
 ## v2.3 - Subagent support
 - `Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls.
 
-## v3 — Multi-Channel Runtime
+## v2.4 - Skill Support
+- Skill.md are packaged as a directory containing SKILL.md (description and metadata), tools (Python or MCP), prompts. The blueclaw skill CLI handles creation, schema validation, and local installation.
 
+## v3 — Multi-Channel Runtime
 Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack, Discord, and Telegram ship as thin skill files on top of this core.
 
 ---

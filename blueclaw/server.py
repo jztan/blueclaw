@@ -11,6 +11,7 @@ import json
 import os
 from datetime import datetime, timezone
 from io import StringIO
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from pydantic import ValidationError
@@ -18,8 +19,10 @@ from rich.console import Console
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
+
+_PLAYGROUND_HTML = (Path(__file__).parent / "static" / "playground.html").read_text()
 from blueclaw import __version__
 from blueclaw.models import (
     MessageRequest,
@@ -144,6 +147,9 @@ def create_server_app(
 
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
+
+    async def playground(request: Request) -> HTMLResponse:
+        return HTMLResponse(_PLAYGROUND_HTML)
 
     async def handle_message(request: Request) -> JSONResponse:
         req, err = await _parse_request(request)
@@ -315,6 +321,7 @@ def create_server_app(
     app = Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/playground", playground, methods=["GET"]),
             Route("/message", handle_message, methods=["POST"]),
             Route("/message/stream", handle_message_stream, methods=["POST"]),
         ]

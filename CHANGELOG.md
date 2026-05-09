@@ -7,6 +7,7 @@ All notable changes to blueclaw will be documented in this file.
 ### Added
 - Stateful conversations: when `POST /message` (or `/message/stream`) supplies a `conversation_id`, history is persisted via Strands `FileSessionManager` under `<workspace>/.blueclaw/sessions/<id>/`. Subsequent requests with the same id replay prior turns. Omitting `conversation_id` keeps stateless behavior.
 - `conversation_id` field on `RunTrace` and `RunRecord` (also exposed in `/api/traces` summary) so traces and history rows can be grouped by conversation.
+- `GET /playground` — single-page chat UI bundled with `blueclaw serve` for manually exercising stateful + streaming conversations. Defaults its server URL to the current origin; bearer token entered in the sidebar. Unauthenticated like `/health`.
 
 ### Changed
 - `build_trace_and_record(...)` accepts an optional `conversation_id` kwarg.

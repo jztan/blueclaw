@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>blueclaw playground</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181c23;
+    --border: #2a313d;
+    --text: #e6e8eb;
+    --muted: #8a93a3;
+    --accent: #7cc4ff;
+    --user: #2a3a52;
+    --bot: #1d2530;
+    --good: #6cd49a;
+    --bad: #f08a8a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: grid; grid-template-columns: 280px 1fr; height: 100vh;
+  }
+  aside {
+    background: var(--panel); border-right: 1px solid var(--border);
+    padding: 16px; display: flex; flex-direction: column; gap: 14px;
+    overflow-y: auto;
+  }
+  aside h1 { font-size: 14px; margin: 0 0 4px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type="text"], input[type="number"] {
+    width: 100%; background: #0b0d12; border: 1px solid var(--border);
+    color: var(--text); padding: 7px 9px; border-radius: 6px; font: inherit;
+  }
+  input[type="text"]:focus, textarea:focus { outline: 1px solid var(--accent); }
+  button {
+    background: #1f2733; border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #00131e; border-color: var(--accent); font-weight: 600; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .grow { flex: 1; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    background: #0b0d12; color: var(--muted); border: 1px solid var(--border);
+  }
+  .stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .stat strong { color: var(--text); font-weight: 600; }
+  .divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+  main {
+    display: grid; grid-template-rows: 1fr auto;
+    overflow: hidden;
+  }
+  #log {
+    overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .msg { max-width: 760px; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { background: var(--user); align-self: flex-end; }
+  .msg.bot  { background: var(--bot);  align-self: flex-start; border: 1px solid var(--border); }
+  .msg.system { background: transparent; align-self: center; color: var(--muted); font-style: italic; font-size: 12px; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .msg.bot.streaming::after { content: "▍"; color: var(--accent); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  form {
+    border-top: 1px solid var(--border); padding: 14px 24px;
+    display: grid; grid-template-columns: 1fr auto auto; gap: 8px; background: var(--panel);
+  }
+  textarea {
+    background: #0b0d12; border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 6px; font: inherit; resize: none; min-height: 38px; max-height: 160px;
+  }
+
+  .err { color: var(--bad); }
+  .ok  { color: var(--good); }
+  code { background: #0b0d12; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<aside>
+  <h1>blueclaw chat</h1>
+
+  <div>
+    <label>Server</label>
+    <input id="server" type="text" placeholder="(current origin)" />
+  </div>
+
+  <div>
+    <label>API key (optional)</label>
+    <input id="apiKey" type="text" placeholder="if BLUECLAW_API_KEY is set" />
+  </div>
+
+  <div>
+    <label>conversation_id <span class="pill" id="cidStatus">stateless</span></label>
+    <div class="row">
+      <input id="cid" type="text" class="grow" placeholder="(empty = stateless)" />
+      <button type="button" id="newCid" title="generate random id">new</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label style="margin: 0;"><input type="checkbox" id="stream" checked /> stream (SSE)</label>
+  </div>
+
+  <button type="button" id="newConv">+ new conversation</button>
+  <button type="button" id="clear">clear log</button>
+
+  <div class="divider"></div>
+
+  <h1>Stats</h1>
+  <div class="stat"><span>turns</span><strong id="sTurns">0</strong></div>
+  <div class="stat"><span>tokens</span><strong id="sTokens">0</strong></div>
+  <div class="stat"><span>cost</span><strong id="sCost">$0.0000</strong></div>
+  <div class="stat"><span>last run_id</span><strong id="sRun">—</strong></div>
+
+  <div class="divider"></div>
+  <p style="font-size: 11px; color: var(--muted); margin: 0;">
+    Tip: keep <code>conversation_id</code> stable to test memory.
+    Click <em>new conversation</em> to generate a fresh one and start over.
+  </p>
+</aside>
+
+<main>
+  <div id="log">
+    <div class="msg system">no messages yet — say something below</div>
+  </div>
+  <form id="form">
+    <textarea id="input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button type="submit" class="primary" id="send">Send</button>
+    <button type="button" id="cancel" disabled>Stop</button>
+  </form>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const log = $('#log');
+const cidInput = $('#cid');
+const cidStatus = $('#cidStatus');
+let totalTurns = 0, totalTokens = 0, totalCost = 0;
+let activeController = null;
+
+function uid() {
+  return "c-" + Math.random().toString(36).slice(2, 10);
+}
+function setCid(v) {
+  cidInput.value = v || "";
+  cidStatus.textContent = v ? "stateful" : "stateless";
+  cidStatus.style.color = v ? "var(--good)" : "var(--muted)";
+}
+$('#newCid').onclick = () => setCid(uid());
+$('#newConv').onclick = () => {
+  setCid(uid());
+  $('#log').innerHTML = "";
+  totalTurns = totalTokens = totalCost = 0;
+  refreshStats();
+  appendSys("new conversation: " + cidInput.value);
+};
+$('#clear').onclick = () => { $('#log').innerHTML = ""; };
+cidInput.addEventListener('input', () => setCid(cidInput.value.trim()));
+setCid("");
+
+function refreshStats() {
+  $('#sTurns').textContent = totalTurns;
+  $('#sTokens').textContent = totalTokens.toLocaleString();
+  $('#sCost').textContent = "$" + totalCost.toFixed(4);
+}
+function append(role, text, meta) {
+  const div = document.createElement('div');
+  div.className = "msg " + role;
+  div.textContent = text;
+  if (meta) {
+    const m = document.createElement('div');
+    m.className = "meta"; m.textContent = meta;
+    div.appendChild(m);
+  }
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+function appendSys(text) { return append('system', text); }
+function metaLine(d) {
+  const bits = [];
+  if (d.run_id) bits.push("run " + d.run_id);
+  if (d.conversation_id) bits.push("conv " + d.conversation_id);
+  if (typeof d.tokens === "number") bits.push(d.tokens.toLocaleString() + " tokens");
+  if (typeof d.cost === "number") bits.push("$" + d.cost.toFixed(4));
+  return bits.join(" · ");
+}
+
+$('#input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    $('#form').requestSubmit();
+  }
+});
+
+$('#cancel').onclick = () => activeController && activeController.abort();
+
+$('#form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('#input').value.trim();
+  if (!text) return;
+  const cid = cidInput.value.trim() || undefined;
+  const server = ($('#server').value.trim() || window.location.origin).replace(/\/+$/, "");
+  const apiKey = $('#apiKey').value.trim();
+  const useStream = $('#stream').checked;
+
+  append('user', text);
+  $('#input').value = "";
+  $('#send').disabled = true;
+  $('#cancel').disabled = false;
+  activeController = new AbortController();
+
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
+  const body = JSON.stringify({ message: text, conversation_id: cid });
+
+  try {
+    if (useStream) {
+      await streamReq(server + "/message/stream", headers, body);
+    } else {
+      const r = await fetch(server + "/message", {
+        method: "POST", headers, body, signal: activeController.signal
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      append('bot', j.reply || "(empty reply)", metaLine(j));
+      totalTurns += 1;
+      totalTokens += j.tokens || 0;
+      totalCost += j.cost || 0;
+      refreshStats();
+    }
+  } catch (err) {
+    append('system', "error: " + err.message).classList.add('err');
+  } finally {
+    $('#send').disabled = false;
+    $('#cancel').disabled = true;
+    activeController = null;
+    $('#input').focus();
+  }
+});
+
+async function streamReq(url, headers, body) {
+  const r = await fetch(url, { method: "POST", headers, body, signal: activeController.signal });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error("HTTP " + r.status + ": " + t);
+  }
+  const div = append('bot', "");
+  div.classList.add('streaming');
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let acc = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      const raw = buf.slice(0, idx); buf = buf.slice(idx + 2);
+      const lines = raw.split("\n");
+      let ev = "message", data = "";
+      for (const ln of lines) {
+        if (ln.startsWith("event: ")) ev = ln.slice(7);
+        else if (ln.startsWith("data: ")) data += (data ? "\n" : "") + ln.slice(6);
+      }
+      if (!data) continue;
+      let payload; try { payload = JSON.parse(data); } catch { payload = { raw: data }; }
+      if (ev === "delta") {
+        acc += payload.text || "";
+        div.firstChild ? (div.childNodes[0].nodeValue = acc) : div.appendChild(document.createTextNode(acc));
+        log.scrollTop = log.scrollHeight;
+      } else if (ev === "done") {
+        const m = document.createElement('div');
+        m.className = "meta"; m.textContent = metaLine(payload);
+        div.appendChild(m);
+        totalTurns += 1;
+        totalTokens += payload.tokens || 0;
+        totalCost += payload.cost || 0;
+        refreshStats();
+      } else if (ev === "error") {
+        const m = document.createElement('div');
+        m.className = "meta err"; m.textContent = "error: " + (payload.error || JSON.stringify(payload));
+        div.appendChild(m);
+      }
+    }
+  }
+  div.classList.remove('streaming');
+}
+</script>
+</body>
+</html>

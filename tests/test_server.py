@@ -78,6 +78,19 @@ class TestHealth:
         assert r.status_code == 200
 
 
+class TestPlayground:
+    def test_playground_returns_html(self, client):
+        r = client.get("/playground")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/html")
+        assert "blueclaw playground" in r.text.lower()
+
+    def test_playground_no_auth_required(self, client):
+        with patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}):
+            r = client.get("/playground")
+        assert r.status_code == 200
+
+
 # --- Message Success ---
 
 

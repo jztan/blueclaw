@@ -352,6 +352,7 @@ def build_trace_and_record(
     start_time: datetime,
     end_time: datetime,
     source: str = "terminal",
+    conversation_id: str | None = None,
 ) -> tuple:
     """Build RunTrace and RunRecord from an agent result.
 
@@ -384,6 +385,7 @@ def build_trace_and_record(
         context_masked_chars=context_masked_chars,
         context_strategy=context_strategy_val,
         source=source,
+        conversation_id=conversation_id,
     )
 
     record = RunRecord(
@@ -392,6 +394,7 @@ def build_trace_and_record(
         tools=list(observer.tools_called),
         tokens=total_tokens,
         cost=cost,
+        conversation_id=conversation_id,
     )
 
     return trace, record

@@ -1072,3 +1072,67 @@ class TestCreateAgentCallbackHandler:
         )
         call_kwargs = mock_agent_cls.call_args.kwargs
         assert call_kwargs["session_manager"] is mock_fsm
+
+
+def test_build_trace_and_record_threads_conversation_id(sample_config):
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from blueclaw.session import build_trace_and_record
+
+    observer = MagicMock()
+    observer.trace_steps = []
+    observer.tools_called = []
+    observer.conversation_manager = None
+
+    result = MagicMock()
+    result.metrics.accumulated_usage = {
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "totalTokens": 15,
+    }
+
+    now = datetime.now(timezone.utc)
+    trace, record = build_trace_and_record(
+        result,
+        "goal",
+        observer,
+        sample_config,
+        run_id="20260509-120000-abcd",
+        start_time=now,
+        end_time=now,
+        source="api",
+        conversation_id="conv-1",
+    )
+    assert trace.conversation_id == "conv-1"
+    assert record.conversation_id == "conv-1"
+
+
+def test_build_trace_and_record_conversation_id_defaults_to_none(sample_config):
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from blueclaw.session import build_trace_and_record
+
+    observer = MagicMock()
+    observer.trace_steps = []
+    observer.tools_called = []
+    observer.conversation_manager = None
+
+    result = MagicMock()
+    result.metrics.accumulated_usage = {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0,
+    }
+
+    now = datetime.now(timezone.utc)
+    trace, record = build_trace_and_record(
+        result,
+        "goal",
+        observer,
+        sample_config,
+        run_id="20260509-120000-abcd",
+        start_time=now,
+        end_time=now,
+    )
+    assert trace.conversation_id is None
+    assert record.conversation_id is None

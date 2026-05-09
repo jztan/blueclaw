@@ -105,6 +105,24 @@ def _build_response_payload(
     ).model_dump()
 
 
+class _LockRegistry:
+    """Per-key asyncio.Lock map. Lock creation is itself guarded by a
+    meta-lock so concurrent first-time `get(key)` calls return the same
+    lock object."""
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._meta = asyncio.Lock()
+
+    async def get(self, key: str) -> asyncio.Lock:
+        async with self._meta:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            return lock
+
+
 def create_server_app(
     config: SessionConfig,
     workspace: Workspace,

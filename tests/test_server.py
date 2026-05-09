@@ -615,3 +615,56 @@ class TestMaxConcurrentConfig:
         cfg_path.write_text("model:\n  provider: anthropic\n")
         cfg = load_config(cfg_path)
         assert cfg.max_concurrent_runs == 4
+
+
+# --- Conversation locking ---
+
+
+class TestConversationLock:
+    def test_lock_for_id_returns_same_lock(self):
+        from blueclaw.server import _LockRegistry
+
+        reg = _LockRegistry()
+
+        async def go():
+            l1 = await reg.get("a")
+            l2 = await reg.get("a")
+            assert l1 is l2
+
+        asyncio.run(go())
+
+    def test_lock_for_distinct_ids_differs(self):
+        from blueclaw.server import _LockRegistry
+
+        reg = _LockRegistry()
+
+        async def go():
+            la = await reg.get("a")
+            lb = await reg.get("b")
+            assert la is not lb
+
+        asyncio.run(go())
+
+    def test_lock_serializes_same_id(self):
+        from blueclaw.server import _LockRegistry
+
+        reg = _LockRegistry()
+        events = []
+
+        async def worker(name, hold):
+            lock = await reg.get("conv")
+            async with lock:
+                events.append(("start", name))
+                await asyncio.sleep(hold)
+                events.append(("end", name))
+
+        async def go():
+            await asyncio.gather(worker("A", 0.05), worker("B", 0.01))
+
+        asyncio.run(go())
+        # Whichever ran first must fully end before the other starts
+        first_end_idx = next(i for i, e in enumerate(events) if e[0] == "end")
+        second_start_idx = next(
+            i for i, e in enumerate(events) if e[0] == "start" and i > first_end_idx
+        )
+        assert second_start_idx == first_end_idx + 1

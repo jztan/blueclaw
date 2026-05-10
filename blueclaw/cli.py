@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 import warnings
 from io import StringIO
 from pathlib import Path
@@ -29,6 +32,105 @@ app = typer.Typer(add_completion=False)
 console = Console()
 
 DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
+
+# --- Skill sub-app ---
+
+skill_app = typer.Typer(help="Manage blueclaw skills.", add_completion=False)
+app.add_typer(skill_app, name="skill")
+
+
+def _global_skills_dir() -> Path:
+    from blueclaw.skills import default_global_dir
+
+    return default_global_dir()
+
+
+def _project_skills_dir() -> Path:
+    from blueclaw.skills import default_project_dir
+
+    p = default_project_dir()
+    if p is None:
+        # No blueclaw.yaml found; fall back to cwd-anchored .blueclaw/skills
+        p = Path.cwd() / ".blueclaw" / "skills"
+    return p
+
+
+def _resolve_source(source: str, tmp_root: Path) -> Path:
+    if source.startswith(("http://", "https://", "git@", "ssh://", "git://")):
+        return _git_clone(source, tmp_root)
+    p = Path(source).expanduser().resolve()
+    if not p.exists():
+        raise typer.BadParameter(f"source path does not exist: {source}")
+    return p
+
+
+def _git_clone(url: str, tmp_root: Path) -> Path:
+    raise typer.BadParameter("git URL install added in Task 4")
+
+
+def _confirm_install(skill, target: Path, yes: bool) -> bool:
+    summary = (
+        f"\nSkill: {skill.name}\n"
+        f"  description: {skill.description}\n"
+        f"  install to:  {target}\n"
+    )
+    if skill.license:
+        summary += f"  license:     {skill.license}\n"
+    if skill.compatibility:
+        summary += f"  compat:      {skill.compatibility}\n"
+    typer.echo(summary)
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        typer.echo("Refusing to install non-interactively without --yes.", err=True)
+        return False
+    return typer.confirm("Install?", default=False)
+
+
+@skill_app.command("install")
+def skill_install(
+    source: str = typer.Argument(..., help="Local path or git URL"),
+    project: bool = typer.Option(False, "--project"),
+    force: bool = typer.Option(False, "--force"),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Install a skill from a local directory or git URL."""
+    import tempfile
+
+    from strands.vended_plugins.skills import Skill
+
+    target_root = _project_skills_dir() if project else _global_skills_dir()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            src_dir = _resolve_source(source, Path(tmpdir))
+            skill = Skill.from_file(src_dir, strict=True)
+        except (ValueError, FileNotFoundError) as e:
+            typer.echo(f"Invalid skill: {e}", err=True)
+            raise typer.Exit(code=2)
+
+        target = target_root / skill.name
+        if target.exists() and not force:
+            typer.echo(
+                f"Skill exists at {target} (use --force to overwrite)",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        if not _confirm_install(skill, target, yes):
+            typer.echo("Aborted.")
+            raise typer.Exit(code=1)
+
+        target_root.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            shutil.rmtree(target)
+        staging = target.with_name(target.name + ".__staging__")
+        if staging.exists():
+            shutil.rmtree(staging)
+        shutil.copytree(src_dir, staging)
+        os.replace(staging, target)
+        typer.echo(f"Installed {skill.name} -> {target}")
+
 
 # --- Terminal mascot ---
 
@@ -787,8 +889,6 @@ def test(
     ),
 ) -> None:
     """Run agent regression tests from a YAML spec."""
-    import shutil
-    import sys
     import tempfile
 
     from blueclaw.testing import (

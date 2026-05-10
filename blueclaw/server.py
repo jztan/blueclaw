@@ -45,6 +45,55 @@ from strands.session.file_session_manager import FileSessionManager
 
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
+_MAX_ATTACHMENTS = 10
+
+
+def _build_attachment_prefix(records) -> str:
+    """Render the system note prepended to the user's prompt when files are attached."""
+    if not records:
+        return ""
+    lines = [
+        "User attached the following files. Read them with the available tools "
+        "(shell for text, pdf-mcp for PDFs, etc.):",
+    ]
+    for r in records:
+        size_kb = r.size_bytes / 1024
+        if size_kb >= 1024:
+            size_str = f"{r.size_bytes / 1024 / 1024:.1f} MB"
+        else:
+            size_str = f"{size_kb:.0f} KB"
+        lines.append(f"  - {r.path}  ({r.mime_type}, {size_str})")
+    return "\n".join(lines) + "\n\n"
+
+
+def _resolve_attachments(
+    store: "UploadStore",
+    cid: str | None,
+    file_ids: list[str],
+) -> tuple[list, JSONResponse | None]:
+    """Resolve file_ids → UploadRecord list. Returns (records, error_response).
+
+    On error, returns (empty list, JSONResponse). Caller must early-return the response.
+    """
+    if not file_ids:
+        return [], None
+    if len(file_ids) > _MAX_ATTACHMENTS:
+        return [], JSONResponse(
+            {"error": f"too many attachments (max {_MAX_ATTACHMENTS})"},
+            status_code=400,
+        )
+    if cid is None:
+        return [], JSONResponse(
+            {"error": "conversation_id required when file_ids are provided"},
+            status_code=400,
+        )
+    records = []
+    for fid in file_ids:
+        try:
+            records.append(store.resolve(cid, fid))
+        except UploadError as exc:
+            return [], JSONResponse({"error": f"file_id error: {exc}"}, status_code=400)
+    return records, None
 
 
 def _authenticate(request: Request) -> bool:
@@ -165,6 +214,10 @@ def create_server_app(
         observer = None
         try:
             cid = req.conversation_id
+            records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
+            if err_resp is not None:
+                return err_resp
+            prompt = _build_attachment_prefix(records) + req.message
             conv_lock = await conv_locks.get(cid) if cid else None
             session_manager = (
                 FileSessionManager(session_id=cid, storage_dir=sessions_dir)
@@ -190,7 +243,7 @@ def create_server_app(
                     )
                     start_time = datetime.now(timezone.utc)
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(agent, req.message), timeout=_TIMEOUT
+                        asyncio.to_thread(agent, prompt), timeout=_TIMEOUT
                     )
                     end_time = datetime.now(timezone.utc)
                     run_id = _make_run_id(start_time)
@@ -230,6 +283,10 @@ def create_server_app(
             return err
 
         cid = req.conversation_id
+        records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
+        if err_resp is not None:
+            return err_resp
+        prompt = _build_attachment_prefix(records) + req.message
         conv_lock = await conv_locks.get(cid) if cid else None
         session_manager = (
             FileSessionManager(session_id=cid, storage_dir=sessions_dir)
@@ -260,7 +317,7 @@ def create_server_app(
                         final_result: Any = None
                         try:
                             async with asyncio.timeout(_TIMEOUT):
-                                async for event in agent.stream_async(req.message):
+                                async for event in agent.stream_async(prompt):
                                     chunk = (
                                         event.get("data")
                                         if isinstance(event, dict)

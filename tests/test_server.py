@@ -931,6 +931,84 @@ class TestUpload:
             assert r.status_code == 201
 
 
+class TestMessageAttachments:
+    def test_file_ids_prepend_path_prefix_to_prompt(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        captured = {}
+
+        def fake_agent_callable(prompt):
+            captured["prompt"] = prompt
+            return mock_agent_result
+
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+        ):
+            mock_ca.return_value = fake_agent_callable
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            tc = TestClient(app)
+
+            up = tc.post(
+                "/upload",
+                files={"file": ("hello.txt", b"hello", "text/plain")},
+                data={"conversation_id": "c-1"},
+            )
+            assert up.status_code == 201, up.text
+            file_id = up.json()["file_id"]
+
+            r = tc.post(
+                "/message",
+                json={
+                    "message": "summarize",
+                    "conversation_id": "c-1",
+                    "file_ids": [file_id],
+                },
+            )
+            assert r.status_code == 200, r.text
+            prompt = captured["prompt"]
+            assert "User attached the following files" in prompt
+            assert file_id in prompt
+            assert "summarize" in prompt
+            assert prompt.index(file_id) < prompt.index("summarize")
+
+    def test_message_rejects_unknown_file_id(self, client):
+        r = client.post(
+            "/message",
+            json={
+                "message": "hi",
+                "conversation_id": "c-1",
+                "file_ids": ["00000000-0000-0000-0000-000000000000__x.txt"],
+            },
+        )
+        assert r.status_code == 400
+        assert "file_id" in r.json()["error"].lower()
+
+    def test_message_rejects_too_many_file_ids(self, client):
+        r = client.post(
+            "/message",
+            json={
+                "message": "hi",
+                "conversation_id": "c-1",
+                "file_ids": [f"id-{i}__x.txt" for i in range(11)],
+            },
+        )
+        assert r.status_code == 400
+        assert "10" in r.json()["error"]
+
+    def test_message_rejects_file_ids_without_cid(self, client):
+        r = client.post(
+            "/message",
+            json={"message": "hi", "file_ids": ["any__x.txt"]},
+        )
+        assert r.status_code == 400
+
+
 class TestStatefulStream:
     def test_stream_passes_session_manager_when_conversation_id_set(
         self, server_config, server_workspace, mock_agent_result

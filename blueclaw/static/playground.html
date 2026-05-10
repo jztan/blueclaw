@@ -5,16 +5,21 @@
 <title>blueclaw playground</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #181c23;
-    --border: #2a313d;
-    --text: #e6e8eb;
-    --muted: #8a93a3;
-    --accent: #7cc4ff;
-    --user: #2a3a52;
-    --bot: #1d2530;
-    --good: #6cd49a;
-    --bad: #f08a8a;
+    --bg: #f7f8fa;
+    --panel: #ffffff;
+    --border: #e2e6ed;
+    --text: #1a1f2b;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --user: #dbeafe;
+    --bot: #ffffff;
+    --good: #16a34a;
+    --bad: #dc2626;
+    --field: #ffffff;
+    --code: #f3f4f6;
+    --chip: #eef2f7;
+    --chip-err-bg: #fee2e2;
+    --chip-err-text: #b91c1c;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -31,21 +36,21 @@
   aside h1 { font-size: 14px; margin: 0 0 4px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   input[type="text"], input[type="number"] {
-    width: 100%; background: #0b0d12; border: 1px solid var(--border);
+    width: 100%; background: var(--field); border: 1px solid var(--border);
     color: var(--text); padding: 7px 9px; border-radius: 6px; font: inherit;
   }
   input[type="text"]:focus, textarea:focus { outline: 1px solid var(--accent); }
   button {
-    background: #1f2733; border: 1px solid var(--border); color: var(--text);
+    background: var(--field); border: 1px solid var(--border); color: var(--text);
     padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit;
   }
   button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #00131e; border-color: var(--accent); font-weight: 600; }
+  button.primary { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 600; }
   .row { display: flex; gap: 6px; align-items: center; }
   .grow { flex: 1; }
   .pill {
     display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
-    background: #0b0d12; color: var(--muted); border: 1px solid var(--border);
+    background: var(--code); color: var(--muted); border: 1px solid var(--border);
   }
   .stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .stat strong { color: var(--text); font-weight: 600; }
@@ -71,24 +76,25 @@
     display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; background: var(--panel);
   }
   textarea {
-    background: #0b0d12; border: 1px solid var(--border); color: var(--text);
+    background: var(--field); border: 1px solid var(--border); color: var(--text);
     padding: 8px 10px; border-radius: 6px; font: inherit; resize: none; min-height: 38px; max-height: 160px;
   }
 
   .err { color: var(--bad); }
   .ok  { color: var(--good); }
-  code { background: #0b0d12; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
-.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px 0; padding: 0 4px; }
-.attachments.hidden { display: none; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;
-        border-radius: 999px; background: #1a1f2b; font-size: 12px; }
-.chip button { background: none; border: 0; color: var(--muted); cursor: pointer;
-               padding: 0 0 0 2px; font-size: 14px; }
-.chip.error { background: #3a1f1f; color: #ffb3b3; }
-.attach-btn { display: inline-flex; align-items: center; padding: 0 10px;
-              cursor: pointer; user-select: none; }
-.dragover { outline: 2px dashed #4a9eff; outline-offset: -4px; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px 0; padding: 0 4px; }
+  .attachments.hidden { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;
+          border-radius: 999px; background: var(--chip); border: 1px solid var(--border); font-size: 12px; }
+  .chip button { background: none; border: 0; color: var(--muted); cursor: pointer;
+                 padding: 0 0 0 2px; font-size: 14px; }
+  .chip.error { background: var(--chip-err-bg); color: var(--chip-err-text); border-color: var(--chip-err-bg); }
+  .attach-btn { display: inline-flex; align-items: center; padding: 0 10px;
+                cursor: pointer; user-select: none; color: var(--muted); }
+  .attach-btn:hover { color: var(--accent); }
+  .dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 </style>
 </head>
 <body>

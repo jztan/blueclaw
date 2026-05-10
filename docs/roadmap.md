@@ -51,7 +51,7 @@ Expose the agent over HTTP via `blueclaw serve`. `POST /message` returns a reply
 
 Concurrency and streaming for the HTTP API. A shared `asyncio.Semaphore` (default 4, configurable via `server.max_concurrent_runs` or `--max-concurrent`) caps simultaneous agent runs across `/message` and `/message/stream` to prevent resource exhaustion under load. The new `POST /message/stream` endpoint emits Server-Sent Events with token-by-token `delta` chunks followed by a `done` payload carrying `run_id`, tokens, and cost — callers see output as it is generated rather than waiting for the full reply.
 
-## v2.2 - Stateful conversations (shipped)
+## v2.2 - Stateful conversations ✅
 Per-conversation memory now persists via Strands `FileSessionManager` keyed by `conversation_id`. Callers that supply the same id across requests get a continuous conversation; omitting it keeps stateless behavior. Concurrent requests for the same id are serialized by a per-id lock; different ids run in parallel.
 
 ## v2.3 — File Uploads & Native Vision

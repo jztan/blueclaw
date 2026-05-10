@@ -75,3 +75,36 @@ def test_save_rejects_disallowed_mime(store: UploadStore):
 def test_save_rejects_bad_cid(store: UploadStore):
     with pytest.raises(UploadError):
         store.save("../escape", "ok.txt", io.BytesIO(b"hi"))
+
+
+def test_save_rejects_wav_file_named_webp(store: UploadStore):
+    """Defends against WEBP/WAV magic-byte collision."""
+    wav_header = b"RIFF\x00\x00\x00\x00WAVEfmt "  # not WEBP
+    with pytest.raises(UploadError):
+        store.save("c-test", "fake.webp", io.BytesIO(wav_header))
+
+
+def test_save_accepts_real_webp(store: UploadStore):
+    webp_header = b"RIFF\x00\x00\x00\x00WEBPVP8 "  # valid WEBP
+    record = store.save("c-test", "real.webp", io.BytesIO(webp_header))
+    assert record.mime_type == "image/webp"
+
+
+def test_resolve_rejects_malformed_file_id(store: UploadStore, tmp_path: Path):
+    """A file_id without `__` is structurally invalid."""
+    # Plant a file directly so existence check would otherwise pass
+    cdir = store.root / "c-test"
+    cdir.mkdir(parents=True, exist_ok=True)
+    (cdir / "no-separator.txt").write_text("hi")
+    with pytest.raises(UploadError, match="malformed"):
+        store.resolve("c-test", "no-separator.txt")
+
+
+def test_resolve_rejects_unknown_extension(store: UploadStore):
+    """resolve() should reject file_ids whose extension is outside the allowlist."""
+    cdir = store.root / "c-test"
+    cdir.mkdir(parents=True, exist_ok=True)
+    fid = "deadbeef-1234__notes.weird"
+    (cdir / fid).write_text("hi")
+    with pytest.raises(UploadError):
+        store.resolve("c-test", fid)

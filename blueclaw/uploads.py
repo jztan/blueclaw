@@ -11,7 +11,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Callable
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 _FILENAME_OK = re.compile(r"[^A-Za-z0-9._-]")
@@ -32,13 +32,13 @@ _ALLOWED_EXTS: dict[str, str] = {
     ".zip": "application/zip",
 }
 
-_MAGIC: dict[str, bytes] = {
-    "application/pdf": b"%PDF-",
-    "image/png": b"\x89PNG\r\n\x1a\n",
-    "image/jpeg": b"\xff\xd8\xff",
-    "image/gif": b"GIF8",
-    "application/zip": b"PK\x03\x04",
-    "image/webp": b"RIFF",
+_MAGIC: dict[str, Callable[[bytes], bool]] = {
+    "application/pdf": lambda h: h.startswith(b"%PDF-"),
+    "image/png": lambda h: h.startswith(b"\x89PNG\r\n\x1a\n"),
+    "image/jpeg": lambda h: h.startswith(b"\xff\xd8\xff"),
+    "image/gif": lambda h: h.startswith(b"GIF8"),
+    "application/zip": lambda h: h.startswith(b"PK\x03\x04"),
+    "image/webp": lambda h: h[:4] == b"RIFF" and h[8:12] == b"WEBP",
 }
 
 
@@ -76,8 +76,8 @@ def _detect_mime(filename: str, head: bytes) -> str:
     if ext not in _ALLOWED_EXTS:
         raise UploadError(f"file type not allowed: {ext or '(no extension)'}")
     expected = _ALLOWED_EXTS[ext]
-    magic = _MAGIC.get(expected)
-    if magic and not head.startswith(magic):
+    check = _MAGIC.get(expected)
+    if check and not check(head):
         raise UploadError(
             f"file content does not match extension {ext} (expected {expected})"
         )
@@ -138,14 +138,15 @@ class UploadStore:
             candidate.relative_to(conv_dir)
         except ValueError as exc:
             raise UploadError(f"file_id escapes conversation dir: {file_id!r}") from exc
-        if not candidate.is_file():
-            raise UploadError(f"file_id not found: {file_id}")
         _, _, original = file_id.partition("__")
         if not original:
             raise UploadError(f"malformed file_id: {file_id}")
-        mime = _ALLOWED_EXTS.get(
-            Path(original).suffix.lower(), "application/octet-stream"
-        )
+        ext = Path(original).suffix.lower()
+        if ext not in _ALLOWED_EXTS:
+            raise UploadError(f"malformed file_id: {file_id} — unrecognized extension")
+        mime = _ALLOWED_EXTS[ext]
+        if not candidate.is_file():
+            raise UploadError(f"file_id not found: {file_id}")
         return UploadRecord(
             file_id=file_id,
             filename=original,

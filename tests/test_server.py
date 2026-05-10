@@ -891,6 +891,20 @@ class TestUpload:
         r = client.post("/upload", files=files, data={"conversation_id": "c-test"})
         assert r.status_code == 413
 
+    def test_upload_rejects_oversize_content_length(self, client):
+        """413 fires from the Content-Length pre-check before any body is read."""
+        from blueclaw.uploads import MAX_UPLOAD_BYTES
+
+        r = client.post(
+            "/upload",
+            content=b"",
+            headers={
+                "Content-Length": str(MAX_UPLOAD_BYTES + 1),
+                "Content-Type": "multipart/form-data; boundary=x",
+            },
+        )
+        assert r.status_code == 413
+
     def test_upload_rejects_disallowed_mime(self, client):
         files = {"file": ("evil.exe", b"MZ\x90\x00binary", "application/octet-stream")}
         r = client.post("/upload", files=files, data={"conversation_id": "c-test"})

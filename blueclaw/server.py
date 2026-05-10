@@ -32,7 +32,7 @@ from blueclaw.models import (
     UploadResponse,
     calculate_cost,
 )
-from blueclaw.uploads import UploadError, UploadStore
+from blueclaw.uploads import MAX_UPLOAD_BYTES, UploadError, UploadStore
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
     build_trace_and_record,
@@ -386,6 +386,12 @@ def create_server_app(
     async def handle_upload(request: Request) -> JSONResponse:
         if not _authenticate(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        cl = request.headers.get("content-length")
+        if cl and int(cl) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                {"error": f"file exceeds {MAX_UPLOAD_BYTES} byte cap"},
+                status_code=413,
+            )
         try:
             form = await request.form()
         except Exception:

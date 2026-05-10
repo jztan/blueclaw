@@ -36,6 +36,7 @@
 - **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, per-`conversation_id` history persisted via `FileSessionManager`, plus `POST /upload` for attaching files (PDF, text, images, csv, json, zip) to a conversation
 - **File attachments with native vision** — drop `@<path>` (or just paste a bare/quoted absolute path) into any CLI prompt; PNG/JPEG/GIF/WEBP attachments reach vision-capable models as Strands `image` blocks, while PDFs and text reuse the shell/pdf-mcp tools. Works the same way over HTTP via `POST /upload` + `file_ids`
 - **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
+- **Skills** — package agent behavior as `SKILL.md` directories (AgentSkills.io standard). Install from a local path, a git URL (with optional `#subdir`), or a direct HTTPS URL pointing at raw SKILL.md. Project skills under `<project>/.blueclaw/skills/` shadow user-global skills under `~/blueclaw/skills/`
 
 ## Quickstart
 
@@ -116,6 +117,22 @@ curl -X POST http://127.0.0.1:8420/message \
 
 Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap on JSON, 25 MB on `/upload`, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
 
+### Skills — [docs/skills.md](docs/skills.md)
+
+Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) that the agent loads on demand. Built on the [Strands `AgentSkills`](https://strandsagents.com/) plugin and the [AgentSkills.io](https://agentskills.io) standard, so skills are portable between blueclaw and any other compliant runtime.
+
+```bash
+blueclaw skill install ./my-skill                          # local directory
+blueclaw skill install https://github.com/u/repo.git       # git URL
+blueclaw skill install https://github.com/u/repo.git#sub   # monorepo subdir
+blueclaw skill install https://example.com/raw/SKILL.md    # single-file URL
+blueclaw skill list
+blueclaw skill show my-skill
+blueclaw skill uninstall my-skill --yes
+```
+
+User-global skills live under `~/blueclaw/skills/`; per-project skills live under `<project>/.blueclaw/skills/` and take precedence on name collision. Install confirms before copying and refuses non-interactive runs without `--yes`.
+
 ## Model Support — [docs/models.md](docs/models.md)
 
 ```bash
@@ -170,6 +187,7 @@ allowlist_domains:
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O |
 | `observer.py` | Structured tool tracing + output truncation |
 | `context.py` | Observation masking and hybrid summarization for context management |
+| `skills.py` | Skill discovery: project + global scope resolution for the Strands `AgentSkills` plugin |
 | `lessons.py` | Extracts behavioral hints from past traces and injects into system prompt |
 | `models.py` | Pydantic models, trace schema, cost calculation, error classification |
 | `testing.py` | Test spec loading, runner, assertions, formatters, stub replay |

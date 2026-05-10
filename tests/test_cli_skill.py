@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -67,3 +69,53 @@ def test_skill_install_project_scope(tmp_path, monkeypatch):
     res = runner.invoke(app, ["skill", "install", str(src), "--project", "--yes"])
     assert res.exit_code == 0, res.output
     assert (project / ".blueclaw" / "skills" / "demo" / "SKILL.md").exists()
+
+
+def _fake_git_clone_factory(skill_template: Path):
+    def fake_run(cmd, *args, **kwargs):
+        dest = Path(cmd[-1])
+        dest.mkdir(parents=True, exist_ok=True)
+        for entry in skill_template.iterdir():
+            if entry.is_dir():
+                shutil.copytree(entry, dest / entry.name)
+            else:
+                shutil.copy2(entry, dest / entry.name)
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return R()
+
+    return fake_run
+
+
+def test_skill_install_from_git_url(tmp_path, monkeypatch):
+    template = tmp_path / "src" / "demo"
+    template.mkdir(parents=True)
+    (template / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: from git\n---\n\nbody\n"
+    )
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+    monkeypatch.setattr(subprocess, "run", _fake_git_clone_factory(template))
+    res = runner.invoke(app, ["skill", "install", "https://example.com/r.git", "--yes"])
+    assert res.exit_code == 0, res.output
+    assert (target / "demo" / "SKILL.md").exists()
+
+
+def test_skill_install_from_git_url_with_subdir(tmp_path, monkeypatch):
+    template = tmp_path / "src"
+    sub = template / "skills" / "demo"
+    sub.mkdir(parents=True)
+    (sub / "SKILL.md").write_text("---\nname: demo\ndescription: subdir\n---\n\nbody\n")
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+    monkeypatch.setattr(subprocess, "run", _fake_git_clone_factory(template))
+    res = runner.invoke(
+        app,
+        ["skill", "install", "https://example.com/r.git#skills/demo", "--yes"],
+    )
+    assert res.exit_code == 0, res.output
+    assert (target / "demo" / "SKILL.md").exists()

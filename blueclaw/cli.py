@@ -65,7 +65,53 @@ def _resolve_source(source: str, tmp_root: Path) -> Path:
 
 
 def _git_clone(url: str, tmp_root: Path) -> Path:
-    raise typer.BadParameter("git URL install added in Task 4")
+    """Clone a git URL into tmp_root and return the (sub)directory."""
+    import subprocess
+
+    subdir = ""
+    if "#" in url:
+        url, subdir = url.split("#", 1)
+    dest = tmp_root / "clone"
+    res = subprocess.run(
+        ["git", "clone", "--depth=1", "--quiet", url, str(dest)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if res.returncode != 0:
+        raise typer.BadParameter(
+            f"git clone failed: {res.stderr.strip() or res.stdout.strip()}"
+        )
+    skill_path = dest / subdir if subdir else dest
+    if not (skill_path / "SKILL.md").exists():
+        raise typer.BadParameter(
+            f"no SKILL.md at {skill_path} (use #subdir for monorepos)"
+        )
+    # Skill.from_file validates that the directory name matches the skill name.
+    # Rename the skill_path directory to match the name declared in SKILL.md.
+    skill_name = _read_skill_name(skill_path / "SKILL.md")
+    if skill_name and skill_path.name != skill_name:
+        renamed = skill_path.parent / skill_name
+        skill_path.rename(renamed)
+        skill_path = renamed
+    return skill_path
+
+
+def _read_skill_name(skill_md: Path) -> str:
+    """Extract the 'name' field from a SKILL.md frontmatter block."""
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if not text.startswith("---"):
+        return ""
+    end = text.find("---", 3)
+    if end == -1:
+        return ""
+    for line in text[3:end].splitlines():
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip()
+    return ""
 
 
 def _confirm_install(skill, target: Path, yes: bool) -> bool:

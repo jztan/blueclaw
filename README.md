@@ -34,6 +34,7 @@
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
 - **Trace replay & diff** — step through any recorded run interactively, or compare steps, tokens, and cost between two runs
 - **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, per-`conversation_id` history persisted via `FileSessionManager`, plus `POST /upload` for attaching files (PDF, text, images, csv, json, zip) to a conversation
+- **File attachments with native vision** — drop `@<path>` (or just paste a bare/quoted absolute path) into any CLI prompt; PNG/JPEG/GIF/WEBP attachments reach vision-capable models as Strands `image` blocks, while PDFs and text reuse the shell/pdf-mcp tools. Works the same way over HTTP via `POST /upload` + `file_ids`
 - **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
 
 ## Quickstart
@@ -52,6 +53,13 @@ pip install "blueclaw[anthropic]"  # Claude (default)
 pip install "blueclaw[ollama]"     # local models via Ollama
 pip install "blueclaw[openai]"     # OpenAI
 pip install "blueclaw[gemini]"     # Google Gemini (via LiteLLM)
+```
+
+Attach a file in one shot — `@<path>` or a bare absolute/quoted path both work:
+
+```bash
+blueclaw run "@~/Downloads/screenshot.png what is this?"
+blueclaw run "'/Users/me/notes.pdf' summarize this"
 ```
 
 ## Features
@@ -98,9 +106,15 @@ curl -X POST http://127.0.0.1:8420/message \
 # Stream tokens as they're generated:
 curl -N -X POST http://127.0.0.1:8420/message/stream \
   -d '{"message": "what is in the workspace?"}'
+
+# Attach a file, then reference its file_id in /message:
+FID=$(curl -s -X POST http://127.0.0.1:8420/upload \
+  -F "file=@photo.jpg" -F "conversation_id=c-1" | jq -r .file_id)
+curl -X POST http://127.0.0.1:8420/message \
+  -d "{\"message\":\"describe this\",\"conversation_id\":\"c-1\",\"file_ids\":[\"$FID\"]}"
 ```
 
-Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
+Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap on JSON, 25 MB on `/upload`, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
 
 ## Model Support — [docs/models.md](docs/models.md)
 

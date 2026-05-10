@@ -202,19 +202,33 @@ class Workspace:
         return traces
 
     def purge_old_sessions(self, retention_days: int, dry_run: bool = False) -> int:
-        """Delete session dirs older than retention_days. Returns count deleted."""
+        """Delete session dirs older than retention_days. Also remove the
+        matching uploads/<cid> dir and any orphaned uploads/tmp-* dirs older
+        than the same TTL. Returns count of session dirs deleted."""
         sessions_dir = self.root / ".blueclaw" / "sessions"
-        if not sessions_dir.exists():
+        uploads_dir = self.root / ".blueclaw" / "uploads"
+        if not sessions_dir.exists() and not uploads_dir.exists():
             return 0
         cutoff = datetime.now().timestamp() - retention_days * 86400
         count = 0
-        for session_dir in sessions_dir.iterdir():
-            if not session_dir.is_dir():
-                continue
-            if session_dir.stat().st_mtime < cutoff:
-                if not dry_run:
-                    shutil.rmtree(session_dir)
-                count += 1
+        if sessions_dir.exists():
+            for session_dir in sessions_dir.iterdir():
+                if not session_dir.is_dir():
+                    continue
+                if session_dir.stat().st_mtime < cutoff:
+                    if not dry_run:
+                        shutil.rmtree(session_dir, ignore_errors=True)
+                        sibling = uploads_dir / session_dir.name
+                        if sibling.exists():
+                            shutil.rmtree(sibling, ignore_errors=True)
+                    count += 1
+        if uploads_dir.exists():
+            for upload_dir in uploads_dir.iterdir():
+                if not upload_dir.is_dir() or not upload_dir.name.startswith("tmp-"):
+                    continue
+                if upload_dir.stat().st_mtime < cutoff:
+                    if not dry_run:
+                        shutil.rmtree(upload_dir, ignore_errors=True)
         return count
 
     def purge_old_traces(self, retention_days: int, dry_run: bool = False) -> int:

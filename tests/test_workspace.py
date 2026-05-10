@@ -515,3 +515,42 @@ class TestPurgeOldSessions:
         count = sample_workspace.purge_old_sessions(retention_days=30, dry_run=True)
         assert count == 1
         assert d.exists()
+
+
+def test_purge_old_sessions_removes_matching_uploads(tmp_path):
+    """Deleting a session dir also deletes its uploads/<cid> sibling, plus
+    orphaned uploads/tmp-* dirs older than the TTL."""
+    import os
+    import time
+
+    from blueclaw.workspace import Workspace
+
+    ws = Workspace(tmp_path)
+    sessions = tmp_path / ".blueclaw" / "sessions"
+    uploads = tmp_path / ".blueclaw" / "uploads"
+    sessions.mkdir(parents=True, exist_ok=True)
+    uploads.mkdir(parents=True, exist_ok=True)
+
+    (sessions / "old-cid").mkdir()
+    (uploads / "old-cid").mkdir()
+    (uploads / "old-cid" / "file.txt").write_text("x")
+
+    (sessions / "new-cid").mkdir()
+    (uploads / "new-cid").mkdir()
+    (uploads / "new-cid" / "file.txt").write_text("y")
+
+    (uploads / "tmp-orphan").mkdir()
+    (uploads / "tmp-orphan" / "x.txt").write_text("z")
+
+    old_mtime = time.time() - 40 * 86400
+    os.utime(sessions / "old-cid", (old_mtime, old_mtime))
+    os.utime(uploads / "old-cid", (old_mtime, old_mtime))
+    os.utime(uploads / "tmp-orphan", (old_mtime, old_mtime))
+
+    deleted = ws.purge_old_sessions(retention_days=30)
+    assert deleted >= 1
+    assert not (sessions / "old-cid").exists()
+    assert not (uploads / "old-cid").exists()
+    assert not (uploads / "tmp-orphan").exists()
+    assert (sessions / "new-cid").exists()
+    assert (uploads / "new-cid").exists()

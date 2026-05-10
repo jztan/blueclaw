@@ -136,7 +136,7 @@ allowlist_domains:
 ## Architecture
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jztan/blueclaw/develop/blueclaw-arch.svg" alt="BlueClaw Architecture" width="800">
+  <img src="https://raw.githubusercontent.com/jztan/blueclaw/master/blueclaw-arch.svg" alt="BlueClaw Architecture" width="800">
 </p>
 
 | Module | Purpose |

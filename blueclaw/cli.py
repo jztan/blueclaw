@@ -186,6 +186,89 @@ def skill_install(
         typer.echo(f"Installed {skill.name} -> {target}")
 
 
+import json as _json  # noqa: E402
+
+
+def _list_installed():
+    """Return a list of (Skill, scope, path) tuples for both scopes, project shadowing global."""
+    from strands.vended_plugins.skills import Skill
+
+    from blueclaw.skills import resolved_skill_paths
+
+    paths = resolved_skill_paths(
+        global_dir=_global_skills_dir(),
+        project_dir=_project_skills_dir(),
+    )
+    out = []
+    for p in paths:
+        try:
+            sk = Skill.from_file(p, strict=False)
+        except (ValueError, FileNotFoundError):
+            continue
+        scope = "project" if str(p).startswith(str(_project_skills_dir())) else "global"
+        out.append((sk, scope, p))
+    return out
+
+
+@skill_app.command("uninstall")
+def skill_uninstall(
+    name: str = typer.Argument(...),
+    project: bool = typer.Option(False, "--project"),
+) -> None:
+    """Remove an installed skill from global (default) or project scope."""
+    root = _project_skills_dir() if project else _global_skills_dir()
+    target = root / name
+    if not target.exists():
+        typer.echo(f"Skill not found: {name}", err=True)
+        raise typer.Exit(code=1)
+    shutil.rmtree(target)
+    typer.echo(f"Removed {name}")
+
+
+@skill_app.command("list")
+def skill_list(
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """List installed skills (global + project)."""
+    from rich.table import Table
+
+    rows = _list_installed()
+    if json_out:
+        payload = [
+            {
+                "name": sk.name,
+                "scope": scope,
+                "description": sk.description,
+                "license": sk.license,
+                "compatibility": sk.compatibility,
+                "path": str(p),
+            }
+            for sk, scope, p in rows
+        ]
+        typer.echo(_json.dumps(payload, indent=2))
+        return
+    table = Table(title="Installed skills")
+    for col in ("name", "scope", "license", "description"):
+        table.add_column(col)
+    for sk, scope, _p in rows:
+        table.add_row(sk.name, scope, sk.license or "-", sk.description)
+    console.print(table)
+
+
+@skill_app.command("show")
+def skill_show(name: str = typer.Argument(...)) -> None:
+    """Print a skill's SKILL.md and resolved scope."""
+    for sk, scope, p in _list_installed():
+        if sk.name == name:
+            typer.echo(f"# scope: {scope}")
+            typer.echo(f"# path:  {p}")
+            typer.echo("")
+            typer.echo((p / "SKILL.md").read_text(encoding="utf-8"))
+            return
+    typer.echo(f"Skill not found: {name}", err=True)
+    raise typer.Exit(code=1)
+
+
 # --- Terminal mascot ---
 
 _MASCOT_BLUE = "#3F8FC5"

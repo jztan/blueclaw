@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -133,3 +134,45 @@ def test_skill_install_git_handles_quoted_name(tmp_path, monkeypatch):
     res = runner.invoke(app, ["skill", "install", "https://example.com/r.git", "--yes"])
     assert res.exit_code == 0, res.output
     assert (target / "demo" / "SKILL.md").exists()
+
+
+def test_skill_uninstall(tmp_path, monkeypatch):
+    src = _make_skill_dir(tmp_path / "src")
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+    runner.invoke(app, ["skill", "install", str(src), "--yes"])
+    assert (target / "demo").exists()
+    res = runner.invoke(app, ["skill", "uninstall", "demo"])
+    assert res.exit_code == 0, res.output
+    assert not (target / "demo").exists()
+
+
+def test_skill_uninstall_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: tmp_path / "g")
+    res = runner.invoke(app, ["skill", "uninstall", "nope"])
+    assert res.exit_code != 0
+    assert "not found" in res.output.lower()
+
+
+def test_skill_list_json(tmp_path, monkeypatch):
+    g = tmp_path / "global"
+    _make_skill_dir(g, "alpha")
+    _make_skill_dir(g, "beta")
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: g)
+    monkeypatch.setattr("blueclaw.cli._project_skills_dir", lambda: tmp_path / "noproj")
+    res = runner.invoke(app, ["skill", "list", "--json"])
+    assert res.exit_code == 0, res.output
+    data = json.loads(res.output)
+    names = sorted(d["name"] for d in data)
+    assert names == ["alpha", "beta"]
+
+
+def test_skill_show(tmp_path, monkeypatch):
+    g = tmp_path / "global"
+    _make_skill_dir(g, "alpha")
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: g)
+    monkeypatch.setattr("blueclaw.cli._project_skills_dir", lambda: tmp_path / "noproj")
+    res = runner.invoke(app, ["skill", "show", "alpha"])
+    assert res.exit_code == 0, res.output
+    assert "alpha" in res.output
+    assert "Body" in res.output

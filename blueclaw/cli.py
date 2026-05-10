@@ -215,13 +215,9 @@ def run(
 
         cleaned_message, attachments, failed = parse_at_attachments(prompt)
         for att in attachments:
-            console.print(
-                f"[dim]attached:[/dim] {att.path} ({att.mime_type})"
-            )
+            console.print(f"[dim]attached:[/dim] {att.path} ({att.mime_type})")
         for token, reason in failed:
-            console.print(
-                f"[yellow]could not attach[/yellow] {token}: {reason}"
-            )
+            console.print(f"[yellow]could not attach[/yellow] {token}: {reason}")
         try:
             agent_input = build_agent_input(attachments, cleaned_message)
         except UploadError as exc:

@@ -250,7 +250,7 @@ def build_agent_input(records, user_message: str):
     return blocks
 
 
-_TRAILING_PUNCT = ".,?!:;)]\""
+_TRAILING_PUNCT = '.,?!:;)]"'
 # Quoted strings (single or double) or runs of non-whitespace — keeps quoted
 # paths with spaces intact so shift+drag pastes survive.
 _TOKEN_RE = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')

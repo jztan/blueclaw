@@ -195,9 +195,7 @@ def test_parse_at_attachments_warns_on_path_typo(tmp_path: Path):
     from blueclaw.uploads import parse_at_attachments
 
     bogus = tmp_path / "does_not_exist.png"
-    cleaned, atts, failed = parse_at_attachments(
-        f"can you see @{bogus}", base=tmp_path
-    )
+    cleaned, atts, failed = parse_at_attachments(f"can you see @{bogus}", base=tmp_path)
     assert atts == []
     assert len(failed) == 1
     token, reason = failed[0]
@@ -212,9 +210,7 @@ def test_parse_at_attachments_resolves_relative_path(tmp_path: Path):
 
     img = tmp_path / "pic.png"
     img.write_bytes(_png_bytes())
-    cleaned, atts, failed = parse_at_attachments(
-        "describe @pic.png", base=tmp_path
-    )
+    cleaned, atts, failed = parse_at_attachments("describe @pic.png", base=tmp_path)
     assert len(atts) == 1
     assert atts[0].path == img.resolve()
     assert failed == []
@@ -279,9 +275,7 @@ def test_build_agent_input_with_image_returns_blocks(tmp_path: Path):
 
     img = tmp_path / "pic.png"
     img.write_bytes(_png_bytes())
-    att = Attachment(
-        path=img, mime_type="image/png", size_bytes=img.stat().st_size
-    )
+    att = Attachment(path=img, mime_type="image/png", size_bytes=img.stat().st_size)
     out = build_agent_input([att], "what is this?")
     assert isinstance(out, list)
     image_blocks = [b for b in out if "image" in b]

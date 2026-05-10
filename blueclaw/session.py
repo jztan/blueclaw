@@ -629,14 +629,9 @@ def run_chat_loop(
 
             cleaned_message, attachments, failed = parse_at_attachments(stripped)
             for att in attachments:
-                console.print(
-                    f"[dim]attached:[/dim] {att.path} "
-                    f"({att.mime_type})"
-                )
+                console.print(f"[dim]attached:[/dim] {att.path} " f"({att.mime_type})")
             for token, reason in failed:
-                console.print(
-                    f"[yellow]could not attach[/yellow] {token}: {reason}"
-                )
+                console.print(f"[yellow]could not attach[/yellow] {token}: {reason}")
 
             # Inject trace lessons for this goal
             prompt_text = cleaned_message

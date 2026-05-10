@@ -232,6 +232,34 @@ def test_parse_at_attachments_auto_detects_bare_absolute_path(tmp_path: Path):
     assert str(img) not in cleaned
 
 
+def test_parse_at_attachments_silent_on_bare_directory(tmp_path: Path):
+    """Bare absolute paths to existing dirs are mentions, not misses."""
+    from blueclaw.uploads import parse_at_attachments
+
+    target = tmp_path / "some-repo"
+    target.mkdir()
+    cleaned, atts, failed = parse_at_attachments(
+        f"look at {target} please", base=tmp_path
+    )
+    assert atts == []
+    assert failed == []  # no noisy "could not attach" warning
+    assert str(target) in cleaned
+
+
+def test_parse_at_attachments_warns_on_explicit_directory(tmp_path: Path):
+    """Explicit @-prefixed dir is still a real attachment failure."""
+    from blueclaw.uploads import parse_at_attachments
+
+    target = tmp_path / "some-repo"
+    target.mkdir()
+    cleaned, atts, failed = parse_at_attachments(
+        f"attach @{target} please", base=tmp_path
+    )
+    assert atts == []
+    assert len(failed) == 1
+    assert "not a regular file" in failed[0][1]
+
+
 def test_parse_at_attachments_auto_detects_single_quoted_path(tmp_path: Path):
     """Shift+drag pastes that single-quote the absolute path are recognized."""
     from blueclaw.uploads import parse_at_attachments

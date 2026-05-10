@@ -265,10 +265,17 @@ def _looks_like_path(candidate: str) -> bool:
     return Path(candidate).suffix.lower() in _ALLOWED_EXTS
 
 
-def _classify_token(token: str) -> tuple[str, bool]:
+def _classify_token(token: str) -> tuple[str, bool, bool]:
     """Decide whether to attempt path resolution on this token.
 
-    Returns (candidate, attempt). `attempt` is True for:
+    Returns (candidate, attempt, explicit). `explicit` is True when the user
+    used an attachment marker (`@<path>` or quoted absolute) — failures on
+    explicit tokens are always reported. Bare absolute paths are quieter:
+    failures that are likely false positives (e.g. resolving to a directory)
+    are suppressed so a casual mention like ``/Users/me/repo`` doesn't print
+    a noisy "could not attach" warning.
+
+    `attempt` is True for:
       - `@<path>` (explicit prefix; relative paths allowed)
       - bare absolute paths (`/...` or `~/...`)
       - quoted strings whose contents are absolute paths (handles shift+drag
@@ -278,18 +285,18 @@ def _classify_token(token: str) -> tuple[str, bool]:
     (would over-trigger on casual mentions like `foo.py`).
     """
     if not token:
-        return token, False
+        return token, False, False
     if token.startswith("@") and len(token) >= 2:
-        return token[1:], True
+        return token[1:], True, True
     # Strip a single layer of matching quotes
     if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
         inner = token[1:-1]
         if inner.startswith("/") or inner.startswith("~"):
-            return inner, True
-        return token, False
+            return inner, True, True
+        return token, False, False
     if token.startswith("/") or token.startswith("~"):
-        return token, True
-    return token, False
+        return token, True, False
+    return token, False, False
 
 
 def _resolve_path_candidate(
@@ -361,7 +368,7 @@ def parse_at_attachments(
     failures: list[tuple[str, str]] = []
     for m in _TOKEN_RE.finditer(text):
         token = m.group(0)
-        candidate, attempt = _classify_token(token)
+        candidate, attempt, explicit = _classify_token(token)
         if not attempt:
             out_tokens.append(token)
             continue
@@ -370,7 +377,11 @@ def parse_at_attachments(
             attachments.append(att)
             continue
         if reason and _looks_like_path(candidate):
-            failures.append((token, reason))
+            # Bare absolute paths to existing directories are almost always
+            # references, not attachment intents — suppress that one case.
+            is_directory_miss = reason.startswith("not a regular file:")
+            if explicit or not is_directory_miss:
+                failures.append((token, reason))
         out_tokens.append(token)
     cleaned = " ".join(out_tokens).strip()
     return cleaned, attachments, failures

@@ -119,3 +119,17 @@ def test_skill_install_from_git_url_with_subdir(tmp_path, monkeypatch):
     )
     assert res.exit_code == 0, res.output
     assert (target / "demo" / "SKILL.md").exists()
+
+
+def test_skill_install_git_handles_quoted_name(tmp_path, monkeypatch):
+    template = tmp_path / "src" / "demo"
+    template.mkdir(parents=True)
+    (template / "SKILL.md").write_text(
+        '---\nname: "demo"\ndescription: quoted git\n---\n\nbody\n'
+    )
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+    monkeypatch.setattr(subprocess, "run", _fake_git_clone_factory(template))
+    res = runner.invoke(app, ["skill", "install", "https://example.com/r.git", "--yes"])
+    assert res.exit_code == 0, res.output
+    assert (target / "demo" / "SKILL.md").exists()

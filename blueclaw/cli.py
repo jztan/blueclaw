@@ -72,12 +72,15 @@ def _git_clone(url: str, tmp_root: Path) -> Path:
     if "#" in url:
         url, subdir = url.split("#", 1)
     dest = tmp_root / "clone"
-    res = subprocess.run(
-        ["git", "clone", "--depth=1", "--quiet", url, str(dest)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        res = subprocess.run(
+            ["git", "clone", "--depth=1", "--quiet", url, str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise typer.BadParameter("git clone timed out after 30 seconds")
     if res.returncode != 0:
         raise typer.BadParameter(
             f"git clone failed: {res.stderr.strip() or res.stdout.strip()}"
@@ -103,6 +106,7 @@ def _read_skill_name(skill_md: Path) -> str:
         text = skill_md.read_text(encoding="utf-8")
     except OSError:
         return ""
+    text = text.strip()
     if not text.startswith("---"):
         return ""
     end = text.find("---", 3)
@@ -110,7 +114,11 @@ def _read_skill_name(skill_md: Path) -> str:
         return ""
     for line in text[3:end].splitlines():
         if line.startswith("name:"):
-            return line.split(":", 1)[1].strip()
+            val = line.split(":", 1)[1].strip()
+            # Strip matching outer quotes (valid YAML)
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            return val
     return ""
 
 

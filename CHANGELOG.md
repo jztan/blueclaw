@@ -9,6 +9,8 @@ All notable changes to blueclaw will be documented in this file.
   markdown body), loaded via Strands' `AgentSkills` plugin (1.30+).
 - `blueclaw skill install` (local path or git URL with optional
   `#subdir`), `uninstall`, `list`, `show` subcommands.
+- `blueclaw skill install` accepts a direct HTTPS URL pointing at a raw
+  `SKILL.md` (in addition to local paths and git URLs).
 - Project-vs-global scope: skills under `~/blueclaw/skills/` and
   `<project>/.blueclaw/skills/` are both discovered, with project
   precedence on name collision.

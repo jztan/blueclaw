@@ -45,12 +45,13 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 blueclaw
 ```
 
-Anthropic works out of the box. For other providers, install the matching extra:
+Install the extra for the model provider you want:
 
 ```bash
-pip install "blueclaw[ollama]"   # local models via Ollama
-pip install "blueclaw[openai]"   # OpenAI
-pip install "blueclaw[gemini]"   # Google Gemini (via LiteLLM)
+pip install "blueclaw[anthropic]"  # Claude (default)
+pip install "blueclaw[ollama]"     # local models via Ollama
+pip install "blueclaw[openai]"     # OpenAI
+pip install "blueclaw[gemini]"     # Google Gemini (via LiteLLM)
 ```
 
 ## Features

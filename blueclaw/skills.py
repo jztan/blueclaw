@@ -19,11 +19,18 @@ def find_project_root(start: Path | None = None) -> Path | None:
 
 
 def default_global_dir() -> Path:
+    """Return the user-wide skill directory: ~/blueclaw/skills."""
     return Path.home() / "blueclaw" / "skills"
 
 
-def default_project_dir() -> Path | None:
-    root = find_project_root()
+def default_project_dir(start: Path | None = None) -> Path | None:
+    """Return <project-root>/.blueclaw/skills, or None if no project found.
+
+    ``start`` is forwarded to ``find_project_root``; defaults to cwd.
+    Tests should pass an explicit ``start`` (or mock the function) rather
+    than relying on the process's working directory.
+    """
+    root = find_project_root(start=start)
     return root / ".blueclaw" / "skills" if root else None
 
 
@@ -36,6 +43,11 @@ def resolved_skill_paths(
     Each returned path is a directory expected to contain SKILL.md. We do
     not parse SKILL.md here — that's Strands' job. We only enumerate dirs
     and apply project-precedence on name collisions.
+
+    Return order: skills appear in the order they were discovered. A
+    project skill that shadows a global one keeps the position the global
+    entry first occupied (Python dict insertion order). Within a single
+    scope, names are sorted alphabetically.
     """
     by_name: dict[str, Path] = {}
 

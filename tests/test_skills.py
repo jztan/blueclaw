@@ -73,3 +73,10 @@ def test_resolved_skill_paths_skips_files(tmp_path):
     _write_skill_md(g / "alpha", "alpha")
     paths = resolved_skill_paths(global_dir=g, project_dir=None)
     assert [p.name for p in paths] == ["alpha"]
+
+
+def test_find_project_root_when_start_is_root(tmp_path):
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "blueclaw.yaml").write_text("model: x\n")
+    assert find_project_root(start=project) == project

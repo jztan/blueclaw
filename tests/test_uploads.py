@@ -221,6 +221,59 @@ def test_parse_at_attachments_resolves_relative_path(tmp_path: Path):
     assert cleaned == "describe"
 
 
+def test_parse_at_attachments_auto_detects_bare_absolute_path(tmp_path: Path):
+    """A bare /abs/path token is auto-attached without an @-prefix."""
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    cleaned, atts, failed = parse_at_attachments(f"{img} read this please")
+    assert len(atts) == 1
+    assert atts[0].path == img.resolve()
+    assert atts[0].mime_type == "image/png"
+    assert failed == []
+    assert "read this please" in cleaned
+    assert str(img) not in cleaned
+
+
+def test_parse_at_attachments_auto_detects_single_quoted_path(tmp_path: Path):
+    """Shift+drag pastes that single-quote the absolute path are recognized."""
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    cleaned, atts, failed = parse_at_attachments(f"'{img}' read this")
+    assert len(atts) == 1
+    assert atts[0].path == img.resolve()
+    assert failed == []
+    assert "read this" in cleaned
+
+
+def test_parse_at_attachments_auto_detects_double_quoted_path(tmp_path: Path):
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    cleaned, atts, failed = parse_at_attachments(f'"{img}" hi')
+    assert len(atts) == 1
+    assert atts[0].path == img.resolve()
+    assert "hi" in cleaned
+
+
+def test_parse_at_attachments_does_not_auto_detect_relative(tmp_path: Path):
+    """Bare `pic.png` (no @-prefix, no leading /) must NOT auto-attach."""
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    # Even though the file exists at base=tmp_path, a bare relative token
+    # should pass through. Auto-detection is reserved for absolute paths.
+    cleaned, atts, failed = parse_at_attachments("look at pic.png", base=tmp_path)
+    assert atts == []
+    assert failed == []
+    assert "pic.png" in cleaned
+
+
 def test_build_agent_input_with_image_returns_blocks(tmp_path: Path):
     from blueclaw.uploads import Attachment, build_agent_input
 

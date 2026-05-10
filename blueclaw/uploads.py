@@ -251,14 +251,13 @@ def build_agent_input(records, user_message: str):
 
 
 _TRAILING_PUNCT = ".,?!:;)]\""
+# Quoted strings (single or double) or runs of non-whitespace — keeps quoted
+# paths with spaces intact so shift+drag pastes survive.
+_TOKEN_RE = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
 
 
 def _looks_like_path(candidate: str) -> bool:
-    """True if a token's tail looks like a file reference rather than a mention.
-
-    Used to surface helpful warnings when a path-shaped `@`-token fails to
-    resolve. `@username` and `user@example.com` should NOT trigger warnings.
-    """
+    """True if a token's tail looks like a file reference rather than a mention."""
     if not candidate:
         return False
     if "/" in candidate or candidate.startswith("~"):
@@ -266,19 +265,38 @@ def _looks_like_path(candidate: str) -> bool:
     return Path(candidate).suffix.lower() in _ALLOWED_EXTS
 
 
-def _try_resolve_attachment(
-    token: str, base: Path
-) -> tuple[Attachment | None, str | None]:
-    """Resolve a single `@<path>` token.
+def _classify_token(token: str) -> tuple[str, bool]:
+    """Decide whether to attempt path resolution on this token.
 
-    Returns (attachment, failure_reason). `attachment` is non-None on success;
-    on failure, `failure_reason` is non-None only when the token *looked* like
-    a file path (so the caller can warn the user). Mention-style `@`-tokens
-    return (None, None) and are silently passed through.
+    Returns (candidate, attempt). `attempt` is True for:
+      - `@<path>` (explicit prefix; relative paths allowed)
+      - bare absolute paths (`/...` or `~/...`)
+      - quoted strings whose contents are absolute paths (handles shift+drag
+        pastes from Finder, which often single-quote paths with spaces)
+
+    Quoted relative tokens and bare relative tokens are NOT auto-attached
+    (would over-trigger on casual mentions like `foo.py`).
     """
-    if not token.startswith("@") or len(token) < 2:
-        return None, None
-    candidate = token[1:]
+    if not token:
+        return token, False
+    if token.startswith("@") and len(token) >= 2:
+        return token[1:], True
+    # Strip a single layer of matching quotes
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        inner = token[1:-1]
+        if inner.startswith("/") or inner.startswith("~"):
+            return inner, True
+        return token, False
+    if token.startswith("/") or token.startswith("~"):
+        return token, True
+    return token, False
+
+
+def _resolve_path_candidate(
+    candidate: str, base: Path
+) -> tuple[Attachment | None, str | None]:
+    """Try to resolve `candidate` (already de-quoted, no @-prefix) to an
+    Attachment. Returns (attachment, failure_reason)."""
     candidates = [candidate]
     if candidate and candidate[-1] in _TRAILING_PUNCT:
         candidates.append(candidate[:-1])
@@ -318,37 +336,40 @@ def _try_resolve_attachment(
             None,
         )
 
-    if _looks_like_path(candidate):
-        return None, last_reason or "could not resolve path"
-    return None, None
+    return None, last_reason or "could not resolve path"
 
 
 def parse_at_attachments(
     text: str, base: Path | None = None
 ) -> tuple[str, list[Attachment], list[tuple[str, str]]]:
-    """Scan `text` for whitespace-delimited `@<path>` tokens.
+    """Scan `text` for attachment-shaped tokens.
+
+    Recognized forms:
+      - `@<path>` (explicit, relative or absolute)
+      - `/abs/path` or `~/path` (bare absolute)
+      - `'/quoted/abs/path'` or `"/quoted/abs/path"` (quoted absolute)
 
     Returns `(cleaned_text, attachments, failures)`. Failures is a list of
-    `(token, reason)` pairs for `@`-tokens that looked like file paths but
-    didn't resolve (so the CLI can warn the user). Mention-style `@`-tokens
-    (e.g. `@username`, `user@example.com`) are silently left in place.
+    `(original_token, reason)` pairs for tokens that looked like file paths
+    but didn't resolve. Mention-style tokens (`@username`, `user@example.com`)
+    pass through silently.
     """
-    if "@" not in text:
-        return text, [], []
     if base is None:
         base = Path.cwd()
     out_tokens: list[str] = []
     attachments: list[Attachment] = []
     failures: list[tuple[str, str]] = []
-    for token in text.split(" "):
-        if not token.startswith("@"):
+    for m in _TOKEN_RE.finditer(text):
+        token = m.group(0)
+        candidate, attempt = _classify_token(token)
+        if not attempt:
             out_tokens.append(token)
             continue
-        att, reason = _try_resolve_attachment(token, base)
+        att, reason = _resolve_path_candidate(candidate, base)
         if att is not None:
             attachments.append(att)
             continue
-        if reason is not None:
+        if reason and _looks_like_path(candidate):
             failures.append((token, reason))
         out_tokens.append(token)
     cleaned = " ".join(out_tokens).strip()

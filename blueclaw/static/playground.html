@@ -52,7 +52,7 @@
   .divider { height: 1px; background: var(--border); margin: 4px 0; }
 
   main {
-    display: grid; grid-template-rows: 1fr auto;
+    display: grid; grid-template-rows: 1fr auto auto;
     overflow: hidden;
   }
   #log {
@@ -68,7 +68,7 @@
 
   form {
     border-top: 1px solid var(--border); padding: 14px 24px;
-    display: grid; grid-template-columns: 1fr auto auto; gap: 8px; background: var(--panel);
+    display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; background: var(--panel);
   }
   textarea {
     background: #0b0d12; border: 1px solid var(--border); color: var(--text);
@@ -78,6 +78,17 @@
   .err { color: var(--bad); }
   .ok  { color: var(--good); }
   code { background: #0b0d12; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px 0; padding: 0 4px; }
+.attachments.hidden { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;
+        border-radius: 999px; background: #1a1f2b; font-size: 12px; }
+.chip button { background: none; border: 0; color: var(--muted); cursor: pointer;
+               padding: 0 0 0 2px; font-size: 14px; }
+.chip.error { background: #3a1f1f; color: #ffb3b3; }
+.attach-btn { display: inline-flex; align-items: center; padding: 0 10px;
+              cursor: pointer; user-select: none; }
+.dragover { outline: 2px dashed #4a9eff; outline-offset: -4px; }
 </style>
 </head>
 <body>
@@ -129,7 +140,12 @@
   <div id="log">
     <div class="msg system">no messages yet — say something below</div>
   </div>
+  <div id="attachments" class="attachments hidden"></div>
   <form id="form">
+    <label class="attach-btn" title="attach files">
+      📎
+      <input type="file" id="fileInput" multiple hidden />
+    </label>
     <textarea id="input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)"></textarea>
     <button type="submit" class="primary" id="send">Send</button>
     <button type="button" id="cancel" disabled>Stop</button>
@@ -143,6 +159,75 @@ const cidInput = $('#cid');
 const cidStatus = $('#cidStatus');
 let totalTurns = 0, totalTokens = 0, totalCost = 0;
 let activeController = null;
+
+const attachments = $('#attachments');
+const fileInput = $('#fileInput');
+let pendingFiles = []; // [{file_id, filename, size_bytes, status}]
+
+function renderAttachments() {
+  attachments.innerHTML = "";
+  attachments.classList.toggle('hidden', pendingFiles.length === 0);
+  pendingFiles.forEach((p, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (p.status === 'error' ? ' error' : '');
+    const kb = (p.size_bytes / 1024).toFixed(0);
+    chip.append(`📎 ${p.filename} · ${kb} KB`);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '✕';
+    x.onclick = () => { pendingFiles.splice(idx, 1); renderAttachments(); };
+    chip.appendChild(x);
+    attachments.appendChild(chip);
+  });
+}
+
+async function uploadFile(file) {
+  const cid = cidInput.value.trim();
+  const server = ($('#server').value.trim() || window.location.origin).replace(/\/+$/, "");
+  const apiKey = $('#apiKey').value.trim();
+  const fd = new FormData();
+  fd.append('file', file);
+  if (cid) fd.append('conversation_id', cid);
+  const placeholder = {
+    file_id: null, filename: file.name, size_bytes: file.size, status: 'uploading'
+  };
+  pendingFiles.push(placeholder);
+  renderAttachments();
+  try {
+    const headers = {};
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+    const resp = await fetch(server + '/upload', { method: 'POST', body: fd, headers });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || ('upload failed: ' + resp.status));
+    }
+    const out = await resp.json();
+    placeholder.file_id = out.file_id;
+    placeholder.status = 'ready';
+    if (!cid && out.conversation_id) setCid(out.conversation_id);
+  } catch (e) {
+    placeholder.status = 'error';
+    placeholder.filename = file.name + ' — ' + e.message;
+  }
+  renderAttachments();
+}
+
+fileInput.addEventListener('change', (e) => {
+  Array.from(e.target.files).forEach(uploadFile);
+  fileInput.value = '';
+});
+
+const composer = $('#form');
+['dragenter', 'dragover'].forEach(ev =>
+  composer.addEventListener(ev, (e) => { e.preventDefault(); composer.classList.add('dragover'); })
+);
+['dragleave', 'drop'].forEach(ev =>
+  composer.addEventListener(ev, () => composer.classList.remove('dragover'))
+);
+composer.addEventListener('drop', (e) => {
+  e.preventDefault();
+  Array.from(e.dataTransfer.files).forEach(uploadFile);
+});
 
 function uid() {
   return "c-" + Math.random().toString(36).slice(2, 10);
@@ -218,11 +303,14 @@ $('#form').addEventListener('submit', async (e) => {
 
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
-  const body = JSON.stringify({ message: text, conversation_id: cid });
+  const fileIds = pendingFiles.filter(p => p.status === 'ready').map(p => p.file_id);
+  const body = JSON.stringify({ message: text, conversation_id: cid, file_ids: fileIds });
 
   try {
     if (useStream) {
       await streamReq(server + "/message/stream", headers, body);
+      pendingFiles = [];
+      renderAttachments();
     } else {
       const r = await fetch(server + "/message", {
         method: "POST", headers, body, signal: activeController.signal
@@ -234,6 +322,8 @@ $('#form').addEventListener('submit', async (e) => {
       totalTokens += j.tokens || 0;
       totalCost += j.cost || 0;
       refreshStats();
+      pendingFiles = [];
+      renderAttachments();
     }
   } catch (err) {
     append('system', "error: " + err.message).classList.add('err');

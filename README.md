@@ -93,7 +93,7 @@ curl -N -X POST http://127.0.0.1:8420/message/stream \
 
 Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
 
-## Model Support
+## Model Support — [docs/models.md](docs/models.md)
 
 ```bash
 blueclaw                                    # Anthropic (default)

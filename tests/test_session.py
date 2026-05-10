@@ -268,6 +268,44 @@ class TestBuildSystemPrompt:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         assert f"Today's date is {today}" in prompt
 
+    def test_system_prompt_terminal_channel_forbids_markdown(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws, channel="terminal")
+        assert "No markdown formatting" in prompt
+        assert "raw text in a terminal" in prompt
+
+    def test_system_prompt_api_channel_omits_terminal_rule(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws, channel="api")
+        assert "raw text in a terminal" not in prompt
+        assert "do not recap" in prompt.lower()
+        assert "No emojis" in prompt
+
+    def test_system_prompt_default_channel_is_terminal(self, tmp_workspace):
+        ws = Workspace(tmp_workspace)
+        prompt = build_system_prompt(ws)
+        assert "raw text in a terminal" in prompt
+
+    def test_system_prompt_omits_history_when_include_history_false(
+        self, tmp_workspace
+    ):
+        ws = Workspace(tmp_workspace)
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
+        ws.append_history(
+            RunRecord(
+                ts=datetime(2026, 3, 14, tzinfo=timezone.utc),
+                goal="searched docs",
+                tools=["web_search"],
+                tokens=100,
+            )
+        )
+        prompt = build_system_prompt(ws, include_history=False)
+        assert "searched docs" not in prompt
+        assert "Recent History" not in prompt
+
 
 # --- Agent construction ---
 
@@ -1072,3 +1110,67 @@ class TestCreateAgentCallbackHandler:
         )
         call_kwargs = mock_agent_cls.call_args.kwargs
         assert call_kwargs["session_manager"] is mock_fsm
+
+
+def test_build_trace_and_record_threads_conversation_id(sample_config):
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from blueclaw.session import build_trace_and_record
+
+    observer = MagicMock()
+    observer.trace_steps = []
+    observer.tools_called = []
+    observer.conversation_manager = None
+
+    result = MagicMock()
+    result.metrics.accumulated_usage = {
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "totalTokens": 15,
+    }
+
+    now = datetime.now(timezone.utc)
+    trace, record = build_trace_and_record(
+        result,
+        "goal",
+        observer,
+        sample_config,
+        run_id="20260509-120000-abcd",
+        start_time=now,
+        end_time=now,
+        source="api",
+        conversation_id="conv-1",
+    )
+    assert trace.conversation_id == "conv-1"
+    assert record.conversation_id == "conv-1"
+
+
+def test_build_trace_and_record_conversation_id_defaults_to_none(sample_config):
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from blueclaw.session import build_trace_and_record
+
+    observer = MagicMock()
+    observer.trace_steps = []
+    observer.tools_called = []
+    observer.conversation_manager = None
+
+    result = MagicMock()
+    result.metrics.accumulated_usage = {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0,
+    }
+
+    now = datetime.now(timezone.utc)
+    trace, record = build_trace_and_record(
+        result,
+        "goal",
+        observer,
+        sample_config,
+        run_id="20260509-120000-abcd",
+        start_time=now,
+        end_time=now,
+    )
+    assert trace.conversation_id is None
+    assert record.conversation_id is None

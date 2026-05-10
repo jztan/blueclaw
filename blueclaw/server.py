@@ -11,6 +11,7 @@ import json
 import os
 from datetime import datetime, timezone
 from io import StringIO
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from pydantic import ValidationError
@@ -18,8 +19,10 @@ from rich.console import Console
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
+
+_PLAYGROUND_HTML = (Path(__file__).parent / "static" / "playground.html").read_text()
 from blueclaw import __version__
 from blueclaw.models import (
     MessageRequest,
@@ -35,6 +38,7 @@ from blueclaw.session import (
     extract_text,
 )
 from blueclaw.workspace import Workspace, WorkspaceError
+from strands.session.file_session_manager import FileSessionManager
 
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
@@ -105,6 +109,24 @@ def _build_response_payload(
     ).model_dump()
 
 
+class _LockRegistry:
+    """Per-key asyncio.Lock map. Lock creation is itself guarded by a
+    meta-lock so concurrent first-time `get(key)` calls return the same
+    lock object."""
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._meta = asyncio.Lock()
+
+    async def get(self, key: str) -> asyncio.Lock:
+        async with self._meta:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            return lock
+
+
 def create_server_app(
     config: SessionConfig,
     workspace: Workspace,
@@ -120,9 +142,14 @@ def create_server_app(
     workspace.purge_old_sessions(config.trace_retention_days)
 
     semaphore = asyncio.Semaphore(config.max_concurrent_runs)
+    conv_locks = _LockRegistry()
+    sessions_dir = str(workspace.root / ".blueclaw" / "sessions")
 
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
+
+    async def playground(request: Request) -> HTMLResponse:
+        return HTMLResponse(_PLAYGROUND_HTML)
 
     async def handle_message(request: Request) -> JSONResponse:
         req, err = await _parse_request(request)
@@ -130,37 +157,57 @@ def create_server_app(
             return err
         observer = None
         try:
-            async with semaphore:
-                observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
-                agent = create_agent(
-                    config,
-                    workspace,
-                    observer,
-                    model=model,
-                    scripted=True,
-                    callback_handler=None,
-                )
-                start_time = datetime.now(timezone.utc)
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(agent, req.message), timeout=_TIMEOUT
-                )
-                end_time = datetime.now(timezone.utc)
-                run_id = _make_run_id(start_time)
-                trace, record = build_trace_and_record(
-                    result,
-                    req.message,
-                    observer,
-                    config,
-                    run_id,
-                    start_time,
-                    end_time,
-                    source="api",
-                )
-                workspace.write_trace(trace)
-                workspace.append_history(record)
-                return JSONResponse(
-                    _build_response_payload(result, req, config, run_id)
-                )
+            cid = req.conversation_id
+            conv_lock = await conv_locks.get(cid) if cid else None
+            session_manager = (
+                FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+                if cid
+                else None
+            )
+
+            async def _run():
+                async with semaphore:
+                    nonlocal observer
+                    observer = ObserverHooks(
+                        console=Console(file=StringIO()), quiet=True
+                    )
+                    agent = create_agent(
+                        config,
+                        workspace,
+                        observer,
+                        model=model,
+                        scripted=True,
+                        callback_handler=None,
+                        session_manager=session_manager,
+                        channel="api",
+                    )
+                    start_time = datetime.now(timezone.utc)
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(agent, req.message), timeout=_TIMEOUT
+                    )
+                    end_time = datetime.now(timezone.utc)
+                    run_id = _make_run_id(start_time)
+                    trace, record = build_trace_and_record(
+                        result,
+                        req.message,
+                        observer,
+                        config,
+                        run_id,
+                        start_time,
+                        end_time,
+                        source="api",
+                        conversation_id=cid,
+                    )
+                    workspace.write_trace(trace)
+                    workspace.append_history(record)
+                    return JSONResponse(
+                        _build_response_payload(result, req, config, run_id)
+                    )
+
+            if conv_lock is not None:
+                async with conv_lock:
+                    return await _run()
+            return await _run()
         except asyncio.TimeoutError:
             return JSONResponse({"error": "agent timed out"}, status_code=504)
         except WorkspaceError as exc:
@@ -175,69 +222,96 @@ def create_server_app(
         if err is not None:
             return err
 
+        cid = req.conversation_id
+        conv_lock = await conv_locks.get(cid) if cid else None
+        session_manager = (
+            FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+            if cid
+            else None
+        )
+
         async def event_stream():
             observer = None
             try:
-                async with semaphore:
-                    observer = ObserverHooks(
-                        console=Console(file=StringIO()), quiet=True
-                    )
-                    agent = create_agent(
-                        config,
-                        workspace,
-                        observer,
-                        model=model,
-                        scripted=True,
-                        callback_handler=None,
-                    )
-                    start_time = datetime.now(timezone.utc)
-                    final_result: Any = None
-                    try:
-                        async with asyncio.timeout(_TIMEOUT):
-                            async for event in agent.stream_async(req.message):
-                                chunk = (
-                                    event.get("data")
-                                    if isinstance(event, dict)
-                                    else None
-                                )
-                                if chunk:
-                                    yield _sse("delta", {"text": chunk})
-                                if (
-                                    isinstance(event, dict)
-                                    and event.get("result") is not None
-                                ):
-                                    final_result = event["result"]
-                    except asyncio.TimeoutError:
-                        yield _sse("error", {"error": "agent timed out"})
-                        return
 
-                    if final_result is None:
-                        yield _sse("error", {"error": "agent did not return a result"})
-                        return
-
-                    end_time = datetime.now(timezone.utc)
-                    run_id = _make_run_id(start_time)
-                    try:
-                        trace, record = build_trace_and_record(
-                            final_result,
-                            req.message,
-                            observer,
-                            config,
-                            run_id,
-                            start_time,
-                            end_time,
-                            source="api",
+                async def _run():
+                    nonlocal observer
+                    async with semaphore:
+                        observer = ObserverHooks(
+                            console=Console(file=StringIO()), quiet=True
                         )
-                        workspace.write_trace(trace)
-                        workspace.append_history(record)
-                    except WorkspaceError as exc:
-                        yield _sse("error", {"error": f"workspace error: {exc}"})
-                        return
+                        agent = create_agent(
+                            config,
+                            workspace,
+                            observer,
+                            model=model,
+                            scripted=True,
+                            callback_handler=None,
+                            session_manager=session_manager,
+                        )
+                        start_time = datetime.now(timezone.utc)
+                        final_result: Any = None
+                        try:
+                            async with asyncio.timeout(_TIMEOUT):
+                                async for event in agent.stream_async(req.message):
+                                    chunk = (
+                                        event.get("data")
+                                        if isinstance(event, dict)
+                                        else None
+                                    )
+                                    if chunk:
+                                        yield _sse("delta", {"text": chunk})
+                                    if (
+                                        isinstance(event, dict)
+                                        and event.get("result") is not None
+                                    ):
+                                        final_result = event["result"]
+                        except asyncio.TimeoutError:
+                            yield _sse("error", {"error": "agent timed out"})
+                            return
 
-                    yield _sse(
-                        "done",
-                        _build_response_payload(final_result, req, config, run_id),
-                    )
+                        if final_result is None:
+                            yield _sse(
+                                "error",
+                                {"error": "agent did not return a result"},
+                            )
+                            return
+
+                        end_time = datetime.now(timezone.utc)
+                        run_id = _make_run_id(start_time)
+                        try:
+                            trace, record = build_trace_and_record(
+                                final_result,
+                                req.message,
+                                observer,
+                                config,
+                                run_id,
+                                start_time,
+                                end_time,
+                                source="api",
+                                conversation_id=cid,
+                            )
+                            workspace.write_trace(trace)
+                            workspace.append_history(record)
+                        except WorkspaceError as exc:
+                            yield _sse(
+                                "error",
+                                {"error": f"workspace error: {exc}"},
+                            )
+                            return
+
+                        yield _sse(
+                            "done",
+                            _build_response_payload(final_result, req, config, run_id),
+                        )
+
+                if conv_lock is not None:
+                    async with conv_lock:
+                        async for evt in _run():
+                            yield evt
+                else:
+                    async for evt in _run():
+                        yield evt
             except Exception as exc:
                 yield _sse("error", {"error": str(exc)})
             finally:
@@ -248,6 +322,7 @@ def create_server_app(
     app = Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/playground", playground, methods=["GET"]),
             Route("/message", handle_message, methods=["POST"]),
             Route("/message/stream", handle_message_stream, methods=["POST"]),
         ]

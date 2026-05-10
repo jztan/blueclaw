@@ -253,8 +253,25 @@ def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> lis
     return get_tools(config.tools, config, workspace=workspace)
 
 
-def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) -> str:
-    """Build system prompt from context, history, and skill index."""
+def build_system_prompt(
+    workspace: Workspace,
+    skills_dir: Path | None = None,
+    include_history: bool = True,
+    channel: str = "terminal",
+) -> str:
+    """Build system prompt from context, history, and skill index.
+
+    `include_history` should be False when an external session manager
+    (e.g. FileSessionManager) is replaying actual messages — otherwise the
+    model sees the conversation twice (history narration + replayed turns)
+    and tends to recap each reply.
+
+    `channel` selects tone rules. "terminal" assumes plain-text output to a
+    TTY (no markdown, no emoji). "api" assumes a chat client that may render
+    markdown; rules emphasize brevity and "answer only what was just asked,
+    do not recap" because session replay otherwise tempts the model to
+    summarize the conversation each turn.
+    """
     parts = []
 
     # Context
@@ -263,13 +280,15 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
         parts.append(f"## Persistent Context\n\n{context}")
 
     # History summary
-    history = workspace.read_history()
-    if history:
-        parts.append("## Recent History\n")
-        for rec in history[-10:]:
-            parts.append(
-                f"- [{rec.ts.isoformat()}] {rec.goal} (tools: {', '.join(rec.tools)})"
-            )
+    if include_history:
+        history = workspace.read_history()
+        if history:
+            parts.append("## Recent History\n")
+            for rec in history[-10:]:
+                parts.append(
+                    f"- [{rec.ts.isoformat()}] {rec.goal} "
+                    f"(tools: {', '.join(rec.tools)})"
+                )
 
     # Skill index (names only, not full content)
     if skills_dir and skills_dir.exists():
@@ -284,20 +303,38 @@ def build_system_prompt(workspace: Workspace, skills_dir: Path | None = None) ->
 
     # Core instructions
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if channel == "api":
+        tone_block = (
+            "**Tone & style (STRICT — always follow these):**\n"
+            "- Be concise. Lead with the answer, not the reasoning.\n"
+            "- Answer ONLY what the user just asked in the most recent "
+            "message. Do not recap the conversation, summarize earlier "
+            "turns, or re-answer questions you have already answered.\n"
+            "- No motivational quotes, filler, or cheerful preamble.\n"
+            "- No emojis.\n"
+            "- Keep responses short. A few sentences is usually enough; "
+            "use markdown only when it materially helps the answer.\n"
+            "- If you cannot help, say so briefly.\n\n"
+        )
+    else:
+        tone_block = (
+            "**Tone & style (STRICT — always follow these):**\n"
+            "- Be concise. Lead with the answer or action, not the "
+            "reasoning.\n"
+            "- NEVER use emojis in responses, even if the context "
+            "or history contains them.\n"
+            "- No motivational quotes, filler, or cheerful preamble.\n"
+            "- No markdown formatting — no **bold**, *italic*, tables, or "
+            "headings. Your output is raw text in a terminal; markdown "
+            "does not render.\n"
+            "- Keep responses short. One or two plain sentences is usually "
+            "enough.\n"
+            "- If you cannot help, say so briefly.\n\n"
+        )
     parts.insert(
         0,
         "You are blueclaw, a terminal automation agent.\n"
-        f"Today's date is {today}.\n\n"
-        "**Tone & style (STRICT — always follow these):**\n"
-        "- Be concise. Lead with the answer or action, not the reasoning.\n"
-        "- NEVER use emojis in responses, even if the context "
-        "or history contains them.\n"
-        "- No motivational quotes, filler, or cheerful preamble.\n"
-        "- No markdown formatting — no **bold**, *italic*, tables, or headings. "
-        "Your output is raw text in a terminal; markdown does not render.\n"
-        "- Keep responses short. One or two plain sentences is usually enough.\n"
-        "- If you cannot help, say so briefly.\n\n"
-        "**Rules:**\n"
+        f"Today's date is {today}.\n\n" + tone_block + "**Rules:**\n"
         "- Context below is memory from past sessions, not verified facts. "
         "For anything time-sensitive (what's screening, current prices, availability, "
         "weather, news), always use web_search — never answer from context alone.\n"
@@ -352,6 +389,7 @@ def build_trace_and_record(
     start_time: datetime,
     end_time: datetime,
     source: str = "terminal",
+    conversation_id: str | None = None,
 ) -> tuple:
     """Build RunTrace and RunRecord from an agent result.
 
@@ -384,6 +422,7 @@ def build_trace_and_record(
         context_masked_chars=context_masked_chars,
         context_strategy=context_strategy_val,
         source=source,
+        conversation_id=conversation_id,
     )
 
     record = RunRecord(
@@ -392,6 +431,7 @@ def build_trace_and_record(
         tools=list(observer.tools_called),
         tokens=total_tokens,
         cost=cost,
+        conversation_id=conversation_id,
     )
 
     return trace, record
@@ -407,13 +447,19 @@ def create_agent(
     console: Console | None = None,
     callback_handler=_UNSET,
     session_manager=None,
+    channel: str = "terminal",
 ) -> Agent:
     """Construct and return a Strands Agent."""
     tools = load_tools(config, workspace=workspace)
     mcp_clients = get_mcp_servers(config)
     tools.extend(mcp_clients)
 
-    system_prompt = build_system_prompt(workspace, skills_dir=skills_dir)
+    system_prompt = build_system_prompt(
+        workspace,
+        skills_dir=skills_dir,
+        include_history=session_manager is None,
+        channel=channel,
+    )
     approval_hooks = ApprovalHooks(config, scripted=scripted)
 
     # Build conversation manager based on config

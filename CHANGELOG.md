@@ -2,6 +2,22 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Stateful conversations: when `POST /message` (or `/message/stream`) supplies a `conversation_id`, history is persisted via Strands `FileSessionManager` under `<workspace>/.blueclaw/sessions/<id>/`. Subsequent requests with the same id replay prior turns. Omitting `conversation_id` keeps stateless behavior.
+- `conversation_id` field on `RunTrace` and `RunRecord` (also exposed in `/api/traces` summary) so traces and history rows can be grouped by conversation.
+- `GET /playground` — single-page chat UI bundled with `blueclaw serve` for manually exercising stateful + streaming conversations. Defaults its server URL to the current origin; bearer token entered in the sidebar. Unauthenticated like `/health`.
+
+### Changed
+- `build_trace_and_record(...)` accepts an optional `conversation_id` kwarg.
+- `build_system_prompt(...)` accepts `include_history`. `create_agent` automatically passes `False` whenever a `session_manager` is attached, so the system prompt no longer narrates a "Recent History" recap that overlaps with the messages the session manager replays. Stops the model from prefacing each stateful reply with a conversation summary.
+- `build_system_prompt(...)` accepts `channel` ("terminal" or "api"). `create_agent(channel=...)` threads it through; `blueclaw serve` passes `"api"` so HTTP responses follow chat-client tone rules ("answer only the new question, do not recap, no terminal-only constraints") instead of the CLI's strict plain-text rules. Fixes drift where stateful API replies grew progressively chattier and recapped earlier turns once the model had its own markdown-formatted prior messages replayed back to it.
+
+### Notes
+- Concurrent requests for the same `conversation_id` are serialized by an in-process per-id lock, acquired *before* the global concurrency semaphore. Different conversation ids run in parallel (subject to the existing `max_concurrent_runs` cap).
+- Session directories are purged on server start by `purge_old_sessions(trace_retention_days)` (no new config knob).
+
 ## [2.1.0] - 2026-05-06
 ### Added
 

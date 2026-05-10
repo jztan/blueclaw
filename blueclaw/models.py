@@ -54,6 +54,7 @@ class RunRecord(BaseModel):
     files: list[str] = []
     tokens: int
     cost: float | None = None
+    conversation_id: str | None = None
 
     def to_jsonl(self) -> str:
         """Serialize to a single-line JSON string."""
@@ -138,6 +139,7 @@ class RunTrace(BaseModel):
     context_masked_chars: int | None = None
     context_strategy: str | None = None
     source: str = "terminal"  # "terminal" | "api"
+    conversation_id: str | None = None
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)

@@ -186,6 +186,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the full roadmap with milestone detai
 
 ```bash
 pip install -e ".[dev]"
+pip install pre-commit && pre-commit install   # mirrors CI lint locally
 pytest
 flake8 blueclaw/ tests/
 black --check blueclaw/ tests/

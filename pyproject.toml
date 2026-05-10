@@ -62,3 +62,4 @@ filterwarnings = ["ignore::pytest.PytestCollectionWarning"]
 
 [tool.black]
 line-length = 88
+target-version = ["py311"]

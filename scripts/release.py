@@ -237,6 +237,47 @@ def update_changelog(project_root: Path, new_version: str, dry_run: bool) -> Non
         print("  ✓ Updated CHANGELOG.md")
 
 
+def update_roadmap(project_root: Path, new_version: str, dry_run: bool) -> None:
+    """Update docs/roadmap.md "Current:" marker to reflect the just-shipped
+    version. Idempotent: if the file is missing or has no "Current:" line,
+    this is a no-op rather than a hard failure (the roadmap is documentation,
+    not part of the release pipeline)."""
+    roadmap = project_root / "docs" / "roadmap.md"
+    if not roadmap.exists():
+        print("  - docs/roadmap.md not present, skipping")
+        return
+    content = roadmap.read_text()
+
+    # Match: > **Current:** v2.2 complete. v2.3 next ...
+    current_re = re.compile(
+        r"(\*\*Current:\*\*\s*)v(\d+\.\d+)[^\n]*"
+    )
+    match = current_re.search(content)
+    if not match:
+        print("  - docs/roadmap.md has no 'Current:' marker, skipping")
+        return
+
+    major_minor = ".".join(new_version.split(".")[:2])
+    next_minor = f"{major_minor.split('.')[0]}.{int(major_minor.split('.')[1]) + 1}"
+    replacement = (
+        f"\\1v{major_minor} complete. v{next_minor} next."
+    )
+    new_content = current_re.sub(replacement, content, count=1)
+
+    if new_content == content:
+        print("  - docs/roadmap.md already up to date")
+        return
+
+    if dry_run:
+        print(
+            f"  [DRY-RUN] Would update docs/roadmap.md "
+            f"'Current:' to v{major_minor} complete, v{next_minor} next"
+        )
+    else:
+        roadmap.write_text(new_content)
+        print(f"  ✓ Updated docs/roadmap.md (Current: v{major_minor})")
+
+
 def extract_changelog_section(project_root: Path, version: str) -> str:
     """Extract the changelog section for a specific version."""
     changelog = project_root / "CHANGELOG.md"
@@ -263,6 +304,7 @@ def bump_version(config: ReleaseConfig) -> tuple[str, str]:
     update_pyproject_toml(config.project_root, new_version, config.dry_run)
     update_init_py(config.project_root, new_version, config.dry_run)
     update_changelog(config.project_root, new_version, config.dry_run)
+    update_roadmap(config.project_root, new_version, config.dry_run)
 
     return current_version, new_version
 
@@ -271,7 +313,12 @@ def commit_version_bump(config: ReleaseConfig, new_version: str) -> None:
     """Commit version bump changes on release branch."""
     print("\n=== Commit Version Bump ===\n")
 
-    files = ["pyproject.toml", "blueclaw/__init__.py", "CHANGELOG.md"]
+    files = [
+        "pyproject.toml",
+        "blueclaw/__init__.py",
+        "CHANGELOG.md",
+        "docs/roadmap.md",
+    ]
     for f in files:
         run_command(
             ["git", "add", f],
@@ -471,6 +518,7 @@ Gitflow:
     update_pyproject_toml(config.project_root, new_version, config.dry_run)
     update_init_py(config.project_root, new_version, config.dry_run)
     update_changelog(config.project_root, new_version, config.dry_run)
+    update_roadmap(config.project_root, new_version, config.dry_run)
 
     # Step 5: Commit version bump
     commit_version_bump(config, new_version)

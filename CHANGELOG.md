@@ -8,6 +8,7 @@ All notable changes to blueclaw will be documented in this file.
 - `MessageRequest.file_ids` (max 10 per request) lets clients reference uploaded files. The server resolves each id to its absolute path and prepends a system note to the agent prompt, so existing shell, pdf-mcp, and web tools can read attachments without provider-specific wiring.
 - Playground gains a paperclip button, drag-and-drop, and removable attachment chips. Files upload immediately and are sent with the next message; chips clear after a successful send.
 - Optional pip extras for provider SDKs: `blueclaw[anthropic]`, `blueclaw[ollama]`, `blueclaw[openai]`, `blueclaw[gemini]`. Strands lazy-imports these SDKs only when the matching provider is selected, so they no longer ship as runtime dependencies of the base install.
+- Native vision support for image attachments. When a `file_id` resolves to a PNG/JPEG/GIF/WEBP, the server now passes the bytes to the agent as a Strands `image` content block instead of just a path note, so vision-capable models (Anthropic, OpenAI, Bedrock, Ollama vision tags) can actually see pixels. Non-image attachments keep the path-prefix flow.
 
 ### Changed
 - `Workspace.purge_old_sessions` now also removes the matching `uploads/<cid>` directory and any orphaned `tmp-*` upload directories older than `trace_retention_days`.

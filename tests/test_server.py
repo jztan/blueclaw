@@ -1015,6 +1015,110 @@ class TestMessageAttachments:
         assert r.status_code == 400
         assert "10" in r.json()["error"]
 
+    def test_image_attachment_routed_as_native_block(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        """Image attachment becomes a Strands ContentBlock list with image bytes."""
+        captured = {}
+
+        def fake_agent_callable(prompt):
+            captured["prompt"] = prompt
+            return mock_agent_result
+
+        # Minimal valid 1x1 PNG (8-byte sig + IHDR + IDAT + IEND)
+        png_bytes = (
+            b"\x89PNG\r\n\x1a\n"
+            b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+            b"\x1f\x15\xc4\x89"
+            b"\x00\x00\x00\rIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+            b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+        ):
+            mock_ca.return_value = fake_agent_callable
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            tc = TestClient(app)
+
+            up = tc.post(
+                "/upload",
+                files={"file": ("pic.png", png_bytes, "image/png")},
+                data={"conversation_id": "c-img"},
+            )
+            assert up.status_code == 201, up.text
+            file_id = up.json()["file_id"]
+
+            r = tc.post(
+                "/message",
+                json={
+                    "message": "what is in this image?",
+                    "conversation_id": "c-img",
+                    "file_ids": [file_id],
+                },
+            )
+            assert r.status_code == 200, r.text
+            blocks = captured["prompt"]
+            assert isinstance(
+                blocks, list
+            ), "image attachments should produce ContentBlock list"
+            image_blocks = [b for b in blocks if "image" in b]
+            assert len(image_blocks) == 1
+            assert image_blocks[0]["image"]["format"] == "png"
+            assert image_blocks[0]["image"]["source"]["bytes"] == png_bytes
+            text_blocks = [b for b in blocks if "text" in b]
+            assert len(text_blocks) == 1
+            assert "what is in this image?" in text_blocks[0]["text"]
+
+    def test_pdf_attachment_uses_path_prefix(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        """Non-image attachments stay on the path-prefix flow (plain string)."""
+        captured = {}
+
+        def fake_agent_callable(prompt):
+            captured["prompt"] = prompt
+            return mock_agent_result
+
+        pdf_bytes = b"%PDF-1.4\n%minimal\n"
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+        ):
+            mock_ca.return_value = fake_agent_callable
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            tc = TestClient(app)
+
+            up = tc.post(
+                "/upload",
+                files={"file": ("doc.pdf", pdf_bytes, "application/pdf")},
+                data={"conversation_id": "c-pdf"},
+            )
+            file_id = up.json()["file_id"]
+
+            r = tc.post(
+                "/message",
+                json={
+                    "message": "summarize",
+                    "conversation_id": "c-pdf",
+                    "file_ids": [file_id],
+                },
+            )
+            assert r.status_code == 200
+            assert isinstance(captured["prompt"], str)
+            assert "User attached the following files" in captured["prompt"]
+
     def test_message_rejects_file_ids_without_cid(self, client):
         r = client.post(
             "/message",

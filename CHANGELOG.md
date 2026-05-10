@@ -8,11 +8,15 @@ All notable changes to blueclaw will be documented in this file.
 - Stateful conversations: when `POST /message` (or `/message/stream`) supplies a `conversation_id`, history is persisted via Strands `FileSessionManager` under `<workspace>/.blueclaw/sessions/<id>/`. Subsequent requests with the same id replay prior turns. Omitting `conversation_id` keeps stateless behavior.
 - `conversation_id` field on `RunTrace` and `RunRecord` (also exposed in `/api/traces` summary) so traces and history rows can be grouped by conversation.
 - `GET /playground` — single-page chat UI bundled with `blueclaw serve` for manually exercising stateful + streaming conversations. Defaults its server URL to the current origin; bearer token entered in the sidebar. Unauthenticated like `/health`.
+- `docs/models.md` — detailed model-support reference: per-provider `blueclaw.yaml` and `.env` samples (Anthropic, OpenAI, Ollama with tool-calling shortlist, LiteLLM for Gemini/Bedrock), CLI override precedence, cost tracking, and "adding a new provider" recipe.
+- Prompt-cache token billing: `calculate_cost()` accepts optional `cache_read_tokens` / `cache_write_tokens` and bills them at `0.1×` / `1.25×` of the input rate (Anthropic prompt-caching multipliers). All three call sites (`session.py`, `server.py`, `testing.py`) pull `cacheReadInputTokens` / `cacheWriteInputTokens` from `accumulated_usage`, avoiding cost overstatement on cache-heavy sessions.
+- `PRICING_UPDATED` constant in `blueclaw/models.py` — explicit "last reviewed" date for the pricing table; bump it whenever `MODEL_PRICING_PER_M` is edited.
 
 ### Changed
 - `build_trace_and_record(...)` accepts an optional `conversation_id` kwarg.
 - `build_system_prompt(...)` accepts `include_history`. `create_agent` automatically passes `False` whenever a `session_manager` is attached, so the system prompt no longer narrates a "Recent History" recap that overlaps with the messages the session manager replays. Stops the model from prefacing each stateful reply with a conversation summary.
 - `build_system_prompt(...)` accepts `channel` ("terminal" or "api"). `create_agent(channel=...)` threads it through; `blueclaw serve` passes `"api"` so HTTP responses follow chat-client tone rules ("answer only the new question, do not recap, no terminal-only constraints") instead of the CLI's strict plain-text rules. Fixes drift where stateful API replies grew progressively chattier and recapped earlier turns once the model had its own markdown-formatted prior messages replayed back to it.
+- Pricing table renamed to `MODEL_PRICING_PER_M` and switched from per-1k to per-1M token units to match Anthropic's pricing page 1:1 (e.g. Sonnet input is now `3.0` rather than `0.003`). Old `MODEL_PRICING` name kept as an alias for backward compatibility.
 
 ### Notes
 - Concurrent requests for the same `conversation_id` are serialized by an in-process per-id lock, acquired *before* the global concurrency semaphore. Different conversation ids run in parallel (subject to the existing `max_concurrent_runs` cap).

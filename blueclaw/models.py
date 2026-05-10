@@ -75,6 +75,7 @@ class MessageRequest(BaseModel):
 
     message: str
     conversation_id: str | None = None
+    file_ids: list[str] = []
 
     @field_validator("conversation_id")
     @classmethod
@@ -96,6 +97,16 @@ class MessageResponse(BaseModel):
     conversation_id: str | None
     tokens: int
     cost: float | None
+
+
+class UploadResponse(BaseModel):
+    """Response body for POST /upload."""
+
+    file_id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    conversation_id: str
 
 
 # Date the pricing table was last reviewed against provider list prices.

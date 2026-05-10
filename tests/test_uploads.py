@@ -108,3 +108,31 @@ def test_resolve_rejects_unknown_extension(store: UploadStore):
     (cdir / fid).write_text("hi")
     with pytest.raises(UploadError):
         store.resolve("c-test", fid)
+
+
+def test_message_request_accepts_file_ids():
+    from blueclaw.models import MessageRequest
+
+    req = MessageRequest(message="hi", file_ids=["a__x.txt", "b__y.pdf"])
+    assert req.file_ids == ["a__x.txt", "b__y.pdf"]
+
+
+def test_message_request_defaults_file_ids_empty():
+    from blueclaw.models import MessageRequest
+
+    req = MessageRequest(message="hi")
+    assert req.file_ids == []
+
+
+def test_upload_response_shape():
+    from blueclaw.models import UploadResponse
+
+    resp = UploadResponse(
+        file_id="abc__hi.txt",
+        filename="hi.txt",
+        mime_type="text/plain",
+        size_bytes=2,
+        conversation_id="c-1",
+    )
+    assert resp.file_id == "abc__hi.txt"
+    assert resp.size_bytes == 2

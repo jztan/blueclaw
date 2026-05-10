@@ -45,6 +45,14 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 blueclaw
 ```
 
+Anthropic works out of the box. For other providers, install the matching extra:
+
+```bash
+pip install "blueclaw[ollama]"   # local models via Ollama
+pip install "blueclaw[openai]"   # OpenAI
+pip install "blueclaw[gemini]"   # Google Gemini (via LiteLLM)
+```
+
 ## Features
 
 ### Tracing & Observability — [docs/tracing.md](docs/tracing.md)

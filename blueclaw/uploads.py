@@ -41,6 +41,13 @@ _MAGIC: dict[str, Callable[[bytes], bool]] = {
     "image/webp": lambda h: h[:4] == b"RIFF" and h[8:12] == b"WEBP",
 }
 
+IMAGE_FORMATS: dict[str, str] = {
+    "image/png": "png",
+    "image/jpeg": "jpeg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
 
 class UploadError(ValueError):
     """Raised when an upload is rejected."""
@@ -165,3 +172,125 @@ class UploadStore:
         if not target.exists():
             return
         shutil.rmtree(target, ignore_errors=True)
+
+
+@dataclass(frozen=True)
+class Attachment:
+    """Lightweight attachment record for CLI use (no upload-store backing)."""
+
+    path: Path
+    mime_type: str
+    size_bytes: int
+
+
+def format_size(size_bytes: int) -> str:
+    size_kb = size_bytes / 1024
+    if size_kb >= 1024:
+        return f"{size_bytes / 1024 / 1024:.1f} MB"
+    return f"{size_kb:.0f} KB"
+
+
+def build_agent_input(records, user_message: str):
+    """Build the agent's prompt argument.
+
+    Returns a plain string when there are no attachments or only non-image
+    attachments (path-prefix flow). Returns a list of Strands ContentBlocks
+    when one or more image attachments are present, embedding image bytes
+    directly so vision-capable models can read pixels.
+
+    Each record needs only `path`, `mime_type`, and `size_bytes` attributes
+    — accepts both `UploadRecord` and `Attachment`.
+    """
+    if not records:
+        return user_message
+
+    image_records = [r for r in records if r.mime_type in IMAGE_FORMATS]
+    other_records = [r for r in records if r.mime_type not in IMAGE_FORMATS]
+
+    text_lines: list[str] = []
+    if other_records:
+        text_lines.append(
+            "User attached the following files. Read them with the available "
+            "tools (shell for text, pdf-mcp for PDFs, etc.):"
+        )
+        for r in other_records:
+            text_lines.append(
+                f"  - {r.path}  ({r.mime_type}, {format_size(r.size_bytes)})"
+            )
+        text_lines.append("")
+    text_lines.append(user_message)
+    text = "\n".join(text_lines)
+
+    if not image_records:
+        return text
+
+    blocks: list[dict] = []
+    for r in image_records:
+        blocks.append(
+            {
+                "image": {
+                    "format": IMAGE_FORMATS[r.mime_type],
+                    "source": {"bytes": r.path.read_bytes()},
+                }
+            }
+        )
+    blocks.append({"text": text})
+    return blocks
+
+
+_TRAILING_PUNCT = ".,?!:;)]\""
+
+
+def _try_resolve_attachment(token: str, base: Path) -> Attachment | None:
+    """Resolve a single `@<path>` token to an Attachment, or None if it
+    doesn't point at an allowed file."""
+    if not token.startswith("@") or len(token) < 2:
+        return None
+    candidate = token[1:]
+    # Strip a single trailing punctuation char if present (so "@foo.png?"
+    # works) but only after we've tried the literal candidate.
+    candidates = [candidate]
+    if candidate and candidate[-1] in _TRAILING_PUNCT:
+        candidates.append(candidate[:-1])
+    for c in candidates:
+        try:
+            p = Path(c).expanduser()
+            if not p.is_absolute():
+                p = base / p
+            p = p.resolve()
+            if not p.is_file():
+                continue
+            with p.open("rb") as fh:
+                head = fh.read(512)
+            mime = _detect_mime(p.name, head)
+        except (OSError, UploadError):
+            continue
+        return Attachment(path=p, mime_type=mime, size_bytes=p.stat().st_size)
+    return None
+
+
+def parse_at_attachments(
+    text: str, base: Path | None = None
+) -> tuple[str, list[Attachment]]:
+    """Scan `text` for whitespace-delimited `@<path>` tokens and replace each
+    that resolves to an allowed file with an Attachment record.
+
+    Tokens that don't resolve are left in place (so `@username` mentions and
+    email-style strings pass through untouched). Relative paths are resolved
+    against `base` (defaults to the current working directory).
+    """
+    if "@" not in text:
+        return text, []
+    if base is None:
+        base = Path.cwd()
+    out_tokens: list[str] = []
+    attachments: list[Attachment] = []
+    for token in text.split(" "):
+        att = _try_resolve_attachment(token, base) if token.startswith("@") else None
+        if att is not None:
+            attachments.append(att)
+            # Drop the token from the message — its content is now an attachment
+        else:
+            out_tokens.append(token)
+    cleaned = " ".join(out_tokens).strip()
+    return cleaned, attachments

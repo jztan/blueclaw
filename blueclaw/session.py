@@ -620,18 +620,30 @@ def run_chat_loop(
 
             turn_count += 1
 
+            # Parse @<path> attachments before composing the agent prompt.
+            from blueclaw.uploads import build_agent_input, parse_at_attachments
+
+            cleaned_message, attachments = parse_at_attachments(stripped)
+            for att in attachments:
+                console.print(
+                    f"[dim]attached:[/dim] {att.path} "
+                    f"({att.mime_type})"
+                )
+
             # Inject trace lessons for this goal
-            prompt = stripped
+            prompt_text = cleaned_message
             try:
                 traces = workspace.list_traces(limit=50)
-                lessons = build_lessons_block(stripped, traces)
+                lessons = build_lessons_block(cleaned_message, traces)
                 if lessons:
-                    prompt = f"{lessons}\n\n{stripped}"
+                    prompt_text = f"{lessons}\n\n{cleaned_message}"
             except Exception:
                 pass
 
+            agent_input = build_agent_input(attachments, prompt_text)
+
             start = time.time()
-            result = agent(prompt)
+            result = agent(agent_input)
             elapsed = time.time() - start
             total_tool_calls += len(observer.tools_called)
 

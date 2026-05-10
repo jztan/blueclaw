@@ -207,9 +207,17 @@ def run(
     updater = BackgroundContextUpdater(model_instance, workspace)
     try:
         import time as _time
+        from blueclaw.uploads import build_agent_input, parse_at_attachments
+
+        cleaned_message, attachments = parse_at_attachments(prompt)
+        for att in attachments:
+            console.print(
+                f"[dim]attached:[/dim] {att.path} ({att.mime_type})"
+            )
+        agent_input = build_agent_input(attachments, cleaned_message)
 
         start = _time.time()
-        result = agent(prompt)
+        result = agent(agent_input)
         elapsed = _time.time() - start
 
         # Strands streams the response via callback — don't reprint

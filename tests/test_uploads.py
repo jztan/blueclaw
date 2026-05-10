@@ -136,3 +136,98 @@ def test_upload_response_shape():
     )
     assert resp.file_id == "abc__hi.txt"
     assert resp.size_bytes == 2
+
+
+# --- parse_at_attachments + build_agent_input ---
+
+
+def _png_bytes() -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+        b"\x1f\x15\xc4\x89"
+        b"\x00\x00\x00\rIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+        b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+
+def test_parse_at_attachments_resolves_image(tmp_path: Path):
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    cleaned, atts = parse_at_attachments(f"What is in @{img} please?")
+    assert len(atts) == 1
+    assert atts[0].path == img.resolve()
+    assert atts[0].mime_type == "image/png"
+    assert "What is in" in cleaned and "please?" in cleaned
+    assert str(img) not in cleaned
+
+
+def test_parse_at_attachments_strips_trailing_punctuation(tmp_path: Path):
+    from blueclaw.uploads import parse_at_attachments
+
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    cleaned, atts = parse_at_attachments(f"Read @{pdf}, then summarize.")
+    assert len(atts) == 1
+    assert atts[0].mime_type == "application/pdf"
+    assert "Read" in cleaned and "summarize." in cleaned
+
+
+def test_parse_at_attachments_leaves_unresolvable_tokens():
+    from blueclaw.uploads import parse_at_attachments
+
+    cleaned, atts = parse_at_attachments(
+        "ping @username and email me at user@example.com"
+    )
+    assert atts == []
+    assert "@username" in cleaned
+    assert "user@example.com" in cleaned
+
+
+def test_parse_at_attachments_resolves_relative_path(tmp_path: Path):
+    from blueclaw.uploads import parse_at_attachments
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    cleaned, atts = parse_at_attachments("describe @pic.png", base=tmp_path)
+    assert len(atts) == 1
+    assert atts[0].path == img.resolve()
+    assert cleaned == "describe"
+
+
+def test_build_agent_input_with_image_returns_blocks(tmp_path: Path):
+    from blueclaw.uploads import Attachment, build_agent_input
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    att = Attachment(
+        path=img, mime_type="image/png", size_bytes=img.stat().st_size
+    )
+    out = build_agent_input([att], "what is this?")
+    assert isinstance(out, list)
+    image_blocks = [b for b in out if "image" in b]
+    text_blocks = [b for b in out if "text" in b]
+    assert len(image_blocks) == 1
+    assert image_blocks[0]["image"]["format"] == "png"
+    assert image_blocks[0]["image"]["source"]["bytes"] == _png_bytes()
+    assert text_blocks[0]["text"] == "what is this?"
+
+
+def test_build_agent_input_with_pdf_only_returns_string(tmp_path: Path):
+    from blueclaw.uploads import Attachment, build_agent_input
+
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    att = Attachment(path=pdf, mime_type="application/pdf", size_bytes=10)
+    out = build_agent_input([att], "summarize")
+    assert isinstance(out, str)
+    assert "User attached the following files" in out
+    assert "summarize" in out
+
+
+def test_build_agent_input_no_attachments_returns_string():
+    from blueclaw.uploads import build_agent_input
+
+    assert build_agent_input([], "just a question") == "just a question"

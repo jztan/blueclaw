@@ -32,7 +32,12 @@ from blueclaw.models import (
     UploadResponse,
     calculate_cost,
 )
-from blueclaw.uploads import MAX_UPLOAD_BYTES, UploadError, UploadStore
+from blueclaw.uploads import (
+    MAX_UPLOAD_BYTES,
+    UploadError,
+    UploadStore,
+    build_agent_input,
+)
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
     build_trace_and_record,
@@ -46,66 +51,6 @@ from strands.session.file_session_manager import FileSessionManager
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
 _MAX_ATTACHMENTS = 10
-
-
-_IMAGE_FORMATS = {
-    "image/png": "png",
-    "image/jpeg": "jpeg",
-    "image/gif": "gif",
-    "image/webp": "webp",
-}
-
-
-def _format_size(size_bytes: int) -> str:
-    size_kb = size_bytes / 1024
-    if size_kb >= 1024:
-        return f"{size_bytes / 1024 / 1024:.1f} MB"
-    return f"{size_kb:.0f} KB"
-
-
-def _build_agent_input(records, user_message: str):
-    """Build the agent's prompt argument.
-
-    Returns a plain string when there are no attachments or only non-image
-    attachments (path-prefix flow). Returns a list of Strands ContentBlocks
-    when one or more image attachments are present, embedding image bytes
-    directly so vision-capable models can read pixels.
-    """
-    if not records:
-        return user_message
-
-    image_records = [r for r in records if r.mime_type in _IMAGE_FORMATS]
-    other_records = [r for r in records if r.mime_type not in _IMAGE_FORMATS]
-
-    text_lines: list[str] = []
-    if other_records:
-        text_lines.append(
-            "User attached the following files. Read them with the available "
-            "tools (shell for text, pdf-mcp for PDFs, etc.):"
-        )
-        for r in other_records:
-            text_lines.append(
-                f"  - {r.path}  ({r.mime_type}, {_format_size(r.size_bytes)})"
-            )
-        text_lines.append("")
-    text_lines.append(user_message)
-    text = "\n".join(text_lines)
-
-    if not image_records:
-        return text
-
-    blocks: list[dict] = []
-    for r in image_records:
-        blocks.append(
-            {
-                "image": {
-                    "format": _IMAGE_FORMATS[r.mime_type],
-                    "source": {"bytes": r.path.read_bytes()},
-                }
-            }
-        )
-    blocks.append({"text": text})
-    return blocks
 
 
 def _resolve_attachments(
@@ -259,7 +204,7 @@ def create_server_app(
             records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
             if err_resp is not None:
                 return err_resp
-            prompt = _build_agent_input(records, req.message)
+            prompt = build_agent_input(records, req.message)
             conv_lock = await conv_locks.get(cid) if cid else None
             session_manager = (
                 FileSessionManager(session_id=cid, storage_dir=sessions_dir)
@@ -328,7 +273,7 @@ def create_server_app(
         records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
         if err_resp is not None:
             return err_resp
-        prompt = _build_agent_input(records, req.message)
+        prompt = build_agent_input(records, req.message)
         conv_lock = await conv_locks.get(cid) if cid else None
         session_manager = (
             FileSessionManager(session_id=cid, storage_dir=sessions_dir)

@@ -2,6 +2,23 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- Skill packaging (v2.4): blueclaw now adopts the AgentSkills.io standard.
+  Skills are directories containing a `SKILL.md` (YAML frontmatter +
+  markdown body), loaded via Strands' `AgentSkills` plugin (1.30+).
+- `blueclaw skill install` (local path or git URL with optional
+  `#subdir`), `uninstall`, `list`, `show` subcommands.
+- Project-vs-global scope: skills under `~/blueclaw/skills/` and
+  `<project>/.blueclaw/skills/` are both discovered, with project
+  precedence on name collision.
+
+### Changed
+- Single-file `<name>.md` skill format is no longer supported. Migrate by
+  promoting each file to a directory containing a `SKILL.md` with YAML
+  frontmatter (`name`, `description`).
+- `pyproject.toml`: pin bumped to `strands-agents>=1.30.0`.
+
 ## [2.3.0] - 2026-05-10
 ### Added
 - `POST /upload` accepts multipart files (PDF, text, markdown, csv, json, png/jpeg/webp/gif, zip) up to 25 MB and returns a `file_id` scoped to a conversation. Uploads land under `<workspace>/.blueclaw/uploads/<conversation_id>/<file_id>`. Oversize requests are rejected by a `Content-Length` pre-check before the body is read; the same cap is also enforced during streaming write as a defense in depth.

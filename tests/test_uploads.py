@@ -255,3 +255,24 @@ def test_build_agent_input_no_attachments_returns_string():
     from blueclaw.uploads import build_agent_input
 
     assert build_agent_input([], "just a question") == "just a question"
+
+
+def test_build_agent_input_rejects_oversize_image(tmp_path: Path):
+    """Inline images larger than the cap raise UploadError so we don't ship
+    a payload Anthropic will reject with 400."""
+    from blueclaw.uploads import (
+        MAX_INLINE_IMAGE_BYTES,
+        Attachment,
+        UploadError,
+        build_agent_input,
+    )
+
+    big_img = tmp_path / "big.png"
+    big_img.write_bytes(_png_bytes())  # actual content doesn't matter
+    att = Attachment(
+        path=big_img,
+        mime_type="image/png",
+        size_bytes=MAX_INLINE_IMAGE_BYTES + 1,
+    )
+    with pytest.raises(UploadError, match="image too large"):
+        build_agent_input([att], "describe")

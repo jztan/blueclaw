@@ -621,7 +621,11 @@ def run_chat_loop(
             turn_count += 1
 
             # Parse @<path> attachments before composing the agent prompt.
-            from blueclaw.uploads import build_agent_input, parse_at_attachments
+            from blueclaw.uploads import (
+                UploadError,
+                build_agent_input,
+                parse_at_attachments,
+            )
 
             cleaned_message, attachments, failed = parse_at_attachments(stripped)
             for att in attachments:
@@ -644,10 +648,20 @@ def run_chat_loop(
             except Exception:
                 pass
 
-            agent_input = build_agent_input(attachments, prompt_text)
+            try:
+                agent_input = build_agent_input(attachments, prompt_text)
+            except UploadError as exc:
+                console.print(f"[yellow]could not attach:[/yellow] {exc}")
+                turn_count -= 1
+                continue
 
             start = time.time()
-            result = agent(agent_input)
+            try:
+                result = agent(agent_input)
+            except Exception as exc:
+                console.print(f"[red]agent error:[/red] {exc}")
+                turn_count -= 1
+                continue
             elapsed = time.time() - start
             total_tool_calls += len(observer.tools_called)
 
@@ -671,8 +685,8 @@ def run_chat_loop(
 
             if updater and (turn_count >= 2 or total_tool_calls > 0):
                 updater.trigger(agent)
-    except Exception:
-        pass
+    except Exception as exc:
+        console.print(f"[red]session error:[/red] {exc}")
     finally:
         if updater and turn_count > 0 and (turn_count >= 2 or total_tool_calls > 0):
             updater.wait()

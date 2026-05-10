@@ -204,7 +204,10 @@ def create_server_app(
             records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
             if err_resp is not None:
                 return err_resp
-            prompt = build_agent_input(records, req.message)
+            try:
+                prompt = build_agent_input(records, req.message)
+            except UploadError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
             conv_lock = await conv_locks.get(cid) if cid else None
             session_manager = (
                 FileSessionManager(session_id=cid, storage_dir=sessions_dir)
@@ -273,7 +276,10 @@ def create_server_app(
         records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
         if err_resp is not None:
             return err_resp
-        prompt = build_agent_input(records, req.message)
+        try:
+            prompt = build_agent_input(records, req.message)
+        except UploadError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         conv_lock = await conv_locks.get(cid) if cid else None
         session_manager = (
             FileSessionManager(session_id=cid, storage_dir=sessions_dir)

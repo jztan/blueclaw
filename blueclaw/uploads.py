@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import BinaryIO, Callable
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+# Inline-image cap. Anthropic rejects images whose base64 payload exceeds 5 MB,
+# which corresponds to ~3.75 MB of raw bytes. We leave a small safety margin.
+MAX_INLINE_IMAGE_BYTES = 3_500_000  # ~3.5 MB raw → ~4.7 MB base64
 _FILENAME_OK = re.compile(r"[^A-Za-z0-9._-]")
 _CID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _READ_CHUNK = 64 * 1024
@@ -226,6 +229,15 @@ def build_agent_input(records, user_message: str):
 
     blocks: list[dict] = []
     for r in image_records:
+        if r.size_bytes > MAX_INLINE_IMAGE_BYTES:
+            raise UploadError(
+                f"image too large for inline attachment: "
+                f"{r.path.name if hasattr(r.path, 'name') else r.path} "
+                f"is {r.size_bytes / 1024 / 1024:.1f} MB; the inline cap is "
+                f"{MAX_INLINE_IMAGE_BYTES / 1024 / 1024:.1f} MB "
+                f"(Anthropic rejects images > 5 MB base64). "
+                f"Resize the image and retry."
+            )
         blocks.append(
             {
                 "image": {

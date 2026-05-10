@@ -207,7 +207,11 @@ def run(
     updater = BackgroundContextUpdater(model_instance, workspace)
     try:
         import time as _time
-        from blueclaw.uploads import build_agent_input, parse_at_attachments
+        from blueclaw.uploads import (
+            UploadError,
+            build_agent_input,
+            parse_at_attachments,
+        )
 
         cleaned_message, attachments, failed = parse_at_attachments(prompt)
         for att in attachments:
@@ -218,7 +222,11 @@ def run(
             console.print(
                 f"[yellow]could not attach[/yellow] {token}: {reason}"
             )
-        agent_input = build_agent_input(attachments, cleaned_message)
+        try:
+            agent_input = build_agent_input(attachments, cleaned_message)
+        except UploadError as exc:
+            console.print(f"[yellow]could not attach:[/yellow] {exc}")
+            raise typer.Exit(1)
 
         start = _time.time()
         result = agent(agent_input)

@@ -253,9 +253,22 @@ def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> lis
     return get_tools(config.tools, config, workspace=workspace)
 
 
+def _resolve_skill_paths() -> list:
+    """Return the list of skill dirs to feed AgentSkills (test seam)."""
+    from blueclaw.skills import (
+        default_global_dir,
+        default_project_dir,
+        resolved_skill_paths,
+    )
+
+    return resolved_skill_paths(
+        global_dir=default_global_dir(),
+        project_dir=default_project_dir(),
+    )
+
+
 def build_system_prompt(
     workspace: Workspace,
-    skills_dir: Path | None = None,
     include_history: bool = True,
     channel: str = "terminal",
 ) -> str:
@@ -289,17 +302,6 @@ def build_system_prompt(
                     f"- [{rec.ts.isoformat()}] {rec.goal} "
                     f"(tools: {', '.join(rec.tools)})"
                 )
-
-    # Skill index (names only, not full content)
-    if skills_dir and skills_dir.exists():
-        skill_files = sorted(skills_dir.glob("*.md"))
-        if skill_files:
-            parts.append("## Available Skills\n")
-            for sf in skill_files:
-                name = sf.stem
-                # Read first line for description
-                first_line = sf.read_text().split("\n")[0].strip("# ").strip()
-                parts.append(f"- {name}: {first_line}")
 
     # Core instructions
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -450,7 +452,6 @@ def create_agent(
     workspace: Workspace,
     observer,
     model=None,
-    skills_dir: Path | None = None,
     scripted: bool = False,
     console: Console | None = None,
     callback_handler=_UNSET,
@@ -464,7 +465,6 @@ def create_agent(
 
     system_prompt = build_system_prompt(
         workspace,
-        skills_dir=skills_dir,
         include_history=session_manager is None,
         channel=channel,
     )
@@ -483,6 +483,14 @@ def create_agent(
     else:  # "summarize" — legacy behavior
         conversation_manager = SummarizingConversationManager()
 
+    # Skills plugin (Strands 1.30+)
+    plugins = []
+    skill_paths = _resolve_skill_paths()
+    if skill_paths:
+        from strands.vended_plugins.skills import AgentSkills
+
+        plugins.append(AgentSkills(skills=[str(p) for p in skill_paths]))
+
     stream_file = console.file if console else sys.stdout
     resolved_callback = (
         _StreamingCallback(file=stream_file)
@@ -493,6 +501,7 @@ def create_agent(
         model=model,
         tools=tools,
         hooks=[approval_hooks, observer],
+        plugins=plugins,
         system_prompt=system_prompt,
         conversation_manager=conversation_manager,
         callback_handler=resolved_callback,

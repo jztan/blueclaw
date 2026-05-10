@@ -243,7 +243,15 @@ def _run_single(
         usage = result.metrics.accumulated_usage
         input_tokens = usage.get("inputTokens", 0)
         output_tokens = usage.get("outputTokens", 0)
-        cost = calculate_cost(config.model_id, input_tokens, output_tokens)
+        cache_read_tokens = usage.get("cacheReadInputTokens", 0)
+        cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
+        cost = calculate_cost(
+            config.model_id,
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+        )
         step_count = len(observer.tools_called)
         tools_called = list(observer.tools_called)
         response_text = extract_text(getattr(result, "message", result))

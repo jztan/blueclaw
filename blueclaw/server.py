@@ -105,6 +105,8 @@ def _build_response_payload(
             config.model_id,
             usage.get("inputTokens", 0),
             usage.get("outputTokens", 0),
+            usage.get("cacheReadInputTokens", 0),
+            usage.get("cacheWriteInputTokens", 0),
         ),
     ).model_dump()
 

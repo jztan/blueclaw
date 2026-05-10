@@ -4,36 +4,34 @@ blueclaw is model-agnostic. Provider SDKs are loaded lazily, so you only need th
 
 ## Supported providers
 
-| Provider key | Backend | Auth | Notes |
+| Provider key | Backend | Auth | Cost tracked? |
 |---|---|---|---|
-| `anthropic` | `strands.models.AnthropicModel` | `ANTHROPIC_API_KEY` | Default. Cost tracked when `model_id` is in the pricing table. |
-| `openai` | `strands.models.OpenAIModel` | `OPENAI_API_KEY` | Cost not tracked (no pricing table entries). |
-| `ollama` | `strands.models.OllamaModel` | none — local | Talks to `http://localhost:11434` (host=`None`). Free, no cost reported. |
-| `litellm` | `strands.models.LiteLLMModel` | provider-specific (e.g. `GEMINI_API_KEY`) | Universal adapter for Gemini, Bedrock, Mistral, etc. |
+| `anthropic` | `strands.models.AnthropicModel` | `ANTHROPIC_API_KEY` | Yes (Claude models in pricing table) |
+| `openai` | `strands.models.OpenAIModel` | `OPENAI_API_KEY` | No |
+| `ollama` | `strands.models.OllamaModel` | none — local | N/A (free) |
+| `litellm` | `strands.models.LiteLLMModel` | provider-specific | No |
 
-## Selecting a model
-
-Three precedence levels, highest first:
-
-1. **CLI flag** — `--model provider/model_id` (also `-m`, except on `blueclaw serve` which only accepts `--model`)
-2. **`blueclaw.yaml`** — `model.provider` + `model.model_id`
-3. **Defaults** — `anthropic` / `claude-sonnet-4-6`
+## Quick start
 
 ```bash
-blueclaw                                          # uses blueclaw.yaml or default
+blueclaw                                          # uses blueclaw.yaml or default (Anthropic)
 blueclaw --model anthropic/claude-haiku-4-5-20251001
 blueclaw --model openai/gpt-4.1-mini
-blueclaw --model ollama/llama3
-blueclaw --model litellm/gemini/gemini-2.0-flash  # everything after litellm/ goes to LiteLLM
+blueclaw --model ollama/llama3.1:8b
+blueclaw --model litellm/gemini/gemini-2.0-flash  # everything after `litellm/` goes to LiteLLM
 ```
 
-The override format is strictly `provider/model_id`. Bare model names (e.g. `claude-sonnet-4-6` with no provider) raise `ValueError`.
-
-The `--model` flag is accepted by `blueclaw`, `blueclaw run`, `blueclaw serve`, and `blueclaw test`.
+The `--model` flag (`-m` short form, except on `blueclaw serve`) is accepted by `blueclaw`, `blueclaw run`, `blueclaw serve`, and `blueclaw test`. Format is strictly `provider/model_id` — bare names raise `ValueError`.
 
 ## Configuration
 
-`blueclaw.yaml` at the project root:
+Three precedence levels, highest first:
+
+1. **CLI flag** — `--model provider/model_id`
+2. **`blueclaw.yaml`** — `model.provider` + `model.model_id`
+3. **Defaults** — `anthropic` / `claude-sonnet-4-6`
+
+`blueclaw.yaml` schema (model section):
 
 ```yaml
 model:
@@ -48,33 +46,13 @@ model:
 
 `max_tokens` is fixed at `4096` in `SessionConfig` and passed to `AnthropicModel` (other providers ignore it). It is not currently configurable via `blueclaw.yaml` — change the default in `blueclaw/models.py` if you need a different cap.
 
-## API keys
+API keys live in `.env` at the project root. Keys are only required for the provider you select; missing keys for unused providers are fine. `anthropic` and `openai` fail fast with a clear error when their key is missing.
 
-Set in `.env` at the project root. Keys are only required for the provider you select — missing keys for unused providers are fine.
+---
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...           # picked up by LiteLLM for gemini/* models
-```
+## Provider setup
 
-`anthropic` and `openai` providers fail fast with a clear error when their key is missing. `ollama` needs no key. `litellm` defers to the underlying provider's environment variables.
-
-## Cost tracking
-
-Cost is computed from token usage against a static pricing table in `blueclaw/models.py`:
-
-| `model_id` | Input $/1k | Output $/1k |
-|---|---|---|
-| `claude-sonnet-4-6` | 0.003 | 0.015 |
-| `claude-sonnet-4-20250514` | 0.003 | 0.015 |
-| `claude-opus-4-6` | 0.015 | 0.075 |
-| `claude-opus-4-1-20250620` | 0.015 | 0.075 |
-| `claude-haiku-4-5-20251001` | 0.0008 | 0.004 |
-
-Models not in the table report `cost: null` in traces, history, and the API response. Tokens are still counted. To track cost for a new Claude model or a non-Anthropic model, add an entry to `MODEL_PRICING`.
-
-## Provider-specific notes
+Each subsection below shows the constructor, the `blueclaw.yaml` snippet, and the `.env` keys for that provider.
 
 ### Anthropic
 
@@ -82,7 +60,21 @@ Models not in the table report `cost: null` in traces, history, and the API resp
 AnthropicModel(model_id=config.model_id, max_tokens=config.max_tokens)
 ```
 
-Both `model_id` and `max_tokens` are required by the Strands constructor. Default `max_tokens=4096` is enough for typical agent turns; raise it for long-form generation.
+Both `model_id` and `max_tokens` are required by the Strands constructor. Default `max_tokens=4096` is enough for typical agent turns; raise it in `models.py` for long-form generation.
+
+`blueclaw.yaml`:
+
+```yaml
+model:
+  provider: anthropic
+  model_id: claude-sonnet-4-6        # or claude-haiku-4-5-20251001 / claude-opus-4-6
+```
+
+`.env`:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
 ### OpenAI
 
@@ -90,7 +82,21 @@ Both `model_id` and `max_tokens` are required by the Strands constructor. Defaul
 OpenAIModel(model_id=config.model_id)
 ```
 
-No pricing entries are pre-populated, so cost reports as `null`. Otherwise interchangeable with Anthropic for tool use and streaming.
+No pricing entries are pre-populated, so cost reports as `null`. Otherwise interchangeable with Anthropic for tool use and streaming. The `model_id` is forwarded verbatim to `OpenAIModel`, so any name in the OpenAI catalog works.
+
+`blueclaw.yaml`:
+
+```yaml
+model:
+  provider: openai
+  model_id: gpt-4.1-mini             # or gpt-4o, gpt-4o-mini, o1-mini
+```
+
+`.env`:
+
+```
+OPENAI_API_KEY=sk-...
+```
 
 ### Ollama (local)
 
@@ -98,36 +104,107 @@ No pricing entries are pre-populated, so cost reports as `null`. Otherwise inter
 OllamaModel(None, model_id=config.model_id)
 ```
 
-`host=None` resolves to `http://localhost:11434`. Make sure the model is pulled first:
+`host=None` resolves to `http://localhost:11434`. Pull the model first and make sure `ollama serve` is running:
 
 ```bash
-ollama pull llama3
-blueclaw --model ollama/llama3
+ollama pull llama3.1:8b
+blueclaw --model ollama/llama3.1:8b
 ```
 
-Tool-calling quality varies by local model — small models often fail the agent loop. Use `llama3.1:8b` or larger for usable results.
+No `.env` needed.
 
-### LiteLLM
+**Basic `blueclaw.yaml`:**
+
+```yaml
+model:
+  provider: ollama
+  model_id: llama3.1:8b              # must already be pulled with `ollama pull`
+```
+
+**Tuned for tool-calling:**
+
+```yaml
+model:
+  provider: ollama
+  model_id: qwen2.5:14b              # better tool-calling than llama3.1:8b
+
+tools:
+  - shell
+  - web
+
+context:
+  strategy: mask                     # local models benefit most from masking
+  mask_after: 6                      # tighter window — local models have shorter effective context
+```
+
+Tool-calling quality varies a lot by local model. The list below reflects community reports — not benchmarked inside blueclaw. Smoke-test before relying on any row:
+
+| Model | Notes |
+|---|---|
+| `qwen2.5:14b` / `qwen2.5:7b` | Strong tool-calling, recommended starting point |
+| `llama3.1:8b` | Works, occasionally drops tool calls |
+| `llama3.3:70b` | Best quality if you have the VRAM |
+| `mistral-nemo:12b` | Decent fallback |
+| `llama3.2:1b/3b`, `phi3:mini`, `gemma:2b` | Avoid — too small to drive the agent loop reliably |
+
+### LiteLLM (gateway)
 
 ```python
 LiteLLMModel(model_id=config.model_id)
 ```
 
-Pass through any LiteLLM-supported `provider/model` string after the `litellm/` prefix:
+Universal adapter — pass through any LiteLLM-supported `provider/model` string after the `litellm/` prefix. LiteLLM reads its own environment variables. Refer to the [LiteLLM provider docs](https://docs.litellm.ai/docs/providers) for naming.
 
-```bash
-blueclaw --model litellm/gemini/gemini-2.0-flash
-blueclaw --model litellm/bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+**Gemini:**
+
+```yaml
+model:
+  provider: litellm
+  model_id: gemini/gemini-2.0-flash  # everything after `litellm/` goes here
 ```
 
-LiteLLM reads its own environment variables (`GEMINI_API_KEY`, `AWS_*`, etc.). Refer to the [LiteLLM provider docs](https://docs.litellm.ai/docs/providers) for naming.
+```
+GEMINI_API_KEY=...
+```
+
+**Bedrock Claude:**
+
+```yaml
+model:
+  provider: litellm
+  model_id: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+```
+
+```
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+```
+
+---
+
+## Cost tracking
+
+Cost is computed from token usage against a static pricing table in `blueclaw/models.py`. Rates are stored per **1M tokens** to match Anthropic's pricing page directly. Last reviewed: see `PRICING_UPDATED` in `blueclaw/models.py` — bump it whenever you edit the table, and re-check provider list prices if it's older than ~6 months.
+
+| `model_id` | Input $/1M | Output $/1M |
+|---|---|---|
+| `claude-sonnet-4-6` | 3.00 | 15.00 |
+| `claude-sonnet-4-20250514` | 3.00 | 15.00 |
+| `claude-opus-4-6` | 15.00 | 75.00 |
+| `claude-opus-4-1-20250620` | 15.00 | 75.00 |
+| `claude-haiku-4-5-20251001` | 0.80 | 4.00 |
+
+**Prompt caching.** When Strands surfaces `cacheReadInputTokens` / `cacheWriteInputTokens` (Anthropic prompt caching), those tokens are billed at `0.1×` (read) and `1.25×` (5-minute TTL write) of the base input rate, matching Anthropic's published multipliers. Cached tokens are reported *separately* from `inputTokens`, so they aren't double-counted.
+
+Models not in the table report `cost: null` in traces, history, and the API response. Tokens are still counted. To track cost for a new Claude model or a non-Anthropic model, add an entry to `MODEL_PRICING_PER_M` and bump `PRICING_UPDATED`.
 
 ## Switching models mid-project
 
 Model selection is per-invocation — there is no persistent "current model" state. The same workspace, `CONTEXT.md`, and `history.jsonl` are reused across providers, so you can run a cheap local model for routine work and switch to Claude for harder turns:
 
 ```bash
-blueclaw --model ollama/llama3 run "list files in workspace"
+blueclaw --model ollama/llama3.1:8b run "list files in workspace"
 blueclaw --model anthropic/claude-opus-4-6 run "refactor the indexer"
 ```
 

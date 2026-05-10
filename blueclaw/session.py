@@ -399,8 +399,16 @@ def build_trace_and_record(
     input_tokens = usage.get("inputTokens", 0)
     output_tokens = usage.get("outputTokens", 0)
     total_tokens = usage.get("totalTokens", 0)
+    cache_read_tokens = usage.get("cacheReadInputTokens", 0)
+    cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
 
-    cost = calculate_cost(config.model_id, input_tokens, output_tokens)
+    cost = calculate_cost(
+        config.model_id,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+    )
 
     context_masked_chars = None
     context_strategy_val = None

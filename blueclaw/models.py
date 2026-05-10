@@ -98,14 +98,27 @@ class MessageResponse(BaseModel):
     cost: float | None
 
 
-# Pricing: {model_id: (input_per_1k_tokens, output_per_1k_tokens)}
-MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "claude-sonnet-4-6": (0.003, 0.015),
-    "claude-sonnet-4-20250514": (0.003, 0.015),
-    "claude-opus-4-6": (0.015, 0.075),
-    "claude-opus-4-1-20250620": (0.015, 0.075),
-    "claude-haiku-4-5-20251001": (0.0008, 0.004),
+# Date the pricing table was last reviewed against provider list prices.
+# Bump this when you edit MODEL_PRICING_PER_M. Stale > ~6 months → re-check.
+PRICING_UPDATED = "2026-05-10"
+
+# Anthropic prompt-caching multipliers, applied to the base input rate.
+# Cache reads get a 90% discount; 5-minute TTL cache writes pay a 25% premium.
+CACHE_READ_RATE = 0.1
+CACHE_WRITE_RATE = 1.25
+
+# Pricing per 1M tokens — matches Anthropic's published pricing page 1:1.
+# {model_id: (input_per_1M, output_per_1M)}
+MODEL_PRICING_PER_M: dict[str, tuple[float, float]] = {
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-sonnet-4-20250514": (3.0, 15.0),
+    "claude-opus-4-6": (15.0, 75.0),
+    "claude-opus-4-1-20250620": (15.0, 75.0),
+    "claude-haiku-4-5-20251001": (0.80, 4.0),
 }
+
+# Backward-compatible alias for callers that imported the old name.
+MODEL_PRICING = MODEL_PRICING_PER_M
 
 
 class TraceStep(BaseModel):
@@ -150,14 +163,29 @@ class RunTrace(BaseModel):
 
 
 def calculate_cost(
-    model_id: str, input_tokens: int, output_tokens: int
+    model_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> float | None:
-    """Calculate cost from token counts. Returns None if model not in pricing table."""
-    pricing = MODEL_PRICING.get(model_id)
+    """Calculate cost from token counts. Returns None if model not in pricing table.
+
+    cache_read_tokens / cache_write_tokens are Anthropic prompt-caching counts;
+    pass 0 (default) for providers that don't expose them. Anthropic reports
+    cached tokens *separately* from input_tokens, so adding the cache columns
+    does not double-count.
+    """
+    pricing = MODEL_PRICING_PER_M.get(model_id)
     if pricing is None:
         return None
     input_rate, output_rate = pricing
-    return (input_tokens * input_rate + output_tokens * output_rate) / 1000
+    return (
+        input_tokens * input_rate
+        + output_tokens * output_rate
+        + cache_read_tokens * input_rate * CACHE_READ_RATE
+        + cache_write_tokens * input_rate * CACHE_WRITE_RATE
+    ) / 1_000_000
 
 
 FAILURE_PATTERNS: list[tuple[str, list[str]]] = [

@@ -33,8 +33,8 @@
 - **Regression testing** — define expected behavior in YAML; run as CI with TAP or JUnit output and Wilson CI scoring
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
 - **Trace replay & diff** — step through any recorded run interactively, or compare steps, tokens, and cost between two runs
-- **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, and per-`conversation_id` history persisted via `FileSessionManager`
-- **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing
+- **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, per-`conversation_id` history persisted via `FileSessionManager`, plus `POST /upload` for attaching files (PDF, text, images, csv, json, zip) to a conversation
+- **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
 
 ## Quickstart
 

@@ -2,6 +2,15 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- `POST /upload` accepts multipart files (PDF, text, markdown, csv, json, png/jpeg/webp/gif, zip) up to 25 MB and returns a `file_id` scoped to a conversation. Uploads land under `<workspace>/.blueclaw/uploads/<conversation_id>/<file_id>`.
+- `MessageRequest.file_ids` (max 10 per request) lets clients reference uploaded files. The server resolves each id to its absolute path and prepends a system note to the agent prompt, so existing shell, pdf-mcp, and web tools can read attachments without provider-specific wiring.
+- Playground gains a paperclip button, drag-and-drop, and removable attachment chips. Files upload immediately and are sent with the next message; chips clear after a successful send.
+
+### Changed
+- `Workspace.purge_old_sessions` now also removes the matching `uploads/<cid>` directory and any orphaned `tmp-*` upload directories older than `trace_retention_days`.
+
 ## [2.2.0] - 2026-05-10
 ### Added
 - Stateful conversations: when `POST /message` (or `/message/stream`) supplies a `conversation_id`, history is persisted via Strands `FileSessionManager` under `<workspace>/.blueclaw/sessions/<id>/`. Subsequent requests with the same id replay prior turns. Omitting `conversation_id` keeps stateless behavior.

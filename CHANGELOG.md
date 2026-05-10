@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [2.3.0] - 2026-05-10
 ### Added
 - `POST /upload` accepts multipart files (PDF, text, markdown, csv, json, png/jpeg/webp/gif, zip) up to 25 MB and returns a `file_id` scoped to a conversation. Uploads land under `<workspace>/.blueclaw/uploads/<conversation_id>/<file_id>`. Oversize requests are rejected by a `Content-Length` pre-check before the body is read; the same cap is also enforced during streaming write as a defense in depth.
 - `MessageRequest.file_ids` (max 10 per request) lets clients reference uploaded files. The server resolves each id to its absolute path and prepends a system note to the agent prompt, so existing shell, pdf-mcp, and web tools can read attachments without provider-specific wiring.

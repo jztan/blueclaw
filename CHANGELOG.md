@@ -4,9 +4,10 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
-- `POST /upload` accepts multipart files (PDF, text, markdown, csv, json, png/jpeg/webp/gif, zip) up to 25 MB and returns a `file_id` scoped to a conversation. Uploads land under `<workspace>/.blueclaw/uploads/<conversation_id>/<file_id>`.
+- `POST /upload` accepts multipart files (PDF, text, markdown, csv, json, png/jpeg/webp/gif, zip) up to 25 MB and returns a `file_id` scoped to a conversation. Uploads land under `<workspace>/.blueclaw/uploads/<conversation_id>/<file_id>`. Oversize requests are rejected by a `Content-Length` pre-check before the body is read; the same cap is also enforced during streaming write as a defense in depth.
 - `MessageRequest.file_ids` (max 10 per request) lets clients reference uploaded files. The server resolves each id to its absolute path and prepends a system note to the agent prompt, so existing shell, pdf-mcp, and web tools can read attachments without provider-specific wiring.
 - Playground gains a paperclip button, drag-and-drop, and removable attachment chips. Files upload immediately and are sent with the next message; chips clear after a successful send.
+- Optional pip extras for provider SDKs: `blueclaw[anthropic]`, `blueclaw[ollama]`, `blueclaw[openai]`, `blueclaw[gemini]`. Strands lazy-imports these SDKs only when the matching provider is selected, so they no longer ship as runtime dependencies of the base install.
 
 ### Changed
 - `Workspace.purge_old_sessions` now also removes the matching `uploads/<cid>` directory and any orphaned `tmp-*` upload directories older than `trace_retention_days`.

@@ -9,6 +9,7 @@ import asyncio
 import hmac
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -28,8 +29,10 @@ from blueclaw.models import (
     MessageRequest,
     MessageResponse,
     SessionConfig,
+    UploadResponse,
     calculate_cost,
 )
+from blueclaw.uploads import UploadError, UploadStore
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
     build_trace_and_record,
@@ -146,6 +149,8 @@ def create_server_app(
     semaphore = asyncio.Semaphore(config.max_concurrent_runs)
     conv_locks = _LockRegistry()
     sessions_dir = str(workspace.root / ".blueclaw" / "sessions")
+    uploads_root = workspace.root / ".blueclaw" / "uploads"
+    upload_store = UploadStore(uploads_root)
 
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
@@ -321,12 +326,48 @@ def create_server_app(
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
+    async def handle_upload(request: Request) -> JSONResponse:
+        if not _authenticate(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        try:
+            form = await request.form()
+        except Exception:
+            return JSONResponse({"error": "invalid multipart body"}, status_code=400)
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "filename"):
+            return JSONResponse({"error": "missing 'file' field"}, status_code=400)
+        cid = form.get("conversation_id")
+        if cid is None or cid == "":
+            cid = "tmp-" + secrets.token_hex(8)
+        try:
+            record = upload_store.save(str(cid), upload.filename or "", upload.file)
+        except UploadError as exc:
+            msg = str(exc)
+            if "exceeds" in msg:
+                status = 413
+            elif "not allowed" in msg or "does not match" in msg:
+                status = 415
+            else:
+                status = 400
+            return JSONResponse({"error": msg}, status_code=status)
+        except Exception as exc:
+            return JSONResponse({"error": f"upload failed: {exc}"}, status_code=500)
+        payload = UploadResponse(
+            file_id=record.file_id,
+            filename=record.filename,
+            mime_type=record.mime_type,
+            size_bytes=record.size_bytes,
+            conversation_id=record.conversation_id,
+        )
+        return JSONResponse(payload.model_dump(), status_code=201)
+
     app = Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
             Route("/playground", playground, methods=["GET"]),
             Route("/message", handle_message, methods=["POST"]),
             Route("/message/stream", handle_message_stream, methods=["POST"]),
+            Route("/upload", handle_upload, methods=["POST"]),
         ]
     )
     return CORSMiddleware(

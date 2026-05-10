@@ -860,6 +860,77 @@ class TestStatefulConcurrency:
         assert elapsed < 0.28, f"expected <0.28 s, got {elapsed:.3f}"
 
 
+class TestUpload:
+    def test_upload_happy_path(self, client, server_workspace):
+        files = {"file": ("hello.txt", b"hello world", "text/plain")}
+        data = {"conversation_id": "c-test"}
+        r = client.post("/upload", files=files, data=data)
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["filename"] == "hello.txt"
+        assert body["mime_type"] == "text/plain"
+        assert body["size_bytes"] == 11
+        assert body["conversation_id"] == "c-test"
+        assert body["file_id"].endswith("__hello.txt")
+        on_disk = (
+            server_workspace.root / ".blueclaw" / "uploads" / "c-test" / body["file_id"]
+        )
+        assert on_disk.read_bytes() == b"hello world"
+
+    def test_upload_generates_tmp_cid_when_omitted(self, client):
+        files = {"file": ("hello.txt", b"hi", "text/plain")}
+        r = client.post("/upload", files=files)
+        assert r.status_code == 201
+        assert r.json()["conversation_id"].startswith("tmp-")
+
+    def test_upload_rejects_oversize(self, client, monkeypatch):
+        from blueclaw import uploads as uploads_mod
+
+        monkeypatch.setattr(uploads_mod, "MAX_UPLOAD_BYTES", 16)
+        files = {"file": ("big.txt", b"x" * 32, "text/plain")}
+        r = client.post("/upload", files=files, data={"conversation_id": "c-test"})
+        assert r.status_code == 413
+
+    def test_upload_rejects_disallowed_mime(self, client):
+        files = {"file": ("evil.exe", b"MZ\x90\x00binary", "application/octet-stream")}
+        r = client.post("/upload", files=files, data={"conversation_id": "c-test"})
+        assert r.status_code == 415
+
+    def test_upload_requires_bearer_when_configured(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        files = {"file": ("a.txt", b"hi", "text/plain")}
+        with (
+            patch("blueclaw.server.create_agent") as mock_ca,
+            patch("blueclaw.server.build_trace_and_record") as mock_btr,
+            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch.object(server_workspace, "write_trace"),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}),
+        ):
+            mock_ca.return_value.return_value = mock_agent_result
+            mock_btr.return_value = (MagicMock(), MagicMock())
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            tc = TestClient(app)
+
+            r = tc.post("/upload", files=files, data={"conversation_id": "c-test"})
+            assert r.status_code == 401
+            r = tc.post(
+                "/upload",
+                files=files,
+                data={"conversation_id": "c-test"},
+                headers={"Authorization": "Bearer wrong"},
+            )
+            assert r.status_code == 401
+            r = tc.post(
+                "/upload",
+                files=files,
+                data={"conversation_id": "c-test"},
+                headers={"Authorization": "Bearer secret"},
+            )
+            assert r.status_code == 201
+
+
 class TestStatefulStream:
     def test_stream_passes_session_manager_when_conversation_id_set(
         self, server_config, server_workspace, mock_agent_result

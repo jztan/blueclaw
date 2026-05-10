@@ -32,9 +32,9 @@
 - **Structured traces** — every run writes a structured JSON trace, queryable from the terminal with no external service
 - **Regression testing** — define expected behavior in YAML; run as CI with TAP or JUnit output and Wilson CI scoring
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
-- **Trace replay** — step through any recorded run interactively
-- **Trace diff** — compare steps, tokens, and cost between any two runs
-- **HTTP API** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, and a concurrency cap
+- **Trace replay & diff** — step through any recorded run interactively, or compare steps, tokens, and cost between two runs
+- **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, and per-`conversation_id` history persisted via `FileSessionManager`
+- **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing
 
 ## Quickstart
 
@@ -97,7 +97,7 @@ Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap, 300 s timeout, CORS for l
 
 ```bash
 blueclaw                                    # Anthropic (default)
-blueclaw --model ollama/llama3              # Ollama (local)
+blueclaw --model ollama/llama3.1:8b         # Ollama (local)
 blueclaw --model openai/gpt-4.1-mini       # OpenAI
 blueclaw --model litellm/gemini/gemini-2.0-flash  # Gemini via LiteLLM
 ```
@@ -126,7 +126,7 @@ tools:
   - web
   - shell
   - pdf
-  - mcp:https://localhost:8080/sse
+  - mcp:http://localhost:8080/sse        # SSE MCP server (use mcp:<command> for stdio)
 
 allowlist_domains:
   - github.com
@@ -143,7 +143,7 @@ allowlist_domains:
 |---|---|
 | `cli.py` | Typer entrypoints, welcome banner, trace tooling |
 | `session.py` | Config, model factory, agent, chat loop, background context updater |
-| `server.py` | HTTP API gateway (`blueclaw serve`) — POST /message, auth, CORS |
+| `server.py` | HTTP API gateway (`blueclaw serve`) — `/message`, `/message/stream`, `/playground`, `/health`, `/api/traces`; bearer auth, CORS, per-conversation locks |
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O |
 | `observer.py` | Structured tool tracing + output truncation |
 | `context.py` | Observation masking and hybrid summarization for context management |

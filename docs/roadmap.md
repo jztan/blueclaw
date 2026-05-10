@@ -2,7 +2,7 @@
 
 > Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → multi-channel runtime → production hardening.
 
-**Current:** v2.1 complete. v2.2 next.
+**Current:** v2.2 complete. v2.3 next.
 
 ---
 
@@ -54,11 +54,17 @@ Concurrency and streaming for the HTTP API. A shared `asyncio.Semaphore` (defaul
 ## v2.2 - Stateful conversations (shipped)
 Per-conversation memory now persists via Strands `FileSessionManager` keyed by `conversation_id`. Callers that supply the same id across requests get a continuous conversation; omitting it keeps stateless behavior. Concurrent requests for the same id are serialized by a per-id lock; different ids run in parallel.
 
-## v2.3 - Subagent support
-- `Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls.
+## v2.3 — File Uploads & Native Vision
 
-## v2.4 - Skill Support
-- Skill.md are packaged as a directory containing SKILL.md (description and metadata), tools (Python or MCP), prompts. The blueclaw skill CLI handles creation, schema validation, and local installation.
+Multi-modal input for the API and CLI. `POST /upload` (multipart, 25 MB cap) accepts PDFs, images, and common text/data formats and returns a `file_id` scoped to a conversation; `POST /message` accepts a `file_ids` list (max 10) that the server resolves to absolute paths. Image attachments (PNG/JPEG/GIF/WEBP) reach vision-capable models as Strands `image` content blocks rather than path notes, while PDFs and text continue through the path-prefix flow so existing shell and pdf-mcp tools handle them. The CLI mirrors the same UX: `@<path>` in any prompt — or a bare/quoted absolute path pasted via shift+drag — auto-attaches. The bundled playground gains a paperclip button, drag-and-drop, removable chips, and a light theme.
+
+## v2.4 — Subagent support
+
+`Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls.
+
+## v2.5 — Skill Support
+
+Skill.md are packaged as a directory containing SKILL.md (description and metadata), tools (Python or MCP), prompts. The blueclaw skill CLI handles creation, schema validation, and local installation.
 
 ## v3 — Multi-Channel Runtime
 Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack, Discord, and Telegram ship as thin skill files on top of this core.

@@ -57,6 +57,10 @@ def _project_skills_dir() -> Path:
 
 
 def _resolve_source(source: str, tmp_root: Path) -> Path:
+    if source.startswith(("http://", "https://")) and source.lower().rstrip(
+        "/"
+    ).endswith(("skill.md",)):
+        return _fetch_url_skill_md(source, tmp_root)
     if source.startswith(("http://", "https://", "git@", "ssh://", "git://")):
         return _git_clone(source, tmp_root)
     p = Path(source).expanduser().resolve()
@@ -99,6 +103,45 @@ def _git_clone(url: str, tmp_root: Path) -> Path:
         skill_path.rename(renamed)
         skill_path = renamed
     return skill_path
+
+
+def _fetch_url_skill_md(url: str, tmp_root: Path) -> Path:
+    """Fetch a single SKILL.md from an https URL into tmp_root.
+
+    The URL must point directly at raw SKILL.md text. We name the temp
+    directory after the skill's frontmatter ``name`` so that
+    ``Skill.from_file(strict=True)`` (called by the install pipeline)
+    accepts the directory.
+    """
+    import socket
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            content_bytes = resp.read()
+    except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+        raise typer.BadParameter(f"fetch failed: {e}")
+
+    try:
+        text = content_bytes.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise typer.BadParameter(f"SKILL.md is not valid UTF-8: {e}")
+
+    # Reuse the existing helper. _read_skill_name takes a Path; write the
+    # content to a temp file first so we don't duplicate parsing logic.
+    scratch = tmp_root / "_scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    scratch_md = scratch / "SKILL.md"
+    scratch_md.write_text(text, encoding="utf-8")
+    skill_name = _read_skill_name(scratch_md)
+    if not skill_name:
+        raise typer.BadParameter("could not read skill name from frontmatter")
+
+    skill_dir = tmp_root / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=False)
+    (skill_dir / "SKILL.md").write_text(text, encoding="utf-8")
+    return skill_dir
 
 
 def _read_skill_name(skill_md: Path) -> str:

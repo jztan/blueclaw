@@ -1,6 +1,8 @@
 import json
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -187,3 +189,80 @@ def test_skill_show(tmp_path, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "alpha" in res.output
     assert "Body" in res.output
+
+
+def test_skill_install_from_https_skill_md(tmp_path, monkeypatch):
+    """https URL ending in SKILL.md fetches a single file and installs."""
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+
+    payload = ("---\nname: web-skill\ndescription: from web\n---\n\nbody\n").encode(
+        "utf-8"
+    )
+
+    class FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        def read(self):
+            return self._data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(url, timeout=30):
+        assert url == "https://example.com/SKILL.md"
+        return FakeResponse(payload)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    res = runner.invoke(
+        app, ["skill", "install", "https://example.com/SKILL.md", "--yes"]
+    )
+    assert res.exit_code == 0, res.output
+    assert (target / "web-skill" / "SKILL.md").exists()
+
+
+def test_skill_install_from_https_handles_fetch_error(tmp_path, monkeypatch):
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+
+    def fake_urlopen(url, timeout=30):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    res = runner.invoke(
+        app, ["skill", "install", "https://example.com/SKILL.md", "--yes"]
+    )
+    assert res.exit_code != 0
+    assert "fetch failed" in res.output.lower()
+
+
+def test_skill_install_https_non_skill_md_routes_to_git(tmp_path, monkeypatch):
+    """A non-SKILL.md https URL still hits the git path (and fails appropriately)."""
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "fake git failure"
+
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    res = runner.invoke(
+        app, ["skill", "install", "https://example.com/repo.git", "--yes"]
+    )
+    assert res.exit_code != 0
+    assert "git" in captured["cmd"][0]
+    assert "fake git failure" in res.output

@@ -156,10 +156,11 @@ def test_parse_at_attachments_resolves_image(tmp_path: Path):
 
     img = tmp_path / "pic.png"
     img.write_bytes(_png_bytes())
-    cleaned, atts = parse_at_attachments(f"What is in @{img} please?")
+    cleaned, atts, failed = parse_at_attachments(f"What is in @{img} please?")
     assert len(atts) == 1
     assert atts[0].path == img.resolve()
     assert atts[0].mime_type == "image/png"
+    assert failed == []
     assert "What is in" in cleaned and "please?" in cleaned
     assert str(img) not in cleaned
 
@@ -169,21 +170,41 @@ def test_parse_at_attachments_strips_trailing_punctuation(tmp_path: Path):
 
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    cleaned, atts = parse_at_attachments(f"Read @{pdf}, then summarize.")
+    cleaned, atts, failed = parse_at_attachments(f"Read @{pdf}, then summarize.")
     assert len(atts) == 1
     assert atts[0].mime_type == "application/pdf"
+    assert failed == []
     assert "Read" in cleaned and "summarize." in cleaned
 
 
-def test_parse_at_attachments_leaves_unresolvable_tokens():
+def test_parse_at_attachments_leaves_mention_tokens_silently():
+    """`@username` and `user@example.com` must not produce warnings."""
     from blueclaw.uploads import parse_at_attachments
 
-    cleaned, atts = parse_at_attachments(
+    cleaned, atts, failed = parse_at_attachments(
         "ping @username and email me at user@example.com"
     )
     assert atts == []
+    assert failed == []
     assert "@username" in cleaned
     assert "user@example.com" in cleaned
+
+
+def test_parse_at_attachments_warns_on_path_typo(tmp_path: Path):
+    """An `@`-token that looks like a path but doesn't resolve is reported."""
+    from blueclaw.uploads import parse_at_attachments
+
+    bogus = tmp_path / "does_not_exist.png"
+    cleaned, atts, failed = parse_at_attachments(
+        f"can you see @{bogus}", base=tmp_path
+    )
+    assert atts == []
+    assert len(failed) == 1
+    token, reason = failed[0]
+    assert token == f"@{bogus}"
+    assert "not found" in reason.lower()
+    # The token still passes through to the message text
+    assert str(bogus) in cleaned
 
 
 def test_parse_at_attachments_resolves_relative_path(tmp_path: Path):
@@ -191,9 +212,12 @@ def test_parse_at_attachments_resolves_relative_path(tmp_path: Path):
 
     img = tmp_path / "pic.png"
     img.write_bytes(_png_bytes())
-    cleaned, atts = parse_at_attachments("describe @pic.png", base=tmp_path)
+    cleaned, atts, failed = parse_at_attachments(
+        "describe @pic.png", base=tmp_path
+    )
     assert len(atts) == 1
     assert atts[0].path == img.resolve()
+    assert failed == []
     assert cleaned == "describe"
 
 

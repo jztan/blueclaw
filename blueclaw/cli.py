@@ -209,10 +209,14 @@ def run(
         import time as _time
         from blueclaw.uploads import build_agent_input, parse_at_attachments
 
-        cleaned_message, attachments = parse_at_attachments(prompt)
+        cleaned_message, attachments, failed = parse_at_attachments(prompt)
         for att in attachments:
             console.print(
                 f"[dim]attached:[/dim] {att.path} ({att.mime_type})"
+            )
+        for token, reason in failed:
+            console.print(
+                f"[yellow]could not attach[/yellow] {token}: {reason}"
             )
         agent_input = build_agent_input(attachments, cleaned_message)
 

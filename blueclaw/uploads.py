@@ -241,56 +241,103 @@ def build_agent_input(records, user_message: str):
 _TRAILING_PUNCT = ".,?!:;)]\""
 
 
-def _try_resolve_attachment(token: str, base: Path) -> Attachment | None:
-    """Resolve a single `@<path>` token to an Attachment, or None if it
-    doesn't point at an allowed file."""
+def _looks_like_path(candidate: str) -> bool:
+    """True if a token's tail looks like a file reference rather than a mention.
+
+    Used to surface helpful warnings when a path-shaped `@`-token fails to
+    resolve. `@username` and `user@example.com` should NOT trigger warnings.
+    """
+    if not candidate:
+        return False
+    if "/" in candidate or candidate.startswith("~"):
+        return True
+    return Path(candidate).suffix.lower() in _ALLOWED_EXTS
+
+
+def _try_resolve_attachment(
+    token: str, base: Path
+) -> tuple[Attachment | None, str | None]:
+    """Resolve a single `@<path>` token.
+
+    Returns (attachment, failure_reason). `attachment` is non-None on success;
+    on failure, `failure_reason` is non-None only when the token *looked* like
+    a file path (so the caller can warn the user). Mention-style `@`-tokens
+    return (None, None) and are silently passed through.
+    """
     if not token.startswith("@") or len(token) < 2:
-        return None
+        return None, None
     candidate = token[1:]
-    # Strip a single trailing punctuation char if present (so "@foo.png?"
-    # works) but only after we've tried the literal candidate.
     candidates = [candidate]
     if candidate and candidate[-1] in _TRAILING_PUNCT:
         candidates.append(candidate[:-1])
+
+    last_reason: str | None = None
     for c in candidates:
         try:
             p = Path(c).expanduser()
             if not p.is_absolute():
                 p = base / p
-            p = p.resolve()
-            if not p.is_file():
-                continue
-            with p.open("rb") as fh:
-                head = fh.read(512)
-            mime = _detect_mime(p.name, head)
-        except (OSError, UploadError):
+            p_resolved = p.resolve()
+        except (OSError, ValueError) as exc:
+            last_reason = f"could not resolve path: {exc}"
             continue
-        return Attachment(path=p, mime_type=mime, size_bytes=p.stat().st_size)
-    return None
+        if not p_resolved.exists():
+            last_reason = f"file not found: {p_resolved}"
+            continue
+        if not p_resolved.is_file():
+            last_reason = f"not a regular file: {p_resolved}"
+            continue
+        try:
+            with p_resolved.open("rb") as fh:
+                head = fh.read(512)
+            mime = _detect_mime(p_resolved.name, head)
+        except UploadError as exc:
+            last_reason = str(exc)
+            continue
+        except OSError as exc:
+            last_reason = f"could not read file: {exc}"
+            continue
+        return (
+            Attachment(
+                path=p_resolved,
+                mime_type=mime,
+                size_bytes=p_resolved.stat().st_size,
+            ),
+            None,
+        )
+
+    if _looks_like_path(candidate):
+        return None, last_reason or "could not resolve path"
+    return None, None
 
 
 def parse_at_attachments(
     text: str, base: Path | None = None
-) -> tuple[str, list[Attachment]]:
-    """Scan `text` for whitespace-delimited `@<path>` tokens and replace each
-    that resolves to an allowed file with an Attachment record.
+) -> tuple[str, list[Attachment], list[tuple[str, str]]]:
+    """Scan `text` for whitespace-delimited `@<path>` tokens.
 
-    Tokens that don't resolve are left in place (so `@username` mentions and
-    email-style strings pass through untouched). Relative paths are resolved
-    against `base` (defaults to the current working directory).
+    Returns `(cleaned_text, attachments, failures)`. Failures is a list of
+    `(token, reason)` pairs for `@`-tokens that looked like file paths but
+    didn't resolve (so the CLI can warn the user). Mention-style `@`-tokens
+    (e.g. `@username`, `user@example.com`) are silently left in place.
     """
     if "@" not in text:
-        return text, []
+        return text, [], []
     if base is None:
         base = Path.cwd()
     out_tokens: list[str] = []
     attachments: list[Attachment] = []
+    failures: list[tuple[str, str]] = []
     for token in text.split(" "):
-        att = _try_resolve_attachment(token, base) if token.startswith("@") else None
+        if not token.startswith("@"):
+            out_tokens.append(token)
+            continue
+        att, reason = _try_resolve_attachment(token, base)
         if att is not None:
             attachments.append(att)
-            # Drop the token from the message — its content is now an attachment
-        else:
-            out_tokens.append(token)
+            continue
+        if reason is not None:
+            failures.append((token, reason))
+        out_tokens.append(token)
     cleaned = " ".join(out_tokens).strip()
-    return cleaned, attachments
+    return cleaned, attachments, failures

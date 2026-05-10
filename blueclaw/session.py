@@ -623,11 +623,15 @@ def run_chat_loop(
             # Parse @<path> attachments before composing the agent prompt.
             from blueclaw.uploads import build_agent_input, parse_at_attachments
 
-            cleaned_message, attachments = parse_at_attachments(stripped)
+            cleaned_message, attachments, failed = parse_at_attachments(stripped)
             for att in attachments:
                 console.print(
                     f"[dim]attached:[/dim] {att.path} "
                     f"({att.mime_type})"
+                )
+            for token, reason in failed:
+                console.print(
+                    f"[yellow]could not attach[/yellow] {token}: {reason}"
                 )
 
             # Inject trace lessons for this goal

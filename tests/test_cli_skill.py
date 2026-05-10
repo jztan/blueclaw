@@ -142,7 +142,7 @@ def test_skill_uninstall(tmp_path, monkeypatch):
     monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
     runner.invoke(app, ["skill", "install", str(src), "--yes"])
     assert (target / "demo").exists()
-    res = runner.invoke(app, ["skill", "uninstall", "demo"])
+    res = runner.invoke(app, ["skill", "uninstall", "demo", "--yes"])
     assert res.exit_code == 0, res.output
     assert not (target / "demo").exists()
 
@@ -152,6 +152,17 @@ def test_skill_uninstall_missing(tmp_path, monkeypatch):
     res = runner.invoke(app, ["skill", "uninstall", "nope"])
     assert res.exit_code != 0
     assert "not found" in res.output.lower()
+
+
+def test_skill_uninstall_refuses_without_yes_in_non_tty(tmp_path, monkeypatch):
+    src = _make_skill_dir(tmp_path / "src")
+    target = tmp_path / "global"
+    monkeypatch.setattr("blueclaw.cli._global_skills_dir", lambda: target)
+    runner.invoke(app, ["skill", "install", str(src), "--yes"])
+    res = runner.invoke(app, ["skill", "uninstall", "demo"])  # no --yes
+    assert res.exit_code != 0
+    assert "non-interactively" in res.output.lower()
+    assert (target / "demo").exists()  # not removed
 
 
 def test_skill_list_json(tmp_path, monkeypatch):

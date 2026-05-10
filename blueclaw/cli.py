@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -186,9 +187,6 @@ def skill_install(
         typer.echo(f"Installed {skill.name} -> {target}")
 
 
-import json as _json  # noqa: E402
-
-
 def _list_installed():
     """Return a list of (Skill, scope, path) tuples for both scopes, project shadowing global."""
     from strands.vended_plugins.skills import Skill
@@ -205,7 +203,7 @@ def _list_installed():
             sk = Skill.from_file(p, strict=False)
         except (ValueError, FileNotFoundError):
             continue
-        scope = "project" if str(p).startswith(str(_project_skills_dir())) else "global"
+        scope = "project" if p.is_relative_to(_project_skills_dir()) else "global"
         out.append((sk, scope, p))
     return out
 
@@ -214,6 +212,7 @@ def _list_installed():
 def skill_uninstall(
     name: str = typer.Argument(...),
     project: bool = typer.Option(False, "--project"),
+    yes: bool = typer.Option(False, "--yes"),
 ) -> None:
     """Remove an installed skill from global (default) or project scope."""
     root = _project_skills_dir() if project else _global_skills_dir()
@@ -221,6 +220,16 @@ def skill_uninstall(
     if not target.exists():
         typer.echo(f"Skill not found: {name}", err=True)
         raise typer.Exit(code=1)
+    if not yes:
+        if not sys.stdin.isatty():
+            typer.echo(
+                "Refusing to uninstall non-interactively without --yes.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if not typer.confirm(f"Remove {target}?", default=False):
+            typer.echo("Aborted.")
+            raise typer.Exit(code=1)
     shutil.rmtree(target)
     typer.echo(f"Removed {name}")
 
@@ -245,7 +254,7 @@ def skill_list(
             }
             for sk, scope, p in rows
         ]
-        typer.echo(_json.dumps(payload, indent=2))
+        typer.echo(json.dumps(payload, indent=2))
         return
     table = Table(title="Installed skills")
     for col in ("name", "scope", "license", "description"):

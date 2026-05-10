@@ -272,7 +272,7 @@ def build_system_prompt(
     include_history: bool = True,
     channel: str = "terminal",
 ) -> str:
-    """Build system prompt from context, history, and skill index.
+    """Build system prompt from context and history.
 
     `include_history` should be False when an external session manager
     (e.g. FileSessionManager) is replaying actual messages — otherwise the

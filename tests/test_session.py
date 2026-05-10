@@ -273,6 +273,7 @@ class TestBuildSystemPrompt:
 
         # Stub model so we don't need real provider credentials
         mock_model = MagicMock()
+        # Strands raises if model.stateful is True with conversation_manager set
         mock_model.stateful = False
         agent = create_agent(config, ws, observer, model=mock_model)
         assert "skills" in agent.tool_names

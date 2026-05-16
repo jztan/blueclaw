@@ -176,8 +176,10 @@
   <text x="258" y="522" text-anchor="middle" font-size="9" fill="#7d5e94">per-chat workspace</text>
   <text x="258" y="534" text-anchor="middle" font-size="9" fill="#7d5e94">~/blueclaw/chats/&lt;id&gt;/</text>
 
-  <!-- Arrow: bridges → Session (re-uses create_agent + FileSessionManager) -->
-  <path d="M 338 470 L 380 470 L 380 218" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-purple)"/>
+  <!-- Arrow: bridges → Session (re-uses create_agent + FileSessionManager)
+       Routed around server.py on the left so it actually terminates on
+       the Session box, not on Tools. -->
+  <path d="M 178 470 L 148 470 L 148 170 L 178 170" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-purple)"/>
 
   <!-- ===== Sandbox CLI badge ===== -->
   <line x1="350" y1="320" x2="350" y2="350" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#arrow-purple)"/>

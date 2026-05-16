@@ -9,8 +9,12 @@ All notable changes to blueclaw will be documented in this file.
   Strands `FileSessionManager`-backed conversation continuity, allowlist-enforced
   authorization (empty allowlist refuses everyone), `/whoami` `/reset` `/forget`
   commands, long-polling by default and webhook mode opt-in, and a `--echo`
-  smoke-test mode. Install via `pip install -e ".[telegram]"`. See
-  `docs/bridges/telegram.md`.
+  smoke-test mode. Each turn is persisted via `build_trace_and_record` →
+  `write_trace` + `append_history` with `source="telegram"`. Install via
+  `pip install -e ".[telegram]"`. See `docs/bridges/telegram.md`.
+- **`blueclaw history --chat <id>` / `--all-chats`.** Inspect per-chat
+  Telegram history without changing directory; `--all-chats` aggregates the
+  default workspace with every `~/blueclaw/chats/<id>/`, labeling each row.
 - **SOUL.md identity file.** Optional `<workspace>/SOUL.md` holds the agent's
   persona/voice (personality, values, communication style) separately from
   `CONTEXT.md` (which holds factual memory). When present, it is loaded as the

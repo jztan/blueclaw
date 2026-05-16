@@ -54,6 +54,20 @@ DM your bot any text — blueclaw replies inline. Commands:
 - `/reset` — wipes the chat's `history.jsonl`; keeps `CONTEXT.md`.
 - `/forget` — wipes both `history.jsonl` and `CONTEXT.md`.
 
+## Inspecting chat history
+
+Per-chat history lives at `~/blueclaw/chats/<chat_id>/.blueclaw/history.jsonl`.
+The `history` command can read them directly:
+
+```bash
+blueclaw history --chat 12345        # single chat
+blueclaw history --all-chats         # default workspace + every chat, labeled
+```
+
+Each per-turn row is also written to the chat's `traces/` directory and is
+visible if you `cd ~/blueclaw/chats/<chat_id>` and run `blueclaw trace ui`
+from there (a multi-chat trace UI is a follow-up).
+
 ## Single-instance rule
 
 Long-polling allows exactly one `blueclaw telegram` process per bot token. If

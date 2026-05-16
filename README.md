@@ -133,6 +133,8 @@ blueclaw telegram --webhook https://your.host/telegram
 
 Commands: `/whoami` (returns your IDs, works even unauthorized — for onboarding), `/start`, `/reset` (clears history, keeps `CONTEXT.md`), `/forget` (wipes both).
 
+Inspect per-chat history from the host: `blueclaw history --chat <id>` or `blueclaw history --all-chats` (aggregates default workspace + every chat, labeled by source).
+
 ### Skills — [docs/skills.md](docs/skills.md)
 
 Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) that the agent loads on demand. Built on the [Strands `AgentSkills`](https://strandsagents.com/) plugin and the [AgentSkills.io](https://agentskills.io) standard, so skills are portable between blueclaw and any other compliant runtime.

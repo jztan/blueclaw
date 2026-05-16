@@ -73,11 +73,13 @@ def compose_env(
     Precedence (low -> high):
       1. BUILTIN_ENV_ALLOWLIST read from the launcher's own env (os.environ).
       2. ~/blueclaw/.env (loaded if present; replaced if cfg.env_files set).
-      3. <project_root>/.env.docker (loaded if present; replaced if cfg.env_files set).
-      4. cfg.extra_env. Special form: value == "@host" means read the host env var
+      3. <project_root>/.env (loaded if present; matches the host-side
+         python-dotenv load at cli.py:23 so the same keys reach the container).
+      4. <project_root>/.env.docker (loaded if present; replaced if cfg.env_files set).
+      5. cfg.extra_env. Special form: value == "@host" means read the host env var
          of the same name; omit if unset.
 
-    cfg.env_files, when explicitly provided, replaces (2)+(3) entirely.
+    cfg.env_files, when explicitly provided, replaces (2)+(3)+(4) entirely.
     cfg.env_files == [] disables file loading.
     """
     env: dict[str, str] = {}
@@ -87,10 +89,11 @@ def compose_env(
         if name in os.environ:
             env[name] = os.environ[name]
 
-    # Layer 2+3: dotenv files
+    # Layer 2+3+4: dotenv files
     if cfg.env_files is None:
         default_files = [
             home / "blueclaw" / ".env",
+            project_root / ".env",
             project_root / ".env.docker",
         ]
         env.update(load_dotenv_files(default_files))

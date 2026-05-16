@@ -61,11 +61,13 @@ Env vars are composed deterministically from these layers (low → high preceden
    `BLUECLAW_API_KEY`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, `GH_TOKEN`,
    `GITHUB_TOKEN`. Missing vars are silently skipped.
 2. **`~/blueclaw/.env`** — user-global dotenv.
-3. **`<project>/.env.docker`** — project-local dotenv (sits next to `blueclaw.yaml`).
-4. **`extra_env`** in `blueclaw.yaml` — highest precedence. Use `KEY: "@host"` to
+3. **`<project>/.env`** — project-local dotenv (the same file `python-dotenv` already
+   loads on the host at startup, so the same keys reach the container).
+4. **`<project>/.env.docker`** — docker-specific overrides (sits next to `blueclaw.yaml`).
+5. **`extra_env`** in `blueclaw.yaml` — highest precedence. Use `KEY: "@host"` to
    forward an arbitrary host env var by name.
 
-Override the default list (2)+(3) via `sandbox.env_files: [path1, path2, ...]`.
+Override the default list (2)+(3)+(4) via `sandbox.env_files: [path1, path2, ...]`.
 Set `env_files: []` to disable file-based env entirely.
 
 ### Dotenv file format

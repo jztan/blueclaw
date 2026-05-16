@@ -1305,6 +1305,24 @@ class TestLauncherWiring:
         runner.invoke(app, ["trace", "ui", "--no-open"])
         mock_execvp.assert_called_once()
 
+    def test_in_container_skips_launcher_hook(self, mocker, tmp_path, monkeypatch):
+        """When BLUECLAW_SANDBOX_MODE=docker is set (we are inside the sandbox),
+        the launcher hook must not try to re-execvp into another container."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "run", "hi"])
+        monkeypatch.setenv("BLUECLAW_SANDBOX_MODE", "docker")
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        # Patch decide_launch to detect whether the hook reached past the guard.
+        mock_decide = mocker.patch("blueclaw.cli.decide_launch")
+        runner.invoke(app, ["run", "hi"])
+        mock_execvp.assert_not_called()
+        # Recursion guard fires before decide_launch is called — proving the
+        # launcher path was short-circuited and not just that no execvp happened.
+        mock_decide.assert_not_called()
+
 
 class TestInitGitignore:
     def test_init_creates_gitignore_with_env_patterns(self, tmp_path, monkeypatch):

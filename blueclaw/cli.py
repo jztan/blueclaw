@@ -456,6 +456,8 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     """Re-exec into `docker run` if sandbox.mode is docker for this subcommand.
 
     Returns without doing anything if any of these holds:
+      - We are already running inside the sandbox (BLUECLAW_SANDBOX_MODE env set
+        by the host-side launcher). Prevents infinite re-launch recursion.
       - blueclaw.yaml is missing or fails to load (let the regular command path
         surface that error with its existing message).
       - sandbox.mode is 'inprocess'.
@@ -465,6 +467,11 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     Exits via SystemExit if the user requested docker mode but the daemon or
     image is missing under 'error' policy.
     """
+    # In-container guard: if the launcher already placed us inside the sandbox,
+    # don't try to re-launch a second container.
+    if os.environ.get("BLUECLAW_SANDBOX_MODE") == "docker":
+        return
+
     from blueclaw.session import load_config  # lazy: matches existing pattern
 
     # Cheap pre-filter: skip entirely for host-only subcommands so we don't

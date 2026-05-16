@@ -96,6 +96,24 @@ class TestComposeEnv:
         result = compose_env(SandboxConfig(), project_root=tmp_path, home=tmp_path)
         assert result["KEY"] == "fromProject"
 
+    def test_project_dotenv_loaded(self, monkeypatch, tmp_path):
+        """`<project>/.env` is loaded so keys set there by python-dotenv on
+        the host (cli.py:23) also reach the container."""
+        for v in BUILTIN_ENV_ALLOWLIST:
+            monkeypatch.delenv(v, raising=False)
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-from-env\n")
+        result = compose_env(SandboxConfig(), project_root=tmp_path, home=tmp_path)
+        assert result["ANTHROPIC_API_KEY"] == "sk-from-env"
+
+    def test_env_docker_overrides_project_env(self, monkeypatch, tmp_path):
+        """`.env.docker` (docker-specific) overrides `.env` (general)."""
+        for v in BUILTIN_ENV_ALLOWLIST:
+            monkeypatch.delenv(v, raising=False)
+        (tmp_path / ".env").write_text("KEY=fromDotenv\n")
+        (tmp_path / ".env.docker").write_text("KEY=fromDotenvDocker\n")
+        result = compose_env(SandboxConfig(), project_root=tmp_path, home=tmp_path)
+        assert result["KEY"] == "fromDotenvDocker"
+
     def test_extra_env_overrides_files(self, monkeypatch, tmp_path):
         for v in BUILTIN_ENV_ALLOWLIST:
             monkeypatch.delenv(v, raising=False)

@@ -6,10 +6,13 @@ emits Server-Sent Events for token-by-token output.
 
 from __future__ import annotations
 import asyncio
+import contextlib
 import hmac
 import json
+import logging
 import os
 import secrets
+from collections import deque
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -44,6 +47,7 @@ from blueclaw.session import (
     cleanup_mcp_clients,
     create_agent,
     extract_text,
+    update_context_background,
 )
 from blueclaw.workspace import Workspace, WorkspaceError
 from strands.session.file_session_manager import FileSessionManager
@@ -51,6 +55,9 @@ from strands.session.file_session_manager import FileSessionManager
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
 _MAX_ATTACHMENTS = 10
+_CONTEXT_BUFFER_MAX_TURNS = 50
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_attachments(
@@ -188,6 +195,30 @@ def create_server_app(
     uploads_root = workspace.root / ".blueclaw" / "uploads"
     upload_store = UploadStore(uploads_root)
 
+    # Rolling buffer of recent turns, flushed into CONTEXT.md on shutdown
+    # (Ctrl+C). The server does not update CONTEXT.md per turn because the
+    # file is global across conversations and per-turn writes would race.
+    recent_turns: deque[tuple[str, str]] = deque(maxlen=_CONTEXT_BUFFER_MAX_TURNS)
+
+    def _record_turn(user_message: str, reply: str) -> None:
+        if user_message or reply:
+            recent_turns.append((user_message, reply))
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        yield
+        if not recent_turns:
+            return
+        snapshot = "\n\n".join(
+            f"user: {u[:1000]}\nassistant: {r[:1000]}" for u, r in recent_turns
+        )
+        try:
+            await asyncio.to_thread(
+                update_context_background, model, snapshot, workspace
+            )
+        except Exception as exc:  # pragma: no cover - best-effort on shutdown
+            logger.warning("CONTEXT.md update on shutdown failed: %s", exc)
+
     async def health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
 
@@ -250,6 +281,7 @@ def create_server_app(
                     )
                     workspace.write_trace(trace)
                     workspace.append_history(record)
+                    _record_turn(req.message, extract_text(result.message))
                     return JSONResponse(
                         _build_response_payload(result, req, config, run_id)
                     )
@@ -350,6 +382,9 @@ def create_server_app(
                             )
                             workspace.write_trace(trace)
                             workspace.append_history(record)
+                            _record_turn(
+                                req.message, extract_text(final_result.message)
+                            )
                         except WorkspaceError as exc:
                             yield _sse(
                                 "error",
@@ -424,7 +459,8 @@ def create_server_app(
             Route("/message", handle_message, methods=["POST"]),
             Route("/message/stream", handle_message_stream, methods=["POST"]),
             Route("/upload", handle_upload, methods=["POST"]),
-        ]
+        ],
+        lifespan=lifespan,
     )
     return CORSMiddleware(
         app,

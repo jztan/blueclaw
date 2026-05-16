@@ -51,6 +51,13 @@ All notable changes to blueclaw will be documented in this file.
   `uvicorn.run`.
 
 ### Changed
+- **`blueclaw serve` saves CONTEXT.md on shutdown.** Each successful turn now
+  appends its `(user, assistant)` snippet to a bounded (50-turn) in-memory
+  buffer. On graceful shutdown (Ctrl+C → uvicorn → Starlette lifespan), the
+  buffer is summarized into `CONTEXT.md` via `update_context_background`. CLI
+  sessions already did this per turn; the server previously dropped all
+  persistent-context updates on exit because the file is global across
+  conversations and per-turn writes would race.
 - **Runtime image** installs all four model-provider extras (`anthropic`,
   `ollama`, `openai`, `gemini`) so the image works for any configured provider
   without a rebuild.

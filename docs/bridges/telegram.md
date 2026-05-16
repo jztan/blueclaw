@@ -64,9 +64,21 @@ blueclaw history --chat 12345        # single chat
 blueclaw history --all-chats         # default workspace + every chat, labeled
 ```
 
-Each per-turn row is also written to the chat's `traces/` directory and is
-visible if you `cd ~/blueclaw/chats/<chat_id>` and run `blueclaw trace ui`
-from there (a multi-chat trace UI is a follow-up).
+Every `blueclaw trace *` reader also accepts `--chat <id>` (target a single
+chat) and, where union makes sense, `--all-chats` (default + every chat).
+Examples:
+
+```bash
+blueclaw trace list --chat 1455461961
+blueclaw trace list --all-chats
+blueclaw trace stats --all-chats          # aggregate + per-source breakdown
+blueclaw trace ui --all-chats             # dashboard with workspace dropdown
+blueclaw trace show 20260516-091000       # auto-finds the right workspace
+```
+
+Single-target commands (`show`, `explain`, `graph`, `replay`, `timeline`,
+`diff`) scan every workspace looking for the run_id and print a
+disambiguation hint when the same id exists in more than one.
 
 ## Single-instance rule
 

@@ -305,3 +305,89 @@ def test_serialize_trace_summary_conversation_id_null_by_default():
         status="success",
     )
     assert _serialize_trace_summary(t)["conversation_id"] is None
+
+
+# --- Multi-workspace API ---
+
+
+class TestMultiWorkspace:
+    @pytest.fixture
+    def multi_client(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+
+        ws_default = Workspace(tmp_path / "default")
+        ws_chat = Workspace(tmp_path / "chats" / "42")
+
+        ws_default.write_trace(
+            _make_trace(run_id="20260501-100000", goal="from default")
+        )
+        ws_chat.write_trace(_make_trace(run_id="20260501-110000", goal="from chat 42"))
+
+        app = create_app([("workspace", ws_default), ("chat:42", ws_chat)])
+        return TestClient(app)
+
+    def test_api_workspaces_lists_all(self, multi_client):
+        r = multi_client.get("/api/workspaces")
+        assert r.status_code == 200
+        keys = [w["key"] for w in r.json()]
+        assert keys == ["workspace", "chat:42"]
+
+    def test_default_workspace_when_param_absent(self, multi_client):
+        r = multi_client.get("/api/traces")
+        assert r.status_code == 200
+        data = r.json()
+        goals = [t["goal"] for t in data["traces"]]
+        assert "from default" in goals
+        assert "from chat 42" not in goals
+
+    def test_workspace_param_selects_chat(self, multi_client):
+        r = multi_client.get("/api/traces?workspace=chat:42")
+        assert r.status_code == 200
+        goals = [t["goal"] for t in r.json()["traces"]]
+        assert goals == ["from chat 42"]
+
+    def test_workspace_all_union(self, multi_client):
+        r = multi_client.get("/api/traces?workspace=all")
+        assert r.status_code == 200
+        rows = r.json()["traces"]
+        sources = {row["_source"] for row in rows}
+        assert sources == {"workspace", "chat:42"}
+
+    def test_workspace_unknown_returns_404(self, multi_client):
+        r = multi_client.get("/api/traces?workspace=chat:999")
+        assert r.status_code == 404
+
+    def test_get_trace_workspace_all_ambiguous(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+
+        ws1 = Workspace(tmp_path / "default")
+        ws2 = Workspace(tmp_path / "chats" / "42")
+        # Same run_id in both workspaces
+        ws1.write_trace(_make_trace(run_id="20260501-120000", goal="in default"))
+        ws2.write_trace(_make_trace(run_id="20260501-120000", goal="in chat"))
+
+        app = create_app([("workspace", ws1), ("chat:42", ws2)])
+        client = TestClient(app)
+        r = client.get("/api/traces/20260501-120000?workspace=all")
+        assert r.status_code == 409
+        body = r.json()
+        assert body["error"] == "ambiguous"
+        assert set(body["candidates"]) == {"workspace", "chat:42"}
+
+    def test_get_trace_unique_match_via_all(self, multi_client):
+        r = multi_client.get("/api/traces/20260501-110000?workspace=all")
+        assert r.status_code == 200
+        assert r.json()["_source"] == "chat:42"
+
+    def test_stats_by_source(self, multi_client):
+        r = multi_client.get("/api/stats?workspace=all")
+        assert r.status_code == 200
+        body = r.json()
+        assert "by_source" in body
+        assert set(body["by_source"].keys()) == {"workspace", "chat:42"}

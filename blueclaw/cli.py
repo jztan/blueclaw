@@ -746,24 +746,93 @@ trace_app = typer.Typer(add_completion=False, help="Inspect execution traces.")
 app.add_typer(trace_app, name="trace")
 
 
+def _resolve_workspaces_or_exit(
+    chat: int | None, all_chats: bool
+) -> list[tuple[str, Workspace]]:
+    """Wrap resolve_workspaces with a friendly missing-chat error."""
+    from blueclaw.workspace import resolve_workspaces
+
+    try:
+        return resolve_workspaces(
+            default=DEFAULT_WORKSPACE, chat=chat, all_chats=all_chats
+        )
+    except FileNotFoundError as exc:
+        console.print(f"[red]No workspace found for chat {exc}[/red]")
+        raise typer.Exit(1)
+
+
+def _find_trace(run_id: str, *, chat: Optional[int]) -> tuple[str, Workspace]:
+    """Find a unique workspace containing run_id, or exit with a hint.
+
+    With chat=N: only look in chat:N.
+    Without: scan default + every chat; unique match wins, multi-match exits.
+    """
+    from blueclaw.workspace import resolve_workspaces
+
+    if chat is not None:
+        try:
+            key, ws = resolve_workspaces(
+                default=DEFAULT_WORKSPACE, chat=chat, all_chats=False
+            )[0]
+        except FileNotFoundError:
+            console.print(f"[red]No workspace found for chat {chat}[/red]")
+            raise typer.Exit(1)
+        if ws.read_trace(run_id) is None:
+            console.print(f"[red]Trace {run_id} not found in {key}[/red]")
+            raise typer.Exit(1)
+        return key, ws
+
+    matches: list[tuple[str, Workspace]] = []
+    for key, ws in resolve_workspaces(
+        default=DEFAULT_WORKSPACE, chat=None, all_chats=True
+    ):
+        if ws.read_trace(run_id) is not None:
+            matches.append((key, ws))
+    if not matches:
+        console.print(f"[red]Trace {run_id} not found in any workspace[/red]")
+        raise typer.Exit(1)
+    if len(matches) > 1:
+        keys = ", ".join(k for k, _ in matches)
+        console.print(
+            f"[yellow]Trace {run_id} found in: {keys}.[/yellow] "
+            f"Disambiguate with --chat <id>."
+        )
+        raise typer.Exit(2)
+    found = matches[0]
+    if found[0] != "workspace":
+        console.print(f"[dim]hint: found in {found[0]}[/dim]")
+    return found
+
+
 @trace_app.command("list")
 def trace_list(
     limit: int = typer.Option(20, "--limit", "-n", help="Max traces to show"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Trace root: a Telegram chat ID"
+    ),
+    all_chats: bool = typer.Option(
+        False, "--all-chats", help="Union default + every chat"
+    ),
 ) -> None:
     """List recent execution traces."""
-    workspace = Workspace(DEFAULT_WORKSPACE)
-    traces = workspace.list_traces(limit=limit)
-
-    if not traces:
+    workspaces = _resolve_workspaces_or_exit(chat, all_chats)
+    rows: list[tuple[str, "RunTrace"]] = []  # noqa: F821
+    for key, ws in workspaces:
+        for t in ws.list_traces(limit=limit):
+            rows.append((key, t))
+    rows.sort(key=lambda kt: kt[1].start_time, reverse=True)
+    rows = rows[:limit]
+    if not rows:
         console.print("No traces yet.")
         return
-
-    for t in traces:
+    show_label = chat is not None or all_chats
+    for key, t in rows:
         goal = t.goal[:50] + "..." if len(t.goal) > 50 else t.goal
         cost = f"${t.total_cost:.4f}" if t.total_cost is not None else "n/a"
         style = "red" if t.status == "error" else ""
+        prefix = f"[cyan]{key}[/cyan] " if show_label else ""
         console.print(
-            f"[dim]{t.run_id}[/dim]  {t.status:<7}  "
+            f"{prefix}[dim]{t.run_id}[/dim]  {t.status:<7}  "
             f"{len(t.steps)} steps  {t.total_tokens} tokens  "
             f"{cost}  {goal}",
             style=style,
@@ -773,13 +842,15 @@ def trace_list(
 @trace_app.command("show")
 def trace_show(
     run_id: str = typer.Argument(..., help="Run ID to display"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Restrict lookup to a Telegram chat ID"
+    ),
 ) -> None:
     """Show detailed trace for a run."""
     from rich.table import Table
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    _key, workspace = _find_trace(run_id, chat=chat)
     trace = workspace.read_trace(run_id)
-
     if trace is None:
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
@@ -826,6 +897,9 @@ def trace_show(
 def trace_explain(
     run_id: str = typer.Argument(..., help="Run ID to explain"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Restrict lookup to a Telegram chat ID"
+    ),
 ) -> None:
     """Explain a recorded trace using an LLM."""
     from blueclaw.session import (
@@ -835,7 +909,7 @@ def trace_explain(
     )
     from strands import Agent
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    _key, workspace = _find_trace(run_id, chat=chat)
     trace = workspace.read_trace(run_id)
 
     if trace is None:
@@ -867,13 +941,15 @@ def trace_explain(
 @trace_app.command("graph")
 def trace_graph(
     run_id: str = typer.Argument(..., help="Run ID to display as tree"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Restrict lookup to a Telegram chat ID"
+    ),
 ) -> None:
     """Show execution graph as a tree."""
     from rich.tree import Tree
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    _key, workspace = _find_trace(run_id, chat=chat)
     trace = workspace.read_trace(run_id)
-
     if trace is None:
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
@@ -892,9 +968,20 @@ def trace_graph(
 def trace_diff(
     id1: str = typer.Argument(..., help="First run ID"),
     id2: str = typer.Argument(..., help="Second run ID"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Pin both traces to a Telegram chat ID"
+    ),
 ) -> None:
-    """Compare two execution traces."""
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    """Compare two execution traces (must share a workspace)."""
+    key1, ws1 = _find_trace(id1, chat=chat)
+    key2, ws2 = _find_trace(id2, chat=chat)
+    if ws1.root != ws2.root:
+        console.print(
+            f"[red]Traces span different workspaces ({key1} vs {key2}). "
+            f"Use --chat to pin both to the same one.[/red]"
+        )
+        raise typer.Exit(2)
+    workspace = ws1
     a = workspace.read_trace(id1)
     if a is None:
         console.print(f"Trace not found: {id1}")
@@ -937,11 +1024,13 @@ def trace_replay(
         False, "--stub-tools", help="Re-run with recorded outputs"
     ),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Restrict lookup to a Telegram chat ID"
+    ),
 ) -> None:
     """Step through a recorded trace interactively."""
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    _key, workspace = _find_trace(run_id, chat=chat)
     trace = workspace.read_trace(run_id)
-
     if trace is None:
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
@@ -992,11 +1081,14 @@ def trace_replay(
 @trace_app.command("timeline")
 def trace_timeline(
     run_id: str = typer.Argument(..., help="Run ID to display"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Restrict lookup to a Telegram chat ID"
+    ),
 ) -> None:
     """Show waterfall timeline of tool calls."""
     from rich.table import Table
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    _key, workspace = _find_trace(run_id, chat=chat)
     trace = workspace.read_trace(run_id)
 
     if trace is None:
@@ -1062,29 +1154,39 @@ def trace_stats(
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Filter by model ID"
     ),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Trace root: a Telegram chat ID"
+    ),
+    all_chats: bool = typer.Option(
+        False, "--all-chats", help="Aggregate across default + every chat"
+    ),
 ) -> None:
     """Show aggregate trace statistics."""
     from datetime import datetime, timedelta, timezone
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
+    workspaces = _resolve_workspaces_or_exit(chat, all_chats)
 
     since_dt = None
     if since is not None:
         since_dt = datetime.now(timezone.utc) - timedelta(days=since)
 
-    traces = workspace.list_traces(limit=10_000, since=since_dt)
+    from blueclaw.web import compute_stats
 
-    # Apply model filter
-    if model:
-        traces = [t for t in traces if t.model_id == model]
+    union: list = []
+    per_source: list[tuple[str, dict]] = []
+    for key, ws in workspaces:
+        rows = ws.list_traces(limit=10_000, since=since_dt)
+        if model:
+            rows = [t for t in rows if t.model_id == model]
+        union.extend(rows)
+        if len(workspaces) > 1:
+            per_source.append((key, compute_stats(rows)))
 
-    if not traces:
+    if not union:
         console.print("No traces yet.")
         return
 
-    from blueclaw.web import compute_stats
-
-    stats = compute_stats(traces)
+    stats = compute_stats(union)
 
     # --- Display ---
     header = f"Trace Stats \u00b7 {stats['total_runs']} runs"
@@ -1139,12 +1241,28 @@ def trace_stats(
         for err in stats["errors"]:
             console.print(f"  {err['category']:<20} {err['count']} ({err['pct']}%)")
 
+    if per_source:
+        console.print()
+        console.print("[bold]By source[/bold]")
+        for key, src_stats in per_source:
+            src_cost = src_stats.get("total_cost")
+            cost_str = f"${src_cost:.4f}" if src_cost is not None else "n/a"
+            console.print(f"  {key:<20} {src_stats['total_runs']} runs · {cost_str}")
+
 
 @trace_app.command("ui")
 def trace_ui(
     port: int = typer.Option(8111, "--port", "-p", help="Port to listen on"),
     no_open: bool = typer.Option(
         False, "--no-open", help="Don't open browser automatically"
+    ),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Serve traces for a Telegram chat ID"
+    ),
+    all_chats: bool = typer.Option(
+        False,
+        "--all-chats",
+        help="Show workspace dropdown across default + every chat",
     ),
 ) -> None:
     """Launch trace visualization dashboard in browser."""
@@ -1155,10 +1273,13 @@ def trace_ui(
 
     from blueclaw.web import create_app
 
-    workspace = Workspace(DEFAULT_WORKSPACE)
-    app = create_app(workspace)
+    workspaces = _resolve_workspaces_or_exit(chat, all_chats)
+    app = create_app(workspaces)
     url = f"http://localhost:{port}"
-    console.print(f"Trace UI: {url}")
+    label = (
+        workspaces[0][0] if len(workspaces) == 1 else f"{len(workspaces)} workspaces"
+    )
+    console.print(f"Trace UI ({label}): {url}")
 
     if not no_open:
         threading.Timer(0.5, webbrowser.open, args=[url]).start()
@@ -1175,16 +1296,25 @@ def trace_purge(
         help="Delete traces older than N days (default: config or 30)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted"),
+    chat: Optional[int] = typer.Option(
+        None, "--chat", help="Trace root: a Telegram chat ID"
+    ),
+    all_chats: bool = typer.Option(
+        False, "--all-chats", help="Purge across default + every chat"
+    ),
 ) -> None:
     """Delete old trace files."""
     from blueclaw.session import load_config
 
     config = load_config(_config_path())
     days = older_than if older_than is not None else config.trace_retention_days
-    workspace = Workspace(DEFAULT_WORKSPACE)
-    count = workspace.purge_old_traces(days, dry_run=dry_run)
+    workspaces = _resolve_workspaces_or_exit(chat, all_chats)
     verb = "Would delete" if dry_run else "Deleted"
-    console.print(f"{verb} {count} trace(s) older than {days} days.")
+    show_label = chat is not None or all_chats
+    for key, ws in workspaces:
+        count = ws.purge_old_traces(days, dry_run=dry_run)
+        prefix = f"{key}: " if show_label else ""
+        console.print(f"{prefix}{verb} {count} trace(s) older than {days} days.")
 
 
 @app.command()

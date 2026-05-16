@@ -15,6 +15,17 @@ All notable changes to blueclaw will be documented in this file.
 - **`blueclaw history --chat <id>` / `--all-chats`.** Inspect per-chat
   Telegram history without changing directory; `--all-chats` aggregates the
   default workspace with every `~/blueclaw/chats/<id>/`, labeling each row.
+- **Multi-workspace trace coverage.** Every `blueclaw trace *` reader now
+  accepts `--chat <id>` (single Telegram chat) and, where the union makes
+  sense (`list`, `stats`, `purge`, `ui`), `--all-chats`. Single-target
+  `trace show / explain / graph / replay / timeline / diff` auto-scan
+  workspaces and print a disambiguation hint on collision. The web
+  dashboard (`blueclaw trace ui`) gains a workspace dropdown (with `All
+  workspaces` when more than one exists), a `Source` column in the trace
+  list, and a per-source breakdown table in the stats view. New
+  `GET /api/workspaces` endpoint; existing `/api/traces`, `/api/traces/{id}`,
+  `/api/stats` accept `?workspace=<key>` (`all` unions). Writers
+  unchanged.
 - **SOUL.md identity file.** Optional `<workspace>/SOUL.md` holds the agent's
   persona/voice (personality, values, communication style) separately from
   `CONTEXT.md` (which holds factual memory). When present, it is loaded as the

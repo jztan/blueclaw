@@ -122,6 +122,19 @@ Failed Steps (3 across 2 runs · 3.4% step failure rate)
 blueclaw trace ui                    # open dashboard at localhost:8111
 blueclaw trace ui --port 9000        # custom port
 blueclaw trace ui --no-open          # don't auto-open browser
+blueclaw trace ui --chat 12345       # serve traces for a Telegram chat
+blueclaw trace ui --all-chats        # dashboard with workspace dropdown
 ```
 
 Browser-based dashboard with 4 views: trace list with search/filter, trace detail with interactive waterfall timeline, side-by-side trace comparison, and aggregate stats with charts. Light/dark theme, auto-refresh, zero external dependencies.
+
+### Multi-workspace mode
+
+When `--all-chats` is used, the dashboard sidebar shows a `Workspace` dropdown listing the default workspace plus every Telegram chat directory under `~/blueclaw/chats/`, plus an `All workspaces` option. Selecting `All workspaces` adds a `Source` column to the trace list and a `By source` table to the stats view.
+
+Every `trace` subcommand accepts the same flags:
+
+- `--chat <id>` — target a single Telegram chat's workspace.
+- `--all-chats` — operate on the default workspace plus every chat (supported on `list`, `stats`, `purge`, `ui`).
+
+Single-target commands (`show`, `explain`, `graph`, `replay`, `timeline`, `diff`) auto-scan every workspace for the given run_id; on collision they exit with a friendly disambiguation hint listing the candidate workspaces.

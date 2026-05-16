@@ -797,6 +797,10 @@ code, .mono {
       </div>
     </nav>
     <div class="sidebar-footer">
+      <div style="margin-bottom:6px;">
+        <label for="workspaceSelect" style="display:block; font-size:11px; opacity:0.7; margin-bottom:2px;">Workspace</label>
+        <select id="workspaceSelect" style="width:100%; padding:2px 4px; font-size:12px;"></select>
+      </div>
       <div>Traces: <span class="trace-count" id="sidebarTraceCount">--</span></div>
       <div style="margin-top:4px;">{{VERSION}}</div>
     </div>
@@ -823,6 +827,7 @@ code, .mono {
             <tr>
               <th class="checkbox-cell"></th>
               <th>Run ID</th>
+              <th id="sourceColHead" style="display:none;">Source</th>
               <th>Goal</th>
               <th>Model</th>
               <th>Steps</th>
@@ -1100,6 +1105,10 @@ code, .mono {
     traceTableContainer.classList.remove('hidden');
     listEmpty.classList.add('hidden');
 
+    var showSource = currentWorkspace === 'all';
+    var sourceHead = document.getElementById('sourceColHead');
+    if (sourceHead) sourceHead.style.display = showSource ? '' : 'none';
+
     var html = '';
     filtered.forEach(function(t) {
       var isError = t.status === 'error';
@@ -1111,6 +1120,9 @@ code, .mono {
       html += '<tr class="' + rowClass + '" data-run-id="' + escapeHtml(t.run_id) + '">';
       html += '<td class="checkbox-cell"><input type="checkbox" data-check-id="' + escapeHtml(t.run_id) + '" ' + checked + '></td>';
       html += '<td><span class="run-id-link mono">' + escapeHtml(t.run_id) + '</span></td>';
+      if (showSource) {
+        html += '<td><span class="pill">' + escapeHtml(t._source || '--') + '</span></td>';
+      }
       html += '<td class="goal-cell" title="' + escapeHtml(t.goal) + '">' + escapeHtml(truncate(t.goal, 50)) + '</td>';
       html += '<td><span class="pill">' + escapeHtml(t.model_id || '--') + '</span></td>';
       html += '<td>' + (t.steps != null ? t.steps : '--') + '</td>';
@@ -1496,12 +1508,89 @@ code, .mono {
 
     h += '</div>';
 
+    // By-source breakdown (only when ?workspace=all)
+    if (data.by_source) {
+      h += '<div class="stats-card" style="margin-top:16px;">';
+      h += '<div class="stats-card-title">By source</div>';
+      h += '<table class="trace-table"><thead><tr>';
+      h += '<th>Workspace</th><th>Runs</th><th>Tokens</th><th>Cost</th>';
+      h += '</tr></thead><tbody>';
+      Object.keys(data.by_source).forEach(function(key) {
+        var s = data.by_source[key];
+        h += '<tr>';
+        h += '<td><span class="pill">' + escapeHtml(key) + '</span></td>';
+        h += '<td>' + (s.total_runs || 0) + '</td>';
+        h += '<td>' + formatTokens(s.total_tokens) + '</td>';
+        h += '<td class="cost-cell">' + formatCost(s.total_cost) + '</td>';
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+
     statsContent.innerHTML = h;
   }
 
+  // ─── Workspace selector ───
+  var currentWorkspace = null;
+  var workspaceKeys = [];
+
+  function wsQS() {
+    if (!currentWorkspace || currentWorkspace === 'workspace') return '';
+    return '?workspace=' + encodeURIComponent(currentWorkspace);
+  }
+
+  function wsAppend(url) {
+    var qs = wsQS();
+    if (!qs) return url;
+    return url + (url.indexOf('?') >= 0 ? '&' + qs.slice(1) : qs);
+  }
+
+  function populateWorkspaceSelect() {
+    return fetchJSON('/api/workspaces').then(function(ws) {
+      workspaceKeys = ws.map(function(w) { return w.key; });
+      var sel = document.getElementById('workspaceSelect');
+      sel.innerHTML = '';
+      ws.forEach(function(w) {
+        var opt = document.createElement('option');
+        opt.value = w.key;
+        opt.textContent = w.label;
+        sel.appendChild(opt);
+      });
+      if (ws.length > 1) {
+        var allOpt = document.createElement('option');
+        allOpt.value = 'all';
+        allOpt.textContent = 'All workspaces';
+        sel.appendChild(allOpt);
+      }
+      currentWorkspace = ws[0].key;
+      sel.value = currentWorkspace;
+      sel.addEventListener('change', function() {
+        currentWorkspace = sel.value;
+        loadTraces();
+        // Stats view refresh if it's currently visible
+        if (document.querySelector('.nav-item.active[data-view="stats"]')) {
+          if (typeof loadStats === 'function') loadStats();
+        }
+      });
+    }).catch(function(err) {
+      console.warn('Failed to load /api/workspaces:', err);
+    });
+  }
+
+  // Patch every fetch site to thread the workspace param.
+  var _originalFetchJSON = fetchJSON;
+  fetchJSON = function(url) {
+    if (typeof url === 'string' && url.indexOf('/api/') === 0) {
+      url = wsAppend(url);
+    }
+    return _originalFetchJSON(url);
+  };
+
   // ─── Init ───
-  loadTraces();
-  startAutoRefresh();
+  populateWorkspaceSelect().then(function() {
+    loadTraces();
+    startAutoRefresh();
+  });
 
 })();
 </script>

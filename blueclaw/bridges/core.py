@@ -12,9 +12,11 @@ from typing import Any
 from rich.console import Console
 from strands.session.file_session_manager import FileSessionManager
 
+from datetime import datetime, timezone
+
 from blueclaw.models import SessionConfig
 from blueclaw.observer import ObserverHooks
-from blueclaw.session import create_agent, extract_text
+from blueclaw.session import build_trace_and_record, create_agent, extract_text
 from blueclaw.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -123,11 +125,30 @@ class BridgeRouter:
                 session_manager=session_manager,
                 channel="telegram",
             )
+            start_time = datetime.now(timezone.utc)
             try:
                 result = await asyncio.to_thread(agent, text)
             except Exception as exc:
                 logger.exception("agent turn failed for chat %s", chat_id)
                 return f"Agent error: {exc!s}"[:500]
+            end_time = datetime.now(timezone.utc)
+            run_id = start_time.strftime("%Y%m%d-%H%M%S")
+            try:
+                trace, record = build_trace_and_record(
+                    result,
+                    text,
+                    observer,
+                    self._config,
+                    run_id,
+                    start_time,
+                    end_time,
+                    source="telegram",
+                    conversation_id=str(chat_id),
+                )
+                ctx.workspace.write_trace(trace)
+                ctx.workspace.append_history(record)
+            except Exception:
+                logger.exception("failed to persist trace/history for chat %s", chat_id)
             return extract_text(result.message)
 
     async def handle_command(self, *, chat_id: int, user_id: int, command: str) -> str:

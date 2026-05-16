@@ -691,20 +691,51 @@ def init() -> None:
 @app.command()
 def history(
     limit: int = typer.Option(20, "--limit", "-n", help="Max entries to show"),
+    chat: Optional[int] = typer.Option(
+        None,
+        "--chat",
+        help="Show history for a Telegram chat ID instead of the default workspace",
+    ),
+    all_chats: bool = typer.Option(
+        False,
+        "--all-chats",
+        help="Aggregate history across default workspace and all Telegram chats",
+    ),
 ) -> None:
     """View run history."""
-    workspace = Workspace(DEFAULT_WORKSPACE)
-    records = workspace.read_history()
+    chats_root = Path.home() / "blueclaw" / "chats"
+    roots: list[tuple[str, Path]] = []
+    if chat is not None:
+        roots.append((f"chat:{chat}", chats_root / str(chat)))
+    elif all_chats:
+        roots.append(("workspace", DEFAULT_WORKSPACE))
+        if chats_root.exists():
+            for d in sorted(chats_root.iterdir()):
+                if d.is_dir():
+                    roots.append((f"chat:{d.name}", d))
+    else:
+        roots.append(("workspace", DEFAULT_WORKSPACE))
 
-    if not records:
+    rows = []
+    for label, root in roots:
+        if not (root / ".blueclaw" / "history.jsonl").exists():
+            continue
+        for rec in Workspace(root).read_history():
+            rows.append((label, rec))
+
+    if not rows:
         console.print("No runs yet.")
         return
 
-    for rec in records[-limit:]:
+    rows.sort(key=lambda lr: lr[1].ts)
+    show_label = chat is not None or all_chats
+
+    for label, rec in rows[-limit:]:
         cost_str = f" \u00b7 ${rec.cost:.4f}" if rec.cost else ""
+        prefix = f"[cyan]{label}[/cyan] " if show_label else ""
         console.print(
             f"[dim]{rec.ts.strftime('%Y-%m-%d %H:%M')}[/dim] "
-            f"{rec.goal} "
+            f"{prefix}{rec.goal} "
             f"[dim]({', '.join(rec.tools)}) \u00b7 {rec.tokens} tokens{cost_str}[/dim]"
         )
 

@@ -51,6 +51,14 @@ All notable changes to blueclaw will be documented in this file.
   `uvicorn.run`.
 
 ### Changed
+- **Sandbox auto-host for Ollama.** When `provider: ollama` and
+  `sandbox.mode: docker`, the launcher now defaults `OLLAMA_HOST` to
+  `http://host.docker.internal:11434` (unless the user set it explicitly) and
+  adds `--add-host=host.docker.internal:host-gateway` to the `docker run` argv.
+  Containers previously hit `localhost:11434` — which is the container itself
+  — and surfaced an opaque "All connection attempts failed" mid-stream.
+  Requires the host Ollama daemon to bind a reachable interface
+  (`OLLAMA_HOST=0.0.0.0:11434 ollama serve`).
 - **`blueclaw serve` saves CONTEXT.md on shutdown.** Each successful turn now
   appends its `(user, assistant)` snippet to a bounded (50-turn) in-memory
   buffer. On graceful shutdown (Ctrl+C → uvicorn → Starlette lifespan), the

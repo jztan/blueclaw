@@ -248,6 +248,14 @@ def build_docker_argv(
         "--env=PYTHONDONTWRITEBYTECODE=1",
     ]
 
+    # Map host.docker.internal -> host gateway. Docker Desktop (mac/Windows)
+    # provides this automatically, but native Linux Docker does not. Adding
+    # the flag is harmless on Desktop and lets `OLLAMA_HOST` default work
+    # uniformly. Skipped for `--network=host` and `--network=none` where the
+    # name has no meaning.
+    if cfg.network not in ("host", "none"):
+        argv += ["--add-host=host.docker.internal:host-gateway"]
+
     # Sandbox metadata env vars (read by observer.py inside container)
     argv += [
         "--env=BLUECLAW_SANDBOX_MODE=docker",
@@ -451,6 +459,14 @@ def decide_launch(
     editable = detect_editable_source()
     digest = image_digest(image)
     env = compose_env(sandbox_cfg, project_root=project_root, home=home)
+
+    # Inside the container, `localhost` is the container itself — not the host
+    # running Ollama. Default OLLAMA_HOST to host.docker.internal so the agent
+    # can reach the host Ollama daemon. Users can override via env/dotenv.
+    # (The container also needs `--add-host=host.docker.internal:host-gateway`,
+    # added in build_docker_argv.)
+    if provider == "ollama" and "OLLAMA_HOST" not in env:
+        env["OLLAMA_HOST"] = "http://host.docker.internal:11434"
 
     interactive = (
         sys.stdin.isatty() and sys.stdout.isatty() and subcommand in ("", "run")

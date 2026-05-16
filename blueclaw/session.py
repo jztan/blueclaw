@@ -162,13 +162,17 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML: {e}") from e
 
-    # Flatten model section
+    # Flatten model section (also accept top-level provider/model_id).
     model_section = config_data.get("model", {})
     kwargs: dict = {}
     if "provider" in model_section:
         kwargs["provider"] = model_section["provider"]
+    elif "provider" in config_data:
+        kwargs["provider"] = config_data["provider"]
     if "model_id" in model_section:
         kwargs["model_id"] = model_section["model_id"]
+    elif "model_id" in config_data:
+        kwargs["model_id"] = config_data["model_id"]
     if "tools" in config_data:
         kwargs["tools"] = config_data["tools"]
     if "allowlist_domains" in config_data:
@@ -186,6 +190,10 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
     server_section = config_data.get("server", {})
     if isinstance(server_section, dict) and "max_concurrent_runs" in server_section:
         kwargs["max_concurrent_runs"] = server_section["max_concurrent_runs"]
+
+    # Sandbox section — Pydantic constructs SandboxConfig from the nested dict.
+    if "sandbox" in config_data and isinstance(config_data["sandbox"], dict):
+        kwargs["sandbox"] = config_data["sandbox"]
 
     # Context management
     ctx = config_data.get("context", {})

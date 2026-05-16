@@ -2,6 +2,47 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- **Docker sandbox.** Opt-in via `sandbox.mode: docker` in `blueclaw.yaml`. Runs the
+  entire agent process inside a short-lived container with the workspace bind-mounted,
+  read-only root FS, no-new-privileges, all capabilities dropped, and configurable
+  resource caps. Launcher transparently `execvp`s into `docker run` while keeping
+  the user's TTY and signal forwarding intact. See `docs/sandbox.md`.
+- **Layered env composition** for the sandbox: built-in allowlist →
+  `~/blueclaw/.env` → `<project>/.env` (same file `python-dotenv` already loads on
+  the host) → `<project>/.env.docker` → YAML `extra_env`. `blueclaw init` adds
+  dotenv files to `.gitignore`.
+- **`blueclaw sandbox build` / `blueclaw sandbox doctor`** CLI commands.
+- **Visible launch indicator:** the launcher prints
+  `→ blueclaw sandbox: docker (<image-tag>)` to stderr when it re-execs into the
+  container, so users can confirm the sandbox fired.
+- **Editable-install detection** (PEP 610): editable installs build `dev-<sha>`
+  images and overlay the source tree at `/opt/blueclaw-src` via `PYTHONPATH`.
+- **Trace metadata** records `sandbox.mode/image/image_digest/fallback_reason` on
+  every `TraceStep`.
+- **Recursion guard** for the in-container blueclaw: when
+  `BLUECLAW_SANDBOX_MODE=docker` is set, the launcher hook short-circuits so the
+  container never tries to launch another container.
+
+### Changed
+- **Runtime image** installs all four model-provider extras (`anthropic`,
+  `ollama`, `openai`, `gemini`) so the image works for any configured provider
+  without a rebuild.
+- **HOME tmpfs:** the sandbox now mounts ephemeral tmpfs at
+  `/home/blueclaw/.cache` (256 MB), `/home/blueclaw/.config` (32 MB),
+  `/home/blueclaw/.local` (64 MB) so XDG-respecting tools (pdf-mcp cache, pip
+  cache, HuggingFace cache, etc.) work under `--read-only` root.
+- **In-container bind defaults to 0.0.0.0** for `blueclaw serve` and
+  `blueclaw trace ui` when running under the sandbox, so `--publish <port>:<port>`
+  actually reaches the in-container server. Outside the sandbox, the bind stays
+  on `127.0.0.1` (unchanged).
+- **Config path resolution** honors `BLUECLAW_CONFIG` env var, set by the launcher
+  to the bind-mounted config path inside the container. The config is mounted
+  *outside* the workspace mount (`/home/blueclaw/blueclaw.yaml`) because macOS
+  Docker Desktop with VirtioFS refuses to bind-mount a file inside another
+  bind-mount.
+
 ## [2.4.0] - 2026-05-16
 ### Added
 - Skill packaging (v2.4): blueclaw now adopts the AgentSkills.io standard.

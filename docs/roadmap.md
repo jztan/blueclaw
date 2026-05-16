@@ -1,6 +1,6 @@
 # BlueClaw Roadmap
 
-> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → multi-channel runtime → production hardening.
+> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → sandbox hardening → subagents → multi-channel runtime.
 
 **Current:** v2.4 complete. v2.5 next.
 
@@ -62,9 +62,13 @@ Multi-modal input for the API and CLI. `POST /upload` (multipart, 25 MB cap) acc
 
 Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) following the [AgentSkills.io](https://agentskills.io) standard, loaded at runtime via the Strands `AgentSkills` plugin (1.30+). The `blueclaw skill` CLI installs from local paths, git URLs (with optional `#subdir`), or direct HTTPS to raw `SKILL.md`; `uninstall`, `list`, and `show` round out management. User-global skills live under `~/blueclaw/skills/`; per-project skills under `<project>/.blueclaw/skills/` shadow the global scope on name collision. Skills in v2.4 are pure prompt + metadata — Python tools and MCP refs are deferred to a later release.
 
-## v2.5 — Subagent support
+## v2.5 — Docker Sandbox
 
-`Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls.
+Optional whole-agent container isolation. A new `sandbox: docker` mode in `blueclaw.yaml` runs the entire `blueclaw` process inside a short-lived container with the workspace bind-mounted read-write and the rest of the host filesystem invisible — every tool call, shell or otherwise, inherits the same boundary. Configurable resource caps (CPU, memory, pid limit, wall-clock timeout) and a network mode toggle (`bridge` | `none`; `proxy` reserved for v3) replace the app-level deny-list as the primary security boundary. Falls back transparently to the in-process sandbox when Docker is unavailable, so dev loops stay fast. Sets the foundation for network-level domain isolation (egress proxy enforcing the allowlist instead of trust-the-tool).
+
+## v2.6 — Subagent support
+
+`Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls. With v2.5's container sandbox in place, subagent-spawned shell work runs inside the same isolation boundary.
 
 ## v3 — Multi-Channel Runtime
 Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack, Discord, and Telegram ship as thin skill files on top of this core.
@@ -77,6 +81,4 @@ Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispa
 |---|---|
 | Task scheduling | Can be a skill, not core |
 | Browser automation | Can be an MCP server, not core |
-| Docker sandbox | Optional container isolation (`sandbox: docker` config, volume mount, resource caps); add when there's a real security requirement |
-| Network-level domain isolation | Requires Docker proxy; deferred until Docker sandbox lands |
 | OpenTelemetry export | No current need; revisit when external observability is required |

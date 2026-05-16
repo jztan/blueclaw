@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from blueclaw import __version__
 from blueclaw.cli import app, render_pixel_art, render_welcome_banner
-from blueclaw.models import RunTrace, SessionConfig, TraceStep
+from blueclaw.models import RunTrace, SandboxConfig, SessionConfig, TraceStep
 from blueclaw.workspace import Workspace
 
 runner = CliRunner()
@@ -1176,3 +1176,179 @@ class TestServeCommand:
         ):
             runner.invoke(app, ["serve", "--cors-origin", "https://app.example.com"])
         assert mock_app.call_args.kwargs.get("cors_origin") == "https://app.example.com"
+
+
+import json as _json
+
+
+class TestSandboxCli:
+    def test_sandbox_doctor_reports_docker_available(self, mocker):
+        mocker.patch("blueclaw.cli.docker_available", return_value=True)
+        mocker.patch("blueclaw.cli.image_exists", return_value=True)
+        mocker.patch(
+            "blueclaw.cli.resolve_image_tag", return_value="blueclaw/runtime:test"
+        )
+        result = runner.invoke(app, ["sandbox", "doctor"])
+        assert result.exit_code == 0
+        assert "docker: ok" in result.stdout.lower()
+        assert "image" in result.stdout.lower()
+
+    def test_sandbox_doctor_reports_docker_missing(self, mocker):
+        mocker.patch("blueclaw.cli.docker_available", return_value=False)
+        result = runner.invoke(app, ["sandbox", "doctor"])
+        assert result.exit_code == 1
+        assert "docker" in result.stdout.lower()
+
+    def test_sandbox_doctor_json_output(self, mocker):
+        mocker.patch("blueclaw.cli.docker_available", return_value=True)
+        mocker.patch("blueclaw.cli.image_exists", return_value=True)
+        mocker.patch(
+            "blueclaw.cli.resolve_image_tag", return_value="blueclaw/runtime:test"
+        )
+        result = runner.invoke(app, ["sandbox", "doctor", "--json"])
+        assert result.exit_code == 0
+        data = _json.loads(result.stdout)
+        assert data["docker_available"] is True
+        assert data["image_present"] is True
+
+    def test_sandbox_build_invokes_docker_build(self, mocker, tmp_path):
+        mock_run = mocker.patch("blueclaw.cli.subprocess.run")
+        mock_run.return_value.returncode = 0
+        mocker.patch(
+            "blueclaw.cli.resolve_image_tag", return_value="blueclaw/runtime:test"
+        )
+        result = runner.invoke(app, ["sandbox", "build"])
+        assert result.exit_code == 0
+        call_argv = mock_run.call_args[0][0]
+        assert call_argv[0] == "docker"
+        assert "build" in call_argv
+        assert "-t" in call_argv and "blueclaw/runtime:test" in call_argv
+
+
+class TestLauncherWiring:
+    def test_inprocess_host_command_no_execvp(self, mocker, tmp_path, monkeypatch):
+        """sandbox.mode=inprocess and a host-only command: no docker invocation."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "sandbox", "doctor", "--json"])
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="inprocess"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        runner.invoke(app, ["sandbox", "doctor", "--json"])
+        mock_execvp.assert_not_called()
+
+    def test_docker_mode_run_calls_execvp(self, mocker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "run", "hi"])
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_exists", return_value=True)
+        mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:abc")
+        runner.invoke(app, ["run", "hi"])
+        mock_execvp.assert_called_once()
+        args, _ = mock_execvp.call_args
+        assert args[0] == "docker"
+
+    def test_docker_mode_host_subcommand_no_execvp(self, mocker, tmp_path, monkeypatch):
+        """sandbox.mode=docker but `skill list` is a host command: no docker."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "skill", "list"])
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        runner.invoke(app, ["skill", "list"])
+        mock_execvp.assert_not_called()
+
+    def test_docker_mode_trace_ui_calls_execvp(self, mocker, tmp_path, monkeypatch):
+        """trace ui is a two-word container command; must hit execvp under docker."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "trace", "ui", "--no-open"])
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_exists", return_value=True)
+        mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:abc")
+        runner.invoke(app, ["trace", "ui", "--no-open"])
+        mock_execvp.assert_called_once()
+
+    def test_in_container_skips_launcher_hook(self, mocker, tmp_path, monkeypatch):
+        """When BLUECLAW_SANDBOX_MODE=docker is set (we are inside the sandbox),
+        the launcher hook must not try to re-execvp into another container."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "run", "hi"])
+        monkeypatch.setenv("BLUECLAW_SANDBOX_MODE", "docker")
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        # Patch decide_launch to detect whether the hook reached past the guard.
+        mock_decide = mocker.patch("blueclaw.cli.decide_launch")
+        runner.invoke(app, ["run", "hi"])
+        mock_execvp.assert_not_called()
+        # Recursion guard fires before decide_launch is called — proving the
+        # launcher path was short-circuited and not just that no execvp happened.
+        mock_decide.assert_not_called()
+
+
+class TestInitGitignore:
+    def test_init_creates_gitignore_with_env_patterns(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0
+        gi = tmp_path / ".gitignore"
+        assert gi.exists()
+        body = gi.read_text()
+        assert ".env" in body
+        assert ".env.docker" in body
+
+    def test_init_appends_when_gitignore_exists(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        gi = tmp_path / ".gitignore"
+        gi.write_text("# preexisting\nnode_modules/\n")
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0
+        body = gi.read_text()
+        assert "node_modules/" in body
+        assert ".env.docker" in body
+
+    def test_init_idempotent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["init"])
+        first = (tmp_path / ".gitignore").read_text()
+        runner.invoke(app, ["init"])
+        second = (tmp_path / ".gitignore").read_text()
+        assert first == second  # no duplicate lines

@@ -3,11 +3,115 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
+
+
+class ExtraMount(BaseModel):
+    """A user-declared bind mount for the docker sandbox."""
+
+    host: str
+    container: str
+    mode: Literal["ro", "rw"] = "ro"
+
+
+_SYSTEM_DENYLIST = frozenset(
+    {"/", "/etc", "/var", "/usr", "/bin", "/sbin", "/boot", "/root"}
+)
+
+
+def _validate_extra_mount(m: ExtraMount) -> ExtraMount:
+    expanded = Path(os.path.expanduser(m.host))
+    host_path = expanded.resolve()
+    # Check both expanded (pre-symlink-resolution) and resolved paths against
+    # the deny-list, since macOS resolves /etc -> /private/etc, /var -> /private/var.
+    if str(expanded) in _SYSTEM_DENYLIST or str(host_path) in _SYSTEM_DENYLIST:
+        raise ValueError(f"extra_mounts: host path {expanded} is on the deny-list")
+    if host_path == Path(os.path.expanduser("~/.ssh")):
+        raise ValueError("extra_mounts: host path ~/.ssh is on the deny-list")
+    home = Path(os.path.expanduser("~"))
+    if host_path == home:
+        raise ValueError(
+            f"extra_mounts: host path {host_path} (HOME) is on the deny-list"
+        )
+    workspace = home / "blueclaw" / "workspace"
+    if workspace.is_relative_to(host_path):
+        raise ValueError(
+            f"extra_mounts: host path {host_path} is an ancestor of the workspace mount"
+        )
+    return m
+
+
+class SandboxConfig(BaseModel):
+    """Sandbox isolation configuration. See docs/sandbox.md."""
+
+    mode: Literal["inprocess", "docker"] = "inprocess"
+    image: str | None = None
+    network: Literal["bridge", "none", "proxy"] = "bridge"
+    cpu: float = 1.0
+    memory_mb: int = 1024
+    pids: int = 512
+    on_unavailable: Literal["error", "fallback"] = "error"
+    user: str = "host"
+    env_files: list[Path] | None = None
+    extra_mounts: list[ExtraMount] = []
+    extra_env: dict[str, str] = {}
+
+    @field_validator("network")
+    @classmethod
+    def reject_proxy(cls, v: str) -> str:
+        if v == "proxy":
+            raise ValueError(
+                "network: proxy is reserved for v3 and not yet implemented"
+            )
+        return v
+
+    @field_validator("cpu")
+    @classmethod
+    def cpu_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError(f"cpu must be > 0, got {v}")
+        return v
+
+    @field_validator("memory_mb")
+    @classmethod
+    def memory_minimum(cls, v: int) -> int:
+        if v < 64:
+            raise ValueError(f"memory_mb must be >= 64, got {v}")
+        return v
+
+    @field_validator("pids")
+    @classmethod
+    def pids_minimum(cls, v: int) -> int:
+        if v < 16:
+            raise ValueError(f"pids must be >= 16, got {v}")
+        return v
+
+    @field_validator("user")
+    @classmethod
+    def validate_user(cls, v: str) -> str:
+        if v == "host":
+            return v
+        parts = v.split(":")
+        if len(parts) != 2:
+            raise ValueError(f"user must be 'host' or 'uid:gid', got {v!r}")
+        try:
+            uid, gid = int(parts[0]), int(parts[1])
+        except ValueError as e:
+            raise ValueError(f"user must be 'host' or 'uid:gid', got {v!r}") from e
+        if uid < 0 or gid < 0:
+            raise ValueError(f"user uid/gid must be non-negative, got {v!r}")
+        return v
+
+    @field_validator("extra_mounts")
+    @classmethod
+    def validate_extra_mounts(cls, v: list[ExtraMount]) -> list[ExtraMount]:
+        return [_validate_extra_mount(m) for m in v]
 
 
 class SessionConfig(BaseModel):
@@ -24,6 +128,7 @@ class SessionConfig(BaseModel):
     context_mask_after: int = 10
     context_summarize_after: int | None = None
     max_concurrent_runs: int = 4
+    sandbox: SandboxConfig = SandboxConfig()
 
     @field_validator("trace_retention_days")
     @classmethod
@@ -146,6 +251,7 @@ class TraceStep(BaseModel):
     error: str | None = None
     tokens: int | None = None  # v1.2
     cost: float | None = None  # v1.2
+    sandbox: dict[str, str | None] | None = None
 
 
 class RunTrace(BaseModel):

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import json as _json
 import os
 import shutil
+import subprocess
 import sys
 import warnings
 from io import StringIO
@@ -26,7 +28,15 @@ from rich.panel import Panel
 from rich.text import Text
 
 from blueclaw import __version__
-from blueclaw.models import SessionConfig
+from blueclaw.launcher import (
+    decide_launch,
+    docker_available,
+    image_exists,
+    normalize_subcommand,
+    resolve_image_tag,
+    should_sandbox_subcommand,
+)
+from blueclaw.models import SandboxConfig, SessionConfig
 from blueclaw.workspace import Workspace
 
 app = typer.Typer(add_completion=False)
@@ -38,6 +48,31 @@ DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
 
 skill_app = typer.Typer(help="Manage blueclaw skills.", add_completion=False)
 app.add_typer(skill_app, name="skill")
+
+
+def _default_bind_host() -> str:
+    """Bind localhost normally, but 0.0.0.0 inside the sandbox.
+
+    A port published via `docker run --publish 8420:8420` only reaches the
+    container if the in-container server is bound to 0.0.0.0 (all interfaces).
+    Binding to 127.0.0.1 inside the container makes it unreachable from the
+    host, which is the bug the user just hit when http://127.0.0.1:8420/playground
+    refused connections.
+    """
+    if os.environ.get("BLUECLAW_SANDBOX_MODE") == "docker":
+        return "0.0.0.0"
+    return "127.0.0.1"
+
+
+def _config_path() -> Path:
+    """Location of blueclaw.yaml.
+
+    Honors BLUECLAW_CONFIG when set (used by the docker launcher to point
+    the in-container process at the bind-mounted config; mounted outside
+    the workspace because macOS VirtioFS won't bind-mount a file inside
+    another bind-mount).
+    """
+    return Path(os.environ.get("BLUECLAW_CONFIG", "blueclaw.yaml"))
 
 
 def _global_skills_dir() -> Path:
@@ -423,7 +458,7 @@ def run_session(model_override: str | None = None) -> None:
         run_chat_loop,
     )
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model_override)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
@@ -442,6 +477,54 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
+    """Re-exec into `docker run` if sandbox.mode is docker for this subcommand.
+
+    Returns without doing anything if any of these holds:
+      - We are already running inside the sandbox (BLUECLAW_SANDBOX_MODE env set
+        by the host-side launcher). Prevents infinite re-launch recursion.
+      - blueclaw.yaml is missing or fails to load (let the regular command path
+        surface that error with its existing message).
+      - sandbox.mode is 'inprocess'.
+      - The subcommand belongs on the host (per launcher routing table).
+      - Docker is unavailable AND sandbox.on_unavailable == 'fallback'.
+
+    Exits via SystemExit if the user requested docker mode but the daemon or
+    image is missing under 'error' policy.
+    """
+    # In-container guard: if the launcher already placed us inside the sandbox,
+    # don't try to re-launch a second container.
+    if os.environ.get("BLUECLAW_SANDBOX_MODE") == "docker":
+        return
+
+    from blueclaw.session import load_config  # lazy: matches existing pattern
+
+    # Cheap pre-filter: skip entirely for host-only subcommands so we don't
+    # trigger config-loading side effects for commands that never sandbox.
+    subcommand = normalize_subcommand(sys.argv)
+    if not should_sandbox_subcommand(subcommand):
+        return
+
+    config_path = _config_path()
+    if not config_path.exists():
+        return
+    try:
+        config = load_config(config_path, model_override=model_override)
+    except Exception:
+        return
+    project_root = config_path.resolve().parent
+    decision = decide_launch(
+        sandbox_cfg=config.sandbox,
+        provider=config.provider,
+        argv=sys.argv,
+        project_root=project_root,
+    )
+    if decision is not None:
+        # Visible signal so users can confirm the sandbox actually fired.
+        print(f"→ blueclaw sandbox: docker ({decision.image})", file=sys.stderr)
+        os.execvp(decision.argv[0], decision.argv)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -458,6 +541,8 @@ def main(
     ),
 ) -> None:
     """blueclaw — terminal automation agent."""
+    # Sandbox launcher: re-exec into docker if configured. Never returns when it fires.
+    _maybe_execvp_into_docker(model_override=model)
     if ctx.invoked_subcommand is None:
         run_session(model_override=model)
 
@@ -478,7 +563,7 @@ def run(
         print_run_summary,
     )
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
@@ -538,6 +623,22 @@ def run(
         updater.wait()
 
 
+def _ensure_gitignore_entries(project_root: Path) -> None:
+    """Add .env.docker patterns to .gitignore (idempotent)."""
+    gi = project_root / ".gitignore"
+    needed = [".env", ".env.docker", ".env.*"]
+    existing = gi.read_text().splitlines() if gi.exists() else []
+    missing = [p for p in needed if p not in existing]
+    if not missing:
+        return
+    block = ["", "# blueclaw: never commit dotenv files (may contain secrets)"]
+    block += missing
+    with gi.open("a") as f:
+        if existing and existing[-1] != "":
+            f.write("\n")
+        f.write("\n".join(block) + "\n")
+
+
 @app.command()
 def init() -> None:
     """Initialize a blueclaw workspace."""
@@ -550,7 +651,7 @@ def init() -> None:
         )
 
     # Create config yaml if missing
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     if not config_path.exists():
         config_path.write_text(
             "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n\n"
@@ -558,6 +659,8 @@ def init() -> None:
             "  trace_retention_days: 30\n\n"
             "tools:\n  - web\n  - shell\n  - pdf\n\nallowlist_domains: []\n"
         )
+
+    _ensure_gitignore_entries(Path.cwd())
 
     console.print(f"Workspace initialized at {workspace.root}")
 
@@ -685,7 +788,7 @@ def trace_explain(
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model)
     model_instance = build_model(config)
     formatted = format_trace_for_explanation(trace)
@@ -793,7 +896,7 @@ def trace_replay(
         from blueclaw.session import load_config
         from blueclaw.testing import run_stub_replay
 
-        config = load_config(Path("blueclaw.yaml"), model_override=model)
+        config = load_config(_config_path(), model_override=model)
         run_stub_replay(trace, config)
         return
 
@@ -1006,7 +1109,7 @@ def trace_ui(
     if not no_open:
         threading.Timer(0.5, webbrowser.open, args=[url]).start()
 
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(app, host=_default_bind_host(), port=port, log_level="warning")
 
 
 @trace_app.command("purge")
@@ -1022,7 +1125,7 @@ def trace_purge(
     """Delete old trace files."""
     from blueclaw.session import load_config
 
-    config = load_config(Path("blueclaw.yaml"))
+    config = load_config(_config_path())
     days = older_than if older_than is not None else config.trace_retention_days
     workspace = Workspace(DEFAULT_WORKSPACE)
     count = workspace.purge_old_traces(days, dry_run=dry_run)
@@ -1032,7 +1135,10 @@ def trace_purge(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", help="Bind host"),
+    host: Optional[str] = typer.Option(
+        None,
+        help="Bind host (default: 127.0.0.1 on host, 0.0.0.0 inside docker sandbox)",
+    ),
     port: int = typer.Option(8420, help="Bind port"),
     model: Optional[str] = typer.Option(
         None, "--model", help="Model override (provider/model_id)"
@@ -1051,13 +1157,16 @@ def serve(
     from blueclaw.server import create_server_app
     from blueclaw.session import load_config
 
-    config = load_config(Path("blueclaw.yaml"), model_override=model)
+    config = load_config(_config_path(), model_override=model)
     if max_concurrent is not None:
         config = config.model_copy(update={"max_concurrent_runs": max_concurrent})
     workspace = Workspace(config.workspace_path)
     server_app = create_server_app(config, workspace, cors_origin=cors_origin)
-    console.print(f"[bold]blueclaw serve[/bold] listening on http://{host}:{port}")
-    uvicorn.run(server_app, host=host, port=port)
+    resolved_host = host or _default_bind_host()
+    console.print(
+        f"[bold]blueclaw serve[/bold] listening on http://{resolved_host}:{port}"
+    )
+    uvicorn.run(server_app, host=resolved_host, port=port)
 
 
 @app.command()
@@ -1110,7 +1219,7 @@ def test(
         for w in spec_warnings:
             progress.print(f"  Warning: {w}")
 
-    config = load_config(Path("blueclaw.yaml"), model_override=model or spec.model)
+    config = load_config(_config_path(), model_override=model or spec.model)
     if spec.allowlist_domains:
         for d in spec.allowlist_domains:
             if d not in config.allowlist_domains:
@@ -1132,3 +1241,69 @@ def test(
             shutil.rmtree(workspace_dir, ignore_errors=True)
 
     raise typer.Exit(1 if any(r.verdict == "fail" for r in results) else 0)
+
+
+# --- Sandbox commands ---
+
+sandbox_app = typer.Typer(help="Manage the docker sandbox runtime image.")
+app.add_typer(sandbox_app, name="sandbox")
+
+
+@sandbox_app.command("build")
+def sandbox_build(
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Pass --no-cache to docker build"
+    ),
+    platform: Optional[str] = typer.Option(
+        None, "--platform", help="Pass --platform=<arch> to docker build"
+    ),
+) -> None:
+    """Build the blueclaw runtime image from docker/Dockerfile."""
+    cfg = SandboxConfig()
+    tag = resolve_image_tag(cfg)
+    repo_root = Path(__file__).resolve().parent.parent
+    dockerfile = repo_root / "docker" / "Dockerfile"
+    if not dockerfile.exists():
+        typer.echo(f"Dockerfile not found at {dockerfile}", err=True)
+        raise typer.Exit(2)
+    cmd = ["docker", "build", "-t", tag, "-f", str(dockerfile)]
+    if no_cache:
+        cmd.append("--no-cache")
+    if platform:
+        cmd.append(f"--platform={platform}")
+    cmd.append(str(repo_root))
+    typer.echo(f"Building {tag}...")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        typer.echo("docker build failed", err=True)
+        raise typer.Exit(result.returncode)
+    typer.echo(f"Built {tag}")
+
+
+@sandbox_app.command("doctor")
+def sandbox_doctor(
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit machine-readable JSON"
+    ),
+) -> None:
+    """Diagnose the docker sandbox configuration on this host."""
+    cfg = SandboxConfig()
+    tag = resolve_image_tag(cfg)
+    docker_ok = docker_available()
+    image_ok = image_exists(tag) if docker_ok else False
+
+    report = {
+        "docker_available": docker_ok,
+        "image_tag": tag,
+        "image_present": image_ok,
+    }
+    if json_output:
+        typer.echo(_json.dumps(report, indent=2))
+    else:
+        typer.echo(f"docker: {'ok' if docker_ok else 'not available'}")
+        typer.echo(
+            f"image:  {tag} "
+            f"{'(present)' if image_ok else '(MISSING - run `blueclaw sandbox build`)'}"
+        )
+    if not docker_ok or not image_ok:
+        raise typer.Exit(1)

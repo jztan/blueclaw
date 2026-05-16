@@ -107,6 +107,26 @@ class TestLoadConfig:
         assert config.context_strategy == "mask"
         assert config.context_mask_after == 10
 
+    def test_load_config_parses_sandbox_section(self, tmp_path):
+        yaml_path = tmp_path / "blueclaw.yaml"
+        yaml_path.write_text(
+            "model_id: claude-sonnet-4-6\n"
+            "sandbox:\n"
+            "  mode: docker\n"
+            "  image: blueclaw/runtime:test\n"
+            "  network: bridge\n"
+        )
+        config = load_config(yaml_path)
+        assert config.sandbox.mode == "docker"
+        assert config.sandbox.image == "blueclaw/runtime:test"
+        assert config.sandbox.network == "bridge"
+
+    def test_load_config_sandbox_defaults_when_section_absent(self, tmp_path):
+        cfg_file = tmp_path / "blueclaw.yaml"
+        cfg_file.write_text("tools: [web]\n")
+        config = load_config(cfg_file)
+        assert config.sandbox.mode == "inprocess"
+
 
 # --- Model override parsing ---
 

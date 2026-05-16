@@ -476,3 +476,46 @@ class TestUserInterrupt:
         # In test env stdin is not a tty, so this should do nothing
         obs._check_escape()
         assert obs._cancelled is False
+
+
+class TestObserverSandboxMetadata:
+    def test_sandbox_dict_populated_from_env(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("BLUECLAW_SANDBOX_MODE", "docker")
+        monkeypatch.setenv("BLUECLAW_SANDBOX_IMAGE", "blueclaw/runtime:test")
+        monkeypatch.setenv("BLUECLAW_SANDBOX_DIGEST", "sha256:abc")
+        from blueclaw.observer import build_sandbox_metadata
+
+        meta = build_sandbox_metadata()
+        assert meta == {
+            "mode": "docker",
+            "image": "blueclaw/runtime:test",
+            "image_digest": "sha256:abc",
+            "fallback_reason": None,
+        }
+
+    def test_sandbox_inprocess_default(self, monkeypatch):
+        for v in (
+            "BLUECLAW_SANDBOX_MODE",
+            "BLUECLAW_SANDBOX_IMAGE",
+            "BLUECLAW_SANDBOX_DIGEST",
+            "BLUECLAW_SANDBOX_FALLBACK_REASON",
+        ):
+            monkeypatch.delenv(v, raising=False)
+        from blueclaw.observer import build_sandbox_metadata
+
+        meta = build_sandbox_metadata()
+        assert meta == {
+            "mode": "inprocess",
+            "image": None,
+            "image_digest": None,
+            "fallback_reason": None,
+        }
+
+    def test_sandbox_fallback_reason(self, monkeypatch):
+        monkeypatch.delenv("BLUECLAW_SANDBOX_MODE", raising=False)
+        monkeypatch.setenv("BLUECLAW_SANDBOX_FALLBACK_REASON", "docker unavailable")
+        from blueclaw.observer import build_sandbox_metadata
+
+        meta = build_sandbox_metadata()
+        assert meta["fallback_reason"] == "docker unavailable"
+        assert meta["mode"] == "inprocess"

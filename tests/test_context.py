@@ -254,6 +254,6 @@ class TestBeforeModelCallHook:
         mgr = ObservationMaskingManager()
         registry = Mock()
         mgr.register_hooks(registry)
-        registry.add_callback.assert_called_once_with(
+        registry.add_callback.assert_any_call(
             BeforeModelCallEvent, mgr._on_before_model_call
         )

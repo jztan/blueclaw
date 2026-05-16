@@ -26,10 +26,7 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Set up environment
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uv pip install -e .[dev]
+        run: uv sync --frozen --extra dev
       - name: Run code quality checks
         run: |
           source .venv/bin/activate

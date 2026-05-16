@@ -20,6 +20,18 @@ All notable changes to blueclaw will be documented in this file.
   promoting each file to a directory containing a `SKILL.md` with YAML
   frontmatter (`name`, `description`).
 - `pyproject.toml`: pin bumped to `strands-agents>=1.30.0`.
+- CI now installs from a checked-in `uv.lock` via
+  `uv sync --frozen --extra dev` (was `uv pip install -e .[dev]`), so
+  builds are reproducible and dependency bumps require an explicit
+  `uv lock` commit. Same change applied to the PyPI publish workflow.
+
+### Fixed
+- `tests/test_context.py::test_register_hooks_adds_callback` relaxed from
+  `assert_called_once_with` to `assert_any_call` — newer
+  `strands-agents` releases register an additional
+  `BeforeModelCallEvent` callback on the parent
+  `SummarizingConversationManager`, which previously broke CI on Python
+  versions that resolved to a newer strands than the local pin.
 
 ## [2.3.0] - 2026-05-10
 ### Added

@@ -196,8 +196,39 @@ def _read_static_text(name: str) -> str:
         return (Path(__file__).parent / "static" / name).read_text(encoding="utf-8")
 
 
-def create_app(workspace: Workspace) -> Starlette:
-    """Create the Starlette app with trace API routes."""
+def _parse_since(request) -> datetime | None:
+    """Extract ?since=<days> as an absolute UTC datetime, or None."""
+    raw = request.query_params.get("since")
+    if not raw:
+        return None
+    try:
+        return datetime.now(timezone.utc) - timedelta(days=int(raw))
+    except ValueError:
+        return None
+
+
+def create_app(
+    workspaces: "list[tuple[str, Workspace]] | Workspace",
+) -> Starlette:
+    """Create the Starlette app with trace API routes.
+
+    Accepts either a single Workspace (back-compat) or a list of
+    (key, Workspace) tuples. Endpoints honor ?workspace=<key>, with
+    a special "all" key that unions every registered workspace.
+    """
+    if isinstance(workspaces, Workspace):
+        workspaces = [("workspace", workspaces)]
+    ws_map = dict(workspaces)
+    keys_in_order = [k for k, _ in workspaces]
+
+    def _select(key: str | None) -> "list[tuple[str, Workspace]] | None":
+        if key is None:
+            return [(keys_in_order[0], ws_map[keys_in_order[0]])]
+        if key == "all":
+            return list(workspaces)
+        if key not in ws_map:
+            return None
+        return [(key, ws_map[key])]
 
     async def index(request):
         from blueclaw import __version__
@@ -210,57 +241,85 @@ def create_app(workspace: Workspace) -> Starlette:
         data = _read_static("blueclaw-crab.png")
         return Response(data, media_type="image/png")
 
+    async def list_workspaces(request):
+        return JSONResponse([{"key": k, "label": k} for k in keys_in_order])
+
     async def list_traces(request):
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
         try:
             limit = int(request.query_params.get("limit", 50))
         except ValueError:
             limit = 50
-        since_days = request.query_params.get("since")
+        since = _parse_since(request)
         model = request.query_params.get("model")
-        since = None
-        if since_days:
-            try:
-                since = datetime.now(timezone.utc) - timedelta(days=int(since_days))
-            except ValueError:
-                pass
-        traces = workspace.list_traces(limit=limit, since=since)
-        if model:
-            traces = [t for t in traces if t.model_id == model]
-        total = _count_trace_files(workspace)
-        return JSONResponse(
-            {
-                "traces": [_serialize_trace_summary(t) for t in traces],
-                "total": total,
-            }
-        )
+        summaries: list = []
+        total = 0
+        for key, ws in sel:
+            total += _count_trace_files(ws)
+            traces = ws.list_traces(limit=limit, since=since)
+            if model:
+                traces = [t for t in traces if t.model_id == model]
+            for t in traces:
+                summary = _serialize_trace_summary(t)
+                summary["_source"] = key
+                summaries.append(summary)
+        summaries.sort(key=lambda r: r["start_time"], reverse=True)
+        return JSONResponse({"traces": summaries[:limit], "total": total})
 
     async def get_trace(request):
         run_id = request.path_params["run_id"]
         if not re.match(r"^\d{8}-\d{6}(-[0-9a-f]{4})?$", run_id):
             return JSONResponse({"error": "invalid run_id"}, status_code=400)
-        trace = workspace.read_trace(run_id)
-        if not trace:
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+        matches: list = []
+        for key, ws in sel:
+            t = ws.read_trace(run_id)
+            if t is not None:
+                matches.append((key, t))
+        if not matches:
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse(trace.model_dump(mode="json"))
+        if len(matches) > 1:
+            return JSONResponse(
+                {
+                    "error": "ambiguous",
+                    "candidates": [k for k, _ in matches],
+                },
+                status_code=409,
+            )
+        key, t = matches[0]
+        obj = t.model_dump(mode="json")
+        obj["_source"] = key
+        return JSONResponse(obj)
 
     async def get_stats(request):
-        since_days = request.query_params.get("since")
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+        since = _parse_since(request)
         model = request.query_params.get("model")
-        since = None
-        if since_days:
-            try:
-                since = datetime.now(timezone.utc) - timedelta(days=int(since_days))
-            except ValueError:
-                pass
-        traces = workspace.list_traces(limit=500, since=since)
-        if model:
-            traces = [t for t in traces if t.model_id == model]
-        return JSONResponse(compute_stats(traces))
+        union: list = []
+        by_source: dict = {}
+        for key, ws in sel:
+            rows = ws.list_traces(limit=500, since=since)
+            if model:
+                rows = [t for t in rows if t.model_id == model]
+            union.extend(rows)
+            if len(sel) > 1:
+                by_source[key] = compute_stats(rows)
+        payload = compute_stats(union)
+        if by_source:
+            payload["by_source"] = by_source
+        return JSONResponse(payload)
 
     return Starlette(
         routes=[
             Route("/", index),
             Route("/blueclaw-crab.png", crab_png),
+            Route("/api/workspaces", list_workspaces),
             Route("/api/traces", list_traces),
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),

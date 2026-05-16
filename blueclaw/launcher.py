@@ -59,6 +59,7 @@ BUILTIN_ENV_ALLOWLIST = (
     "NO_PROXY",
     "GH_TOKEN",
     "GITHUB_TOKEN",
+    "TELEGRAM_BOT_TOKEN",
 )
 
 
@@ -202,6 +203,7 @@ def build_docker_argv(
     project_root: Path,
     user_skills: Path,
     project_skills: Path | None,
+    chats_root: Path | None = None,
     editable_source: Path | None,
     inner_argv: list[str],
     interactive: bool,
@@ -299,6 +301,12 @@ def build_docker_argv(
             f"target=/home/blueclaw/blueclaw/workspace/.blueclaw/skills,"
             f"readonly=true",
         ]
+    if chats_root is not None:
+        chats_root.mkdir(parents=True, exist_ok=True)
+        argv += [
+            f"--mount=type=bind,source={chats_root},"
+            f"target=/home/blueclaw/blueclaw/chats,readonly=false",
+        ]
 
     # Extra mounts
     for m in cfg.extra_mounts:
@@ -318,7 +326,7 @@ def build_docker_argv(
 
 # Commands that run inside the docker container when sandbox.mode == "docker".
 # Everything else runs on the host.
-_CONTAINER_COMMANDS = frozenset({"", "run", "serve", "test", "trace ui"})
+_CONTAINER_COMMANDS = frozenset({"", "run", "serve", "telegram", "test", "trace ui"})
 
 
 def should_sandbox_subcommand(subcommand: str) -> bool:
@@ -451,6 +459,14 @@ def decide_launch(
     workspace = home / "blueclaw" / "workspace"
     user_skills = home / "blueclaw" / "skills"
     user_skills.mkdir(parents=True, exist_ok=True)
+    # Chats root: mounted whenever it exists on the host, or when the
+    # subcommand actually writes to it (telegram). Read-side commands
+    # like `trace ui --all-chats` or `history --all-chats` need this
+    # mount to see anything other than the default workspace.
+    host_chats_root = home / "blueclaw" / "chats"
+    chats_root: Path | None = None
+    if subcommand == "telegram" or host_chats_root.exists():
+        chats_root = host_chats_root
 
     project_skills: Path | None = project_root / ".blueclaw" / "skills"
     if project_skills is not None and not project_skills.exists():
@@ -476,7 +492,7 @@ def decide_launch(
     if subcommand == "serve":
         publish_ports = [_parse_port_flag(argv, default=8420)]
     elif subcommand == "trace ui":
-        publish_ports = [_parse_port_flag(argv, default=8421)]
+        publish_ports = [_parse_port_flag(argv, default=8111)]
 
     inner_argv = argv[1:]
     docker_argv = build_docker_argv(
@@ -487,6 +503,7 @@ def decide_launch(
         project_root=project_root,
         user_skills=user_skills,
         project_skills=project_skills,
+        chats_root=chats_root,
         editable_source=editable,
         inner_argv=inner_argv,
         interactive=interactive,

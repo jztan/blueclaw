@@ -258,3 +258,50 @@ class Workspace:
                     f.unlink()
                 count += 1
         return count
+
+
+DEFAULT_CHATS_ROOT = Path.home() / "blueclaw" / "chats"
+WORKSPACE_KEY_DEFAULT = "workspace"
+
+
+def resolve_workspaces(
+    *,
+    default: Path,
+    chat: int | None,
+    all_chats: bool,
+    chats_root: Path | None = None,
+) -> list[tuple[str, "Workspace"]]:
+    """Resolve user flags into the list of (key, Workspace) to operate on.
+
+    Read-side helper: never creates chat directories. The Workspace
+    constructor mkdirs on init, so existence is checked first and a
+    missing --chat target raises FileNotFoundError(chat). Callers map
+    that to a friendly error.
+
+    Keys: "workspace" for the default root; "chat:<id>" for per-chat
+    roots. In all_chats mode chat dirs are sorted numerically by id.
+    """
+    root_to_scan = chats_root if chats_root is not None else DEFAULT_CHATS_ROOT
+    if chat is not None:
+        chat_dir = root_to_scan / str(chat)
+        if not chat_dir.exists():
+            raise FileNotFoundError(chat)
+        return [(f"chat:{chat}", Workspace(chat_dir))]
+    if all_chats:
+        roots: list[tuple[str, Workspace]] = [
+            (WORKSPACE_KEY_DEFAULT, Workspace(default))
+        ]
+        if root_to_scan.exists():
+            numeric_dirs: list[tuple[int, Path]] = []
+            for d in root_to_scan.iterdir():
+                if not d.is_dir():
+                    continue
+                try:
+                    numeric_dirs.append((int(d.name), d))
+                except ValueError:
+                    continue
+            numeric_dirs.sort(key=lambda nd: nd[0])
+            for chat_id, d in numeric_dirs:
+                roots.append((f"chat:{chat_id}", Workspace(d)))
+        return roots
+    return [(WORKSPACE_KEY_DEFAULT, Workspace(default))]

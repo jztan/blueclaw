@@ -205,6 +205,10 @@ def load_config(yaml_path: Path, model_override: str | None = None) -> SessionCo
         if "summarize_after" in ctx:
             kwargs["context_summarize_after"] = ctx["summarize_after"]
 
+    bridges_section = config_data.get("bridges", {})
+    if isinstance(bridges_section, dict):
+        kwargs["bridges"] = bridges_section
+
     # Apply model override
     if model_override:
         provider, model_id = parse_model_override(model_override)

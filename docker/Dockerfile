@@ -27,7 +27,7 @@ COPY blueclaw ./blueclaw
 # Install with ALL model-provider extras so the image works regardless of
 # which provider the user configures. Adds ~50MB; acceptable for a runtime
 # image that's meant to be provider-agnostic.
-RUN pip install --no-cache-dir --root-user-action=ignore ".[anthropic,ollama,openai,gemini]" \
+RUN pip install --no-cache-dir --root-user-action=ignore ".[anthropic,ollama,openai,gemini,telegram]" \
     && rm -rf /tmp/build
 
 # Ensure imports work from any HOME at runtime.

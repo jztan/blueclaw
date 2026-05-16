@@ -4,6 +4,42 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to
+  Telegram with per-chat workspaces under `~/blueclaw/chats/<chat_id>/`,
+  Strands `FileSessionManager`-backed conversation continuity, allowlist-enforced
+  authorization (empty allowlist refuses everyone), `/whoami` `/reset` `/forget`
+  commands, long-polling by default and webhook mode opt-in, and a `--echo`
+  smoke-test mode. Each turn is persisted via `build_trace_and_record` →
+  `write_trace` + `append_history` with `source="telegram"`. Install via
+  `pip install -e ".[telegram]"`. See `docs/bridges/telegram.md`.
+- **`blueclaw history --chat <id>` / `--all-chats`.** Inspect per-chat
+  Telegram history without changing directory; `--all-chats` aggregates the
+  default workspace with every `~/blueclaw/chats/<id>/`, labeling each row.
+- **Telegram bridge: empty-reply fallback.** Small Ollama models occasionally
+  emit only a tool-use block with no synthesized text. Previously this crashed
+  the handler with Telegram's `BadRequest: Message text is empty`. The bridge
+  now substitutes a friendly fallback (`(no reply — the model produced empty
+  output. Try rephrasing, /reset, or a stronger model.)`) and skips empty chunks.
+- **Sandbox: chats-root mount widened.** `~/blueclaw/chats/` is now bind-mounted
+  into the container whenever it exists on the host, not just for the
+  `telegram` subcommand. This lets `blueclaw trace ui --all-chats` and
+  `blueclaw history --all-chats` see per-chat data when running under
+  `sandbox.mode=docker`.
+- **Dashboard: strict-mode regression fixed.** The multi-workspace patch had
+  reassigned `function fetchJSON(...)`, which is a SyntaxError under the
+  dashboard's `'use strict'` directive and broke the entire SPA. Replaced
+  with an `apiFetch()` wrapper used at every `/api/*` call site.
+- **Multi-workspace trace coverage.** Every `blueclaw trace *` reader now
+  accepts `--chat <id>` (single Telegram chat) and, where the union makes
+  sense (`list`, `stats`, `purge`, `ui`), `--all-chats`. Single-target
+  `trace show / explain / graph / replay / timeline / diff` auto-scan
+  workspaces and print a disambiguation hint on collision. The web
+  dashboard (`blueclaw trace ui`) gains a workspace dropdown (with `All
+  workspaces` when more than one exists), a `Source` column in the trace
+  list, and a per-source breakdown table in the stats view. New
+  `GET /api/workspaces` endpoint; existing `/api/traces`, `/api/traces/{id}`,
+  `/api/stats` accept `?workspace=<key>` (`all` unions). Writers
+  unchanged.
 - **SOUL.md identity file.** Optional `<workspace>/SOUL.md` holds the agent's
   persona/voice (personality, values, communication style) separately from
   `CONTEXT.md` (which holds factual memory). When present, it is loaded as the

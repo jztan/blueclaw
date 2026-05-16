@@ -567,3 +567,96 @@ def test_purge_old_sessions_removes_matching_uploads(tmp_path):
     assert not (uploads / "tmp-orphan").exists()
     assert (sessions / "new-cid").exists()
     assert (uploads / "new-cid").exists()
+
+
+# --- resolve_workspaces ---
+
+
+class TestResolveWorkspaces:
+    def test_default(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        default = tmp_path / "ws"
+        default.mkdir()
+        chats_root = tmp_path / "chats"
+        chats_root.mkdir()
+        result = resolve_workspaces(
+            default=default, chat=None, all_chats=False, chats_root=chats_root
+        )
+        assert len(result) == 1
+        key, ws = result[0]
+        assert key == "workspace"
+        assert ws.root == default
+
+    def test_single_chat(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        chats_root = tmp_path / "chats"
+        (chats_root / "42").mkdir(parents=True)
+        result = resolve_workspaces(
+            default=tmp_path / "ws",
+            chat=42,
+            all_chats=False,
+            chats_root=chats_root,
+        )
+        assert len(result) == 1
+        assert result[0][0] == "chat:42"
+        assert result[0][1].root == chats_root / "42"
+
+    def test_all_chats_numeric_sort(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        default = tmp_path / "ws"
+        default.mkdir()
+        chats_root = tmp_path / "chats"
+        (chats_root / "2").mkdir(parents=True)
+        (chats_root / "10").mkdir(parents=True)
+        result = resolve_workspaces(
+            default=default,
+            chat=None,
+            all_chats=True,
+            chats_root=chats_root,
+        )
+        keys = [k for k, _ in result]
+        assert keys == ["workspace", "chat:2", "chat:10"]
+
+    def test_chat_missing_raises(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        chats_root = tmp_path / "chats"
+        chats_root.mkdir()
+        with pytest.raises(FileNotFoundError):
+            resolve_workspaces(
+                default=tmp_path / "ws",
+                chat=999,
+                all_chats=False,
+                chats_root=chats_root,
+            )
+        assert not (chats_root / "999").exists()
+
+    def test_all_with_no_chats_root(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        default = tmp_path / "ws"
+        default.mkdir()
+        result = resolve_workspaces(
+            default=default,
+            chat=None,
+            all_chats=True,
+            chats_root=tmp_path / "no-such-dir",
+        )
+        assert [k for k, _ in result] == ["workspace"]
+
+    def test_ignores_non_numeric_dirnames(self, tmp_path):
+        from blueclaw.workspace import resolve_workspaces
+
+        chats_root = tmp_path / "chats"
+        (chats_root / "5").mkdir(parents=True)
+        (chats_root / "not-a-chat").mkdir(parents=True)
+        result = resolve_workspaces(
+            default=tmp_path / "ws",
+            chat=None,
+            all_chats=True,
+            chats_root=chats_root,
+        )
+        assert [k for k, _ in result] == ["workspace", "chat:5"]

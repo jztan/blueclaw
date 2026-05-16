@@ -228,6 +228,15 @@ def build_docker_argv(
         "/tmp:size=256m",
         "--tmpfs",
         "/run:size=64m",
+        # XDG cache + config + state under HOME — many tools (pdf-mcp, pip,
+        # huggingface, etc.) write there. Ephemeral tmpfs keeps the root FS
+        # read-only without forcing per-tool config overrides.
+        "--tmpfs",
+        "/home/blueclaw/.cache:size=256m",
+        "--tmpfs",
+        "/home/blueclaw/.config:size=32m",
+        "--tmpfs",
+        "/home/blueclaw/.local:size=64m",
         "--user",
         user,
         "--workdir",

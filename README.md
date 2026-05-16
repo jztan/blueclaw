@@ -82,6 +82,8 @@ search for Python 3.13 new features
 
 `trace list` · `trace show` · `trace graph` · `trace timeline` · `trace diff` · `trace explain` · `trace replay` · `trace stats` · `trace ui` · `trace purge`
 
+All ten readers also accept `--chat <id>` (target one Telegram chat) and, where union makes sense, `--all-chats` (default + every chat). See the [Telegram bridge](#telegram-bridge--docsbridgestelegrammd) section.
+
 ### Regression Testing — [docs/testing.md](docs/testing.md)
 
 Define expected behavior in YAML, run as a CI test suite with TAP or JUnit output. Multi-run Wilson CI scoring handles non-determinism.
@@ -133,7 +135,7 @@ blueclaw telegram --webhook https://your.host/telegram
 
 Commands: `/whoami` (returns your IDs, works even unauthorized — for onboarding), `/start`, `/reset` (clears history, keeps `CONTEXT.md`), `/forget` (wipes both).
 
-Inspect per-chat history from the host: `blueclaw history --chat <id>` or `blueclaw history --all-chats` (aggregates default workspace + every chat, labeled by source).
+Inspect per-chat history from the host: `blueclaw history --chat <id>` or `blueclaw history --all-chats` (aggregates default workspace + every chat, labeled by source). Every `blueclaw trace *` reader also accepts `--chat <id>` and, where union makes sense (`list`, `stats`, `purge`, `ui`), `--all-chats`. `blueclaw trace ui --all-chats` opens the dashboard with a workspace dropdown and a `Source` column.
 
 ### Skills — [docs/skills.md](docs/skills.md)
 
@@ -222,7 +224,8 @@ allowlist_domains:
 | `cli.py` | Typer entrypoints, welcome banner, trace tooling |
 | `session.py` | Config, model factory, agent, chat loop, background context updater |
 | `server.py` | HTTP API gateway (`blueclaw serve`) — `/message`, `/message/stream`, `/playground`, `/health`, `/api/traces`; bearer auth, CORS, per-conversation locks |
-| `workspace.py` | Sandbox enforcement, context/history/trace I/O |
+| `bridges/` | Messenger bridges. `core.py` holds platform-agnostic `Allowlist`, `ChatContext`, `BridgeRouter` (mirrors `server.py`'s create_agent + FileSessionManager pattern). `telegram.py` is the python-telegram-bot adapter (long-polling default, webhook opt-in). Each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` |
+| `workspace.py` | Sandbox enforcement, context/history/trace I/O; multi-workspace resolver for trace + history readers |
 | `observer.py` | Structured tool tracing + output truncation |
 | `context.py` | Observation masking and hybrid summarization for context management |
 | `skills.py` | Skill discovery: project + global scope resolution for the Strands `AgentSkills` plugin |

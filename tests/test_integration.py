@@ -11,7 +11,6 @@ from blueclaw.cli import app
 from blueclaw.models import SessionConfig
 from blueclaw.observer import ObserverHooks, truncate_tool_result
 from blueclaw.session import (
-    build_system_prompt,
     load_config,
     print_run_summary,
 )
@@ -240,21 +239,3 @@ class TestWorkspaceSandbox:
         ws = Workspace(tmp_path)
         with pytest.raises(WorkspaceError):
             ws.validate_command("rm -rf /")
-
-
-# --- Skill loading ---
-
-
-class TestSkillLoading:
-    def test_skill_index_in_system_prompt(self, tmp_path):
-        ws = Workspace(tmp_path)
-        skills_dir = tmp_path / ".claude" / "skills"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "research.md").write_text("# Research\nDeep research skill.")
-        (skills_dir / "summarize.md").write_text("# Summarize\nSummarization skill.")
-
-        prompt = build_system_prompt(ws, skills_dir=skills_dir)
-        assert "research" in prompt.lower()
-        assert "summarize" in prompt.lower()
-        # Full content should not be included
-        assert "Deep research skill" not in prompt

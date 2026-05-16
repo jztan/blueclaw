@@ -241,24 +241,42 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(ws)
         assert "searched docs" in prompt
 
-    def test_system_prompt_includes_skill_index(self, tmp_path):
-        ws = Workspace(tmp_path)
-        skills_dir = tmp_path / ".claude" / "skills"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "summarize.md").write_text("# Summarize\nSummarize text.")
-        prompt = build_system_prompt(ws, skills_dir=skills_dir)
-        assert "summarize" in prompt.lower()
+    def test_create_agent_loads_skills_via_plugin(self, tmp_path, monkeypatch):
+        """A skill on disk shows up as the 'skills' tool on the built Agent."""
+        from unittest.mock import MagicMock
 
-    def test_system_prompt_skill_content_not_included(self, tmp_path):
-        ws = Workspace(tmp_path)
-        skills_dir = tmp_path / ".claude" / "skills"
-        skills_dir.mkdir(parents=True)
-        (skills_dir / "summarize.md").write_text(
-            "# Summarize\n"
-            "This is the full skill content that should NOT be in the prompt."
+        from rich.console import Console
+
+        from blueclaw.observer import ObserverHooks
+        from blueclaw.session import create_agent
+
+        skills_root = tmp_path / "skills"
+        (skills_root / "summarize").mkdir(parents=True)
+        (skills_root / "summarize" / "SKILL.md").write_text(
+            "---\nname: summarize\ndescription: Summarize text\n---\n\n"
+            "body should not appear in the prompt index.\n"
         )
-        prompt = build_system_prompt(ws, skills_dir=skills_dir)
-        assert "full skill content that should NOT" not in prompt
+
+        config = SessionConfig(
+            provider="anthropic",
+            model_id="claude-haiku-4-5-20251001",
+            tools=[],
+        )
+        ws = Workspace(tmp_path / "ws")
+        observer = ObserverHooks(console=Console(quiet=True), quiet=True)
+
+        # Hermetic: patch the discovery seam so we don't read $HOME or cwd
+        monkeypatch.setattr(
+            "blueclaw.session._resolve_skill_paths",
+            lambda: [skills_root / "summarize"],
+        )
+
+        # Stub model so we don't need real provider credentials
+        mock_model = MagicMock()
+        # Strands raises if model.stateful is True with conversation_manager set
+        mock_model.stateful = False
+        agent = create_agent(config, ws, observer, model=mock_model)
+        assert "skills" in agent.tool_names
 
     def test_system_prompt_includes_current_date(self, tmp_path):
         ws = Workspace(tmp_path)

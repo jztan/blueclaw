@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import sys
 import warnings
 from io import StringIO
 from pathlib import Path
@@ -29,6 +33,293 @@ app = typer.Typer(add_completion=False)
 console = Console()
 
 DEFAULT_WORKSPACE = Path.home() / "blueclaw" / "workspace"
+
+# --- Skill sub-app ---
+
+skill_app = typer.Typer(help="Manage blueclaw skills.", add_completion=False)
+app.add_typer(skill_app, name="skill")
+
+
+def _global_skills_dir() -> Path:
+    from blueclaw.skills import default_global_dir
+
+    return default_global_dir()
+
+
+def _project_skills_dir() -> Path:
+    from blueclaw.skills import default_project_dir
+
+    p = default_project_dir()
+    if p is None:
+        # No blueclaw.yaml found; fall back to cwd-anchored .blueclaw/skills
+        p = Path.cwd() / ".blueclaw" / "skills"
+    return p
+
+
+def _resolve_source(source: str, tmp_root: Path) -> Path:
+    if source.startswith(("http://", "https://")) and source.lower().rstrip(
+        "/"
+    ).endswith(("skill.md",)):
+        return _fetch_url_skill_md(source, tmp_root)
+    if source.startswith(("http://", "https://", "git@", "ssh://", "git://")):
+        return _git_clone(source, tmp_root)
+    p = Path(source).expanduser().resolve()
+    if not p.exists():
+        raise typer.BadParameter(f"source path does not exist: {source}")
+    return p
+
+
+def _git_clone(url: str, tmp_root: Path) -> Path:
+    """Clone a git URL into tmp_root and return the (sub)directory."""
+    import subprocess
+
+    subdir = ""
+    if "#" in url:
+        url, subdir = url.split("#", 1)
+    dest = tmp_root / "clone"
+    try:
+        res = subprocess.run(
+            ["git", "clone", "--depth=1", "--quiet", url, str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise typer.BadParameter("git clone timed out after 30 seconds")
+    if res.returncode != 0:
+        raise typer.BadParameter(
+            f"git clone failed: {res.stderr.strip() or res.stdout.strip()}"
+        )
+    skill_path = dest / subdir if subdir else dest
+    if not (skill_path / "SKILL.md").exists():
+        raise typer.BadParameter(
+            f"no SKILL.md at {skill_path} (use #subdir for monorepos)"
+        )
+    # Skill.from_file validates that the directory name matches the skill name.
+    # Rename the skill_path directory to match the name declared in SKILL.md.
+    skill_name = _read_skill_name(skill_path / "SKILL.md")
+    if skill_name and skill_path.name != skill_name:
+        renamed = skill_path.parent / skill_name
+        skill_path.rename(renamed)
+        skill_path = renamed
+    return skill_path
+
+
+def _fetch_url_skill_md(url: str, tmp_root: Path) -> Path:
+    """Fetch a single SKILL.md from an https URL into tmp_root.
+
+    The URL must point directly at raw SKILL.md text. We name the temp
+    directory after the skill's frontmatter ``name`` so that
+    ``Skill.from_file(strict=True)`` (called by the install pipeline)
+    accepts the directory.
+    """
+    import socket
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            content_bytes = resp.read()
+    except (urllib.error.URLError, socket.timeout, ConnectionError) as e:
+        raise typer.BadParameter(f"fetch failed: {e}")
+
+    try:
+        text = content_bytes.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise typer.BadParameter(f"SKILL.md is not valid UTF-8: {e}")
+
+    # Reuse the existing helper. _read_skill_name takes a Path; write the
+    # content to a temp file first so we don't duplicate parsing logic.
+    scratch = tmp_root / "_scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    scratch_md = scratch / "SKILL.md"
+    scratch_md.write_text(text, encoding="utf-8")
+    skill_name = _read_skill_name(scratch_md)
+    if not skill_name:
+        raise typer.BadParameter("could not read skill name from frontmatter")
+
+    skill_dir = tmp_root / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=False)
+    (skill_dir / "SKILL.md").write_text(text, encoding="utf-8")
+    return skill_dir
+
+
+def _read_skill_name(skill_md: Path) -> str:
+    """Extract the 'name' field from a SKILL.md frontmatter block."""
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    text = text.strip()
+    if not text.startswith("---"):
+        return ""
+    end = text.find("---", 3)
+    if end == -1:
+        return ""
+    for line in text[3:end].splitlines():
+        if line.startswith("name:"):
+            val = line.split(":", 1)[1].strip()
+            # Strip matching outer quotes (valid YAML)
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            return val
+    return ""
+
+
+def _confirm_install(skill, target: Path, yes: bool) -> bool:
+    summary = (
+        f"\nSkill: {skill.name}\n"
+        f"  description: {skill.description}\n"
+        f"  install to:  {target}\n"
+    )
+    if skill.license:
+        summary += f"  license:     {skill.license}\n"
+    if skill.compatibility:
+        summary += f"  compat:      {skill.compatibility}\n"
+    typer.echo(summary)
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        typer.echo("Refusing to install non-interactively without --yes.", err=True)
+        return False
+    return typer.confirm("Install?", default=False)
+
+
+@skill_app.command("install")
+def skill_install(
+    source: str = typer.Argument(..., help="Local path or git URL"),
+    project: bool = typer.Option(False, "--project"),
+    force: bool = typer.Option(False, "--force"),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Install a skill from a local directory or git URL."""
+    import tempfile
+
+    from strands.vended_plugins.skills import Skill
+
+    target_root = _project_skills_dir() if project else _global_skills_dir()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            src_dir = _resolve_source(source, Path(tmpdir))
+            skill = Skill.from_file(src_dir, strict=True)
+        except (ValueError, FileNotFoundError) as e:
+            typer.echo(f"Invalid skill: {e}", err=True)
+            raise typer.Exit(code=2)
+
+        target = target_root / skill.name
+        if target.exists() and not force:
+            typer.echo(
+                f"Skill exists at {target} (use --force to overwrite)",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        if not _confirm_install(skill, target, yes):
+            typer.echo("Aborted.")
+            raise typer.Exit(code=1)
+
+        target_root.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            shutil.rmtree(target)
+        staging = target.with_name(target.name + ".__staging__")
+        if staging.exists():
+            shutil.rmtree(staging)
+        shutil.copytree(src_dir, staging)
+        os.replace(staging, target)
+        typer.echo(f"Installed {skill.name} -> {target}")
+
+
+def _list_installed():
+    """Return a list of (Skill, scope, path) tuples for both scopes, project shadowing global."""
+    from strands.vended_plugins.skills import Skill
+
+    from blueclaw.skills import resolved_skill_paths
+
+    paths = resolved_skill_paths(
+        global_dir=_global_skills_dir(),
+        project_dir=_project_skills_dir(),
+    )
+    out = []
+    for p in paths:
+        try:
+            sk = Skill.from_file(p, strict=False)
+        except (ValueError, FileNotFoundError):
+            continue
+        scope = "project" if p.is_relative_to(_project_skills_dir()) else "global"
+        out.append((sk, scope, p))
+    return out
+
+
+@skill_app.command("uninstall")
+def skill_uninstall(
+    name: str = typer.Argument(...),
+    project: bool = typer.Option(False, "--project"),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    """Remove an installed skill from global (default) or project scope."""
+    root = _project_skills_dir() if project else _global_skills_dir()
+    target = root / name
+    if not target.exists():
+        typer.echo(f"Skill not found: {name}", err=True)
+        raise typer.Exit(code=1)
+    if not yes:
+        if not sys.stdin.isatty():
+            typer.echo(
+                "Refusing to uninstall non-interactively without --yes.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if not typer.confirm(f"Remove {target}?", default=False):
+            typer.echo("Aborted.")
+            raise typer.Exit(code=1)
+    shutil.rmtree(target)
+    typer.echo(f"Removed {name}")
+
+
+@skill_app.command("list")
+def skill_list(
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """List installed skills (global + project)."""
+    from rich.table import Table
+
+    rows = _list_installed()
+    if json_out:
+        payload = [
+            {
+                "name": sk.name,
+                "scope": scope,
+                "description": sk.description,
+                "license": sk.license,
+                "compatibility": sk.compatibility,
+                "path": str(p),
+            }
+            for sk, scope, p in rows
+        ]
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    table = Table(title="Installed skills")
+    for col in ("name", "scope", "license", "description"):
+        table.add_column(col)
+    for sk, scope, _p in rows:
+        table.add_row(sk.name, scope, sk.license or "-", sk.description)
+    console.print(table)
+
+
+@skill_app.command("show")
+def skill_show(name: str = typer.Argument(...)) -> None:
+    """Print a skill's SKILL.md and resolved scope."""
+    for sk, scope, p in _list_installed():
+        if sk.name == name:
+            typer.echo(f"# scope: {scope}")
+            typer.echo(f"# path:  {p}")
+            typer.echo("")
+            typer.echo((p / "SKILL.md").read_text(encoding="utf-8"))
+            return
+    typer.echo(f"Skill not found: {name}", err=True)
+    raise typer.Exit(code=1)
+
 
 # --- Terminal mascot ---
 
@@ -787,8 +1078,6 @@ def test(
     ),
 ) -> None:
     """Run agent regression tests from a YAML spec."""
-    import shutil
-    import sys
     import tempfile
 
     from blueclaw.testing import (

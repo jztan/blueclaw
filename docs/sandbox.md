@@ -35,6 +35,27 @@ blueclaw run "what time is it"
 If `docker` is missing or the image hasn't been built, `blueclaw run` will print the
 exact command to fix it and exit non-zero.
 
+### How to confirm the sandbox actually fired
+
+When docker mode kicks in, blueclaw prints a one-line indicator to stderr just before
+re-execing:
+
+```
+→ blueclaw sandbox: docker (blueclaw/runtime:dev-abc1234)
+```
+
+If you don't see this line, the launcher decided not to enter the container — common
+reasons:
+
+- `sandbox.mode` isn't set to `docker` in `blueclaw.yaml`.
+- The subcommand isn't in the container routing set (host-only commands include
+  `sandbox build/doctor`, `skill *`, `init`, `history`, `trace list/show/...`).
+- Docker is unavailable and `on_unavailable: fallback` is set (look for the
+  `WARN: Docker unavailable; falling back to in-process sandbox` warning).
+
+You can also verify post-hoc by inspecting the most recent trace — the `sandbox`
+block on each `TraceStep` records `mode`, `image`, and `image_digest`.
+
 ## Configuration reference
 
 ```yaml
@@ -84,6 +105,23 @@ No shell expansion, no `$VAR` substitution. Identical interpretation in any shel
 
 **`.env.docker` is a secret file** — `blueclaw init` adds it to `.gitignore`. Don't
 commit it.
+
+## Filesystem inside the container
+
+The root FS is mounted **read-only**. Writes are only allowed in these locations:
+
+| Path | Backing | Persistence | Size |
+|---|---|---|---|
+| `/home/blueclaw/blueclaw/workspace` | host bind mount | persists across runs | host disk |
+| `/tmp` | tmpfs | per-container | 256 MB |
+| `/run` | tmpfs | per-container | 64 MB |
+| `/home/blueclaw/.cache` | tmpfs | per-container | 256 MB |
+| `/home/blueclaw/.config` | tmpfs | per-container | 32 MB |
+| `/home/blueclaw/.local` | tmpfs | per-container | 64 MB |
+
+XDG-respecting tools (`pdf-mcp` cache, `pip` cache, HuggingFace, etc.) work transparently
+because they write under `~/.cache`. Anything you want persisted across runs goes in the
+workspace mount.
 
 ## Image tagging
 

@@ -217,6 +217,24 @@ class TestResolveImageTag:
         mocker.patch("blueclaw.launcher._git_short_sha", return_value=None)
         assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:dev-nogit"
 
+    def test_release_tag_returns_unknown_when_dist_missing(self, mocker):
+        import importlib.metadata as im
+
+        mocker.patch("blueclaw.launcher.detect_editable_source", return_value=None)
+        mocker.patch(
+            "blueclaw.launcher.importlib.metadata.version",
+            side_effect=im.PackageNotFoundError("blueclaw"),
+        )
+        assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:unknown"
+
+    def test_dev_tag_rejects_invalid_sha(self, mocker, tmp_path):
+        # If git output is malformed (newline mid-string, garbage), fall back to nogit.
+        mocker.patch("blueclaw.launcher.detect_editable_source", return_value=tmp_path)
+        mock = mocker.patch("blueclaw.launcher.subprocess.run")
+        mock.return_value.returncode = 0
+        mock.return_value.stdout = "abc\n1234\n"  # newline mid-output
+        assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:dev-nogit"
+
 
 class TestImageDigest:
     def test_inspect_returns_digest(self, mocker):

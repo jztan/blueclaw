@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -132,6 +133,9 @@ def docker_available(timeout: float = 5.0) -> bool:
         return False
 
 
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
 def _git_short_sha(repo: Path) -> str | None:
     try:
         result = subprocess.run(
@@ -143,7 +147,10 @@ def _git_short_sha(repo: Path) -> str | None:
         )
         if result.returncode != 0:
             return None
-        return result.stdout.strip() or None
+        sha = result.stdout.strip()
+        if not sha or not _SHA_RE.fullmatch(sha):
+            return None
+        return sha
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
@@ -156,7 +163,10 @@ def resolve_image_tag(cfg: SandboxConfig) -> str:
     if src is not None:
         sha = _git_short_sha(src) or "nogit"
         return f"blueclaw/runtime:dev-{sha}"
-    version = importlib.metadata.version("blueclaw")
+    try:
+        version = importlib.metadata.version("blueclaw")
+    except importlib.metadata.PackageNotFoundError:
+        return "blueclaw/runtime:unknown"
     return f"blueclaw/runtime:{version}"
 
 

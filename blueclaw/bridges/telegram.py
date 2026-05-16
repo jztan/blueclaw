@@ -57,8 +57,27 @@ async def _on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         except asyncio.CancelledError:
             pass
 
+    await _send_reply(ctx.bot, chat_id, reply)
+
+
+_EMPTY_REPLY_FALLBACK = (
+    "(no reply — the model produced empty output. "
+    "Try rephrasing, /reset, or a stronger model.)"
+)
+
+
+async def _send_reply(bot, chat_id: int, reply: str) -> None:
+    """Send a reply, substituting a fallback for empty/whitespace text.
+
+    Telegram rejects empty `text` with BadRequest; small Ollama models
+    sometimes emit only a tool-use block with no final user-facing text.
+    """
+    if not reply or not reply.strip():
+        reply = _EMPTY_REPLY_FALLBACK
     for chunk in split_for_telegram(reply):
-        await ctx.bot.send_message(chat_id=chat_id, text=chunk)
+        if not chunk.strip():
+            continue
+        await bot.send_message(chat_id=chat_id, text=chunk)
 
 
 async def _on_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -71,8 +90,7 @@ async def _on_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     reply = await router.handle_command(
         chat_id=chat_id, user_id=user_id, command=msg.text
     )
-    for chunk in split_for_telegram(reply):
-        await ctx.bot.send_message(chat_id=chat_id, text=chunk)
+    await _send_reply(ctx.bot, chat_id, reply)
 
 
 def build_application(*, bot_token: str, router: BridgeRouter) -> Application:

@@ -133,6 +133,26 @@ blueclaw skill uninstall my-skill --yes
 
 User-global skills live under `~/blueclaw/skills/`; per-project skills live under `<project>/.blueclaw/skills/` and take precedence on name collision. Install confirms before copying and refuses non-interactive runs without `--yes`.
 
+### Docker Sandbox — [docs/sandbox.md](docs/sandbox.md)
+
+Opt-in container isolation for the entire agent process. When `sandbox.mode: docker` is set in `blueclaw.yaml`, blueclaw transparently re-execs into a short-lived container with the workspace bind-mounted, read-only root FS, `no-new-privileges`, all capabilities dropped, and configurable CPU / memory / pid caps. TTY and signals pass through; the container is invisible unless it fails to start.
+
+```bash
+blueclaw sandbox build      # build the runtime image (once per release / dev SHA)
+blueclaw sandbox doctor     # diagnose docker + image state
+```
+
+```yaml
+sandbox:
+  mode: docker            # "inprocess" (default) | "docker"
+  network: bridge         # "bridge" | "none" | "proxy" (reserved for v3)
+  cpu: 1.0
+  memory_mb: 1024
+  on_unavailable: error   # fail-loud by default; "fallback" degrades to in-process
+```
+
+Secrets and host env vars flow in through a layered composition: built-in allowlist → `~/blueclaw/.env` → `<project>/.env.docker` → `extra_env` in YAML. Dotenv files are added to `.gitignore` by `blueclaw init`.
+
 ## Model Support — [docs/models.md](docs/models.md)
 
 ```bash
@@ -190,6 +210,8 @@ allowlist_domains:
 | `skills.py` | Skill discovery: project + global scope resolution for the Strands `AgentSkills` plugin |
 | `lessons.py` | Extracts behavioral hints from past traces and injects into system prompt |
 | `models.py` | Pydantic models, trace schema, cost calculation, error classification |
+| `launcher.py` | Docker sandbox decision: subcommand routing, env composition, argv assembly, `execvp` into `docker run` |
+| `dotenv.py` | Minimal KEY=VALUE parser for `~/blueclaw/.env` and `<project>/.env.docker` |
 | `testing.py` | Test spec loading, runner, assertions, formatters, stub replay |
 | `tools/` | Web, shell, MCP wiring (factory pattern) |
 | `approval.py` | Shell command + domain allowlist hooks |

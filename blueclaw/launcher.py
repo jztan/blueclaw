@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -115,3 +116,17 @@ def validate_network_model(*, network: str, model_id: str) -> None:
             f"network: none requires a local model; configured model "
             f"{model_id!r} needs network access"
         )
+
+
+def docker_available(timeout: float = 5.0) -> bool:
+    """Return True if `docker info` returns 0 within the timeout."""
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False

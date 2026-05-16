@@ -159,3 +159,34 @@ class TestValidateNetworkModel:
         # model ids without 'ollama/' prefix assumed cloud
         with pytest.raises(NetworkValidationError):
             validate_network_model(network="none", model_id="claude-sonnet-4-6")
+
+
+from blueclaw.launcher import docker_available
+
+
+class TestDockerAvailable:
+    def test_available_when_docker_info_ok(self, mocker):
+        mock = mocker.patch("blueclaw.launcher.subprocess.run")
+        mock.return_value.returncode = 0
+        assert docker_available() is True
+
+    def test_unavailable_when_nonzero(self, mocker):
+        mock = mocker.patch("blueclaw.launcher.subprocess.run")
+        mock.return_value.returncode = 1
+        assert docker_available() is False
+
+    def test_unavailable_when_timeout(self, mocker):
+        import subprocess as sp
+
+        mocker.patch(
+            "blueclaw.launcher.subprocess.run",
+            side_effect=sp.TimeoutExpired(cmd="docker info", timeout=5),
+        )
+        assert docker_available() is False
+
+    def test_unavailable_when_executable_missing(self, mocker):
+        mocker.patch(
+            "blueclaw.launcher.subprocess.run",
+            side_effect=FileNotFoundError("docker"),
+        )
+        assert docker_available() is False

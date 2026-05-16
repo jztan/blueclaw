@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [2.4.0] - 2026-05-16
 ### Added
 - Skill packaging (v2.4): blueclaw now adopts the AgentSkills.io standard.
   Skills are directories containing a `SKILL.md` (YAML frontmatter +

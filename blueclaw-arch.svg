@@ -15,6 +15,9 @@
     <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#8a6fb0"/>
     </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#d97a4a"/>
+    </marker>
   </defs>
 
   <!-- Background -->
@@ -157,29 +160,32 @@
   <text x="709" y="417" text-anchor="middle" font-size="10" fill="#7a6420">YAML specs · 11 assertions · TAP / JUnit</text>
   <text x="709" y="429" text-anchor="middle" font-size="9" fill="#9a8234">Wilson CI scoring · stub tools · keep-workspace</text>
 
-  <!-- ===== Telegram bridge path ===== -->
+  <!-- ===== Telegram bridge path =====
+       Orange tones distinguish messenger bridges from the purple sandbox
+       boundary (different concern: isolation vs. message ingress). -->
 
   <!-- Telegram client box -->
-  <rect x="30" y="455" width="100" height="80" rx="14" fill="#f0e0ec" filter="url(#shadow)"/>
+  <rect x="30" y="455" width="100" height="80" rx="14" fill="#fce4dc" filter="url(#shadow)"/>
   <text x="80" y="488" text-anchor="middle" font-size="18">📱</text>
-  <text x="80" y="512" text-anchor="middle" font-size="12" font-weight="600" fill="#6b4f80">Telegram</text>
+  <text x="80" y="512" text-anchor="middle" font-size="12" font-weight="600" fill="#8a4226">Telegram</text>
 
   <!-- Arrow: Telegram → bridges -->
-  <line x1="130" y1="495" x2="168" y2="495" stroke="#8a6fb0" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <line x1="130" y1="495" x2="168" y2="495" stroke="#d97a4a" stroke-width="2" marker-end="url(#arrow-orange)"/>
 
   <!-- bridges/ box -->
-  <rect x="178" y="450" width="160" height="92" rx="12" fill="#f0e0ec" filter="url(#shadow)"/>
-  <text x="258" y="470" text-anchor="middle" font-size="12" font-weight="600" fill="#6b4f80">bridges/</text>
-  <text x="258" y="486" text-anchor="middle" font-size="9" fill="#7d5e94">Allowlist · ChatContext</text>
-  <text x="258" y="498" text-anchor="middle" font-size="9" fill="#7d5e94">BridgeRouter · FileSessionManager</text>
-  <text x="258" y="510" text-anchor="middle" font-size="9" fill="#7d5e94">telegram.py (PTB v22)</text>
-  <text x="258" y="522" text-anchor="middle" font-size="9" fill="#7d5e94">per-chat workspace</text>
-  <text x="258" y="534" text-anchor="middle" font-size="9" fill="#7d5e94">~/blueclaw/chats/&lt;id&gt;/</text>
+  <rect x="178" y="450" width="160" height="92" rx="12" fill="#fce4dc" filter="url(#shadow)"/>
+  <text x="258" y="470" text-anchor="middle" font-size="12" font-weight="600" fill="#8a4226">bridges/</text>
+  <text x="258" y="486" text-anchor="middle" font-size="9" fill="#a04a32">Allowlist · ChatContext</text>
+  <text x="258" y="498" text-anchor="middle" font-size="9" fill="#a04a32">BridgeRouter · FileSessionManager</text>
+  <text x="258" y="510" text-anchor="middle" font-size="9" fill="#a04a32">telegram.py (PTB v22)</text>
+  <text x="258" y="522" text-anchor="middle" font-size="9" fill="#a04a32">per-chat workspace</text>
+  <text x="258" y="534" text-anchor="middle" font-size="9" fill="#a04a32">~/blueclaw/chats/&lt;id&gt;/</text>
 
   <!-- Arrow: bridges → Session (re-uses create_agent + FileSessionManager)
        Routed around server.py on the left so it actually terminates on
-       the Session box, not on Tools. -->
-  <path d="M 178 470 L 148 470 L 148 170 L 178 170" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-purple)"/>
+       the Session box, not on Tools. x=135 keeps clear of the blue
+       Response arrow that runs at x=145. -->
+  <path d="M 178 470 L 135 470 L 135 170 L 178 170" stroke="#d97a4a" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-orange)"/>
 
   <!-- ===== Sandbox CLI badge =====
        Curved purple dashed connector from the sandbox boundary's bottom-right

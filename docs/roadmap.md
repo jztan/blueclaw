@@ -71,7 +71,7 @@ Optional whole-agent container isolation. A new `sandbox: docker` mode in `bluec
 `Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls. With v2.5's container sandbox in place, subagent-spawned shell work runs inside the same isolation boundary.
 
 ## v3 — Multi-Channel Runtime
-Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack, Discord, and Telegram ship as thin skill files on top of this core.
+Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack and Discord ship as thin skill files on top of this core. The Telegram bridge has landed early (see `docs/bridges/telegram.md`) — allowlist-enforced, per-chat workspaces, long-polling default — and will be retrofitted onto the `ChannelAdapter` protocol when it lands.
 
 ---
 

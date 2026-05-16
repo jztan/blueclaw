@@ -184,9 +184,9 @@ These constraints keep BlueClaw understandable and maintainable. Please read the
 |---|---|
 | **Strands-first** | If Strands already does it, use Strands — don't reimplement |
 | **MCP-first tools** | Prefer `MCPClient` over custom `@tool` functions |
-| **Workspace sandbox** | All file I/O must stay inside `~/blueclaw/workspace/` |
+| **Workspace sandbox** | All file I/O must stay inside the configured workspace root (default `~/blueclaw/workspace/`; per-chat under `~/blueclaw/chats/<id>/` when the Telegram bridge is running) |
 | **Skills over features** | New integrations belong in `.claude/skills/`, not core files |
-| **Simplicity budget** | Core source must stay at the one-sitting readable limit (~3,600 lines across ~12 files). New additions must justify their complexity. |
+| **Simplicity budget** | Core source must stay at the one-sitting readable limit (~4,000 lines across ~13 files). New additions must justify their complexity. |
 
 Before opening a PR for a new feature, ask:
 

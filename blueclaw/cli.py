@@ -50,6 +50,20 @@ skill_app = typer.Typer(help="Manage blueclaw skills.", add_completion=False)
 app.add_typer(skill_app, name="skill")
 
 
+def _default_bind_host() -> str:
+    """Bind localhost normally, but 0.0.0.0 inside the sandbox.
+
+    A port published via `docker run --publish 8420:8420` only reaches the
+    container if the in-container server is bound to 0.0.0.0 (all interfaces).
+    Binding to 127.0.0.1 inside the container makes it unreachable from the
+    host, which is the bug the user just hit when http://127.0.0.1:8420/playground
+    refused connections.
+    """
+    if os.environ.get("BLUECLAW_SANDBOX_MODE") == "docker":
+        return "0.0.0.0"
+    return "127.0.0.1"
+
+
 def _config_path() -> Path:
     """Location of blueclaw.yaml.
 
@@ -1095,7 +1109,7 @@ def trace_ui(
     if not no_open:
         threading.Timer(0.5, webbrowser.open, args=[url]).start()
 
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(app, host=_default_bind_host(), port=port, log_level="warning")
 
 
 @trace_app.command("purge")
@@ -1121,7 +1135,10 @@ def trace_purge(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", help="Bind host"),
+    host: Optional[str] = typer.Option(
+        None,
+        help="Bind host (default: 127.0.0.1 on host, 0.0.0.0 inside docker sandbox)",
+    ),
     port: int = typer.Option(8420, help="Bind port"),
     model: Optional[str] = typer.Option(
         None, "--model", help="Model override (provider/model_id)"
@@ -1145,8 +1162,11 @@ def serve(
         config = config.model_copy(update={"max_concurrent_runs": max_concurrent})
     workspace = Workspace(config.workspace_path)
     server_app = create_server_app(config, workspace, cors_origin=cors_origin)
-    console.print(f"[bold]blueclaw serve[/bold] listening on http://{host}:{port}")
-    uvicorn.run(server_app, host=host, port=port)
+    resolved_host = host or _default_bind_host()
+    console.print(
+        f"[bold]blueclaw serve[/bold] listening on http://{resolved_host}:{port}"
+    )
+    uvicorn.run(server_app, host=resolved_host, port=port)
 
 
 @app.command()

@@ -428,7 +428,11 @@ class TestBuildDockerArgv:
         i = argv.index("--workdir")
         assert argv[i + 1] == "/home/blueclaw/blueclaw/workspace"
 
-    def test_config_file_mounted_inside_workspace(self, tmp_path):
+    def test_config_file_mounted_outside_workspace(self, tmp_path):
+        """Config must be mounted OUTSIDE the workspace mount because macOS
+        VirtioFS rejects bind-mounting a file inside another bind-mount.
+        The launcher also exposes the target path via BLUECLAW_CONFIG so the
+        in-container blueclaw knows where to read it."""
         argv = build_docker_argv(
             cfg=_basic_cfg(),
             image="img",
@@ -445,10 +449,11 @@ class TestBuildDockerArgv:
         )
         assert any(
             f"source={tmp_path}/blueclaw.yaml,"
-            f"target=/home/blueclaw/blueclaw/workspace/blueclaw.yaml,"
+            f"target=/home/blueclaw/blueclaw.yaml,"
             f"readonly=true" in a
             for a in argv
         )
+        assert "--env=BLUECLAW_CONFIG=/home/blueclaw/blueclaw.yaml" in argv
 
     def test_project_skills_target_is_inside_workspace(self, tmp_path):
         pskills = tmp_path / "psk"

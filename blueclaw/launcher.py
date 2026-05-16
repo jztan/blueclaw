@@ -259,16 +259,22 @@ def build_docker_argv(
         ]
 
     # Mandatory mounts. Targets are chosen so that Path.home() / "blueclaw" / ...
-    # resolves correctly inside the container (HOME=/home/blueclaw). The config
-    # file is mounted *inside* the workspace mount so find_project_root() finds
-    # the workspace as the project root.
+    # resolves correctly inside the container (HOME=/home/blueclaw).
+    #
+    # IMPORTANT: the config file must be mounted *outside* the workspace mount.
+    # Docker Desktop on macOS (VirtioFS) refuses to bind-mount a file into a
+    # path that's inside another bind mount. We mount it at a sibling path
+    # (/home/blueclaw/blueclaw.yaml) and tell the in-container blueclaw where
+    # to find it via BLUECLAW_CONFIG.
+    config_target = "/home/blueclaw/blueclaw.yaml"
     argv += [
         f"--mount=type=bind,source={workspace},"
         f"target=/home/blueclaw/blueclaw/workspace,readonly=false",
         f"--mount=type=bind,source={user_skills},"
         f"target=/home/blueclaw/blueclaw/skills,readonly=true",
         f"--mount=type=bind,source={project_root}/blueclaw.yaml,"
-        f"target=/home/blueclaw/blueclaw/workspace/blueclaw.yaml,readonly=true",
+        f"target={config_target},readonly=true",
+        f"--env=BLUECLAW_CONFIG={config_target}",
     ]
     if project_skills is not None:
         argv += [

@@ -50,6 +50,17 @@ skill_app = typer.Typer(help="Manage blueclaw skills.", add_completion=False)
 app.add_typer(skill_app, name="skill")
 
 
+def _config_path() -> Path:
+    """Location of blueclaw.yaml.
+
+    Honors BLUECLAW_CONFIG when set (used by the docker launcher to point
+    the in-container process at the bind-mounted config; mounted outside
+    the workspace because macOS VirtioFS won't bind-mount a file inside
+    another bind-mount).
+    """
+    return Path(os.environ.get("BLUECLAW_CONFIG", "blueclaw.yaml"))
+
+
 def _global_skills_dir() -> Path:
     from blueclaw.skills import default_global_dir
 
@@ -433,7 +444,7 @@ def run_session(model_override: str | None = None) -> None:
         run_chat_loop,
     )
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model_override)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
@@ -480,7 +491,7 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     if not should_sandbox_subcommand(subcommand):
         return
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     if not config_path.exists():
         return
     try:
@@ -495,6 +506,17 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
         project_root=project_root,
     )
     if decision is not None:
+        # Visible signal so users can confirm the sandbox actually fired.
+        # The image tag is the last argv element before the inner argv.
+        image_tag = next(
+            (
+                arg
+                for arg in decision.argv
+                if arg.startswith("blueclaw/runtime:") or "/" in arg and ":" in arg
+            ),
+            "?",
+        )
+        print(f"→ blueclaw sandbox: docker ({image_tag})", file=sys.stderr)
         os.execvp(decision.argv[0], decision.argv)
 
 
@@ -536,7 +558,7 @@ def run(
         print_run_summary,
     )
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
@@ -624,7 +646,7 @@ def init() -> None:
         )
 
     # Create config yaml if missing
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     if not config_path.exists():
         config_path.write_text(
             "model:\n  provider: anthropic\n  model_id: claude-sonnet-4-6\n\n"
@@ -761,7 +783,7 @@ def trace_explain(
         console.print(f"Trace not found: {run_id}")
         raise typer.Exit(1)
 
-    config_path = Path("blueclaw.yaml")
+    config_path = _config_path()
     config = load_config(config_path, model_override=model)
     model_instance = build_model(config)
     formatted = format_trace_for_explanation(trace)
@@ -869,7 +891,7 @@ def trace_replay(
         from blueclaw.session import load_config
         from blueclaw.testing import run_stub_replay
 
-        config = load_config(Path("blueclaw.yaml"), model_override=model)
+        config = load_config(_config_path(), model_override=model)
         run_stub_replay(trace, config)
         return
 
@@ -1098,7 +1120,7 @@ def trace_purge(
     """Delete old trace files."""
     from blueclaw.session import load_config
 
-    config = load_config(Path("blueclaw.yaml"))
+    config = load_config(_config_path())
     days = older_than if older_than is not None else config.trace_retention_days
     workspace = Workspace(DEFAULT_WORKSPACE)
     count = workspace.purge_old_traces(days, dry_run=dry_run)
@@ -1127,7 +1149,7 @@ def serve(
     from blueclaw.server import create_server_app
     from blueclaw.session import load_config
 
-    config = load_config(Path("blueclaw.yaml"), model_override=model)
+    config = load_config(_config_path(), model_override=model)
     if max_concurrent is not None:
         config = config.model_copy(update={"max_concurrent_runs": max_concurrent})
     workspace = Workspace(config.workspace_path)
@@ -1186,7 +1208,7 @@ def test(
         for w in spec_warnings:
             progress.print(f"  Warning: {w}")
 
-    config = load_config(Path("blueclaw.yaml"), model_override=model or spec.model)
+    config = load_config(_config_path(), model_override=model or spec.model)
     if spec.allowlist_domains:
         for d in spec.allowlist_domains:
             if d not in config.allowlist_domains:

@@ -523,6 +523,10 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
         # Visible signal so users can confirm the sandbox actually fired.
         print(f"→ blueclaw sandbox: docker ({decision.image})", file=sys.stderr)
         os.execvp(decision.argv[0], decision.argv)
+        # execvp replaces the process on success; reaching here means it
+        # returned (only possible under test mocks). Exit so the caller
+        # doesn't continue into the in-process subcommand.
+        raise SystemExit(0)
 
 
 @app.callback(invoke_without_command=True)

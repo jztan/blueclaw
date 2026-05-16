@@ -32,7 +32,9 @@ from blueclaw.launcher import (
     decide_launch,
     docker_available,
     image_exists,
+    normalize_subcommand,
     resolve_image_tag,
+    should_sandbox_subcommand,
 )
 from blueclaw.models import SandboxConfig, SessionConfig
 from blueclaw.workspace import Workspace
@@ -450,24 +452,7 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def _reconstruct_argv(ctx: typer.Context) -> list[str]:
-    """Build a launcher-friendly argv from the active Typer context.
-
-    sys.argv is unreliable under CliRunner; reconstruct from ctx instead so
-    the launcher's subcommand routing sees the actual invocation.
-    """
-    argv: list[str] = [sys.argv[0] if sys.argv else "blueclaw"]
-    sub = ctx.invoked_subcommand
-    if sub:
-        argv.append(sub)
-        # ctx.args holds remaining tokens after the subcommand name.
-        argv.extend(ctx.args or [])
-    return argv
-
-
-def _maybe_execvp_into_docker(
-    ctx: typer.Context, *, model_override: Optional[str]
-) -> None:
+def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     """Re-exec into `docker run` if sandbox.mode is docker for this subcommand.
 
     Returns without doing anything if any of these holds:
@@ -480,13 +465,12 @@ def _maybe_execvp_into_docker(
     Exits via SystemExit if the user requested docker mode but the daemon or
     image is missing under 'error' policy.
     """
-    from blueclaw.launcher import normalize_subcommand, should_sandbox_subcommand
     from blueclaw.session import load_config  # lazy: matches existing pattern
 
     # Cheap pre-filter: skip entirely for host-only subcommands so we don't
     # trigger config-loading side effects for commands that never sandbox.
-    candidate = _reconstruct_argv(ctx)
-    if not should_sandbox_subcommand(normalize_subcommand(candidate)):
+    subcommand = normalize_subcommand(sys.argv)
+    if not should_sandbox_subcommand(subcommand):
         return
 
     config_path = Path("blueclaw.yaml")
@@ -500,7 +484,7 @@ def _maybe_execvp_into_docker(
     decision = decide_launch(
         sandbox_cfg=config.sandbox,
         model_id=config.model_id,
-        argv=_reconstruct_argv(ctx),
+        argv=sys.argv,
         project_root=project_root,
     )
     if decision is not None:
@@ -524,7 +508,7 @@ def main(
 ) -> None:
     """blueclaw — terminal automation agent."""
     # Sandbox launcher: re-exec into docker if configured. Never returns when it fires.
-    _maybe_execvp_into_docker(ctx, model_override=model)
+    _maybe_execvp_into_docker(model_override=model)
     if ctx.invoked_subcommand is None:
         run_session(model_override=model)
 

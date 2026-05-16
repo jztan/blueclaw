@@ -1232,6 +1232,7 @@ class TestLauncherWiring:
         (tmp_path / "blueclaw.yaml").write_text(
             "model_id: anthropic/claude-sonnet-4-6\n"
         )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "sandbox", "doctor", "--json"])
         mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
         mocker.patch(
             "blueclaw.session.load_config",
@@ -1248,6 +1249,7 @@ class TestLauncherWiring:
         (tmp_path / "blueclaw.yaml").write_text(
             "model_id: anthropic/claude-sonnet-4-6\n"
         )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "run", "hi"])
         mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
         mocker.patch(
             "blueclaw.session.load_config",
@@ -1270,6 +1272,7 @@ class TestLauncherWiring:
         (tmp_path / "blueclaw.yaml").write_text(
             "model_id: anthropic/claude-sonnet-4-6\n"
         )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "skill", "list"])
         mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
         mocker.patch(
             "blueclaw.session.load_config",
@@ -1280,3 +1283,24 @@ class TestLauncherWiring:
         )
         runner.invoke(app, ["skill", "list"])
         mock_execvp.assert_not_called()
+
+    def test_docker_mode_trace_ui_calls_execvp(self, mocker, tmp_path, monkeypatch):
+        """trace ui is a two-word container command; must hit execvp under docker."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        monkeypatch.setattr("sys.argv", ["blueclaw", "trace", "ui", "--no-open"])
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_exists", return_value=True)
+        mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:abc")
+        runner.invoke(app, ["trace", "ui", "--no-open"])
+        mock_execvp.assert_called_once()

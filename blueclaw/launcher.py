@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from blueclaw.dotenv import load_dotenv_files
-from blueclaw.models import SandboxConfig
+from blueclaw.models import ExtraMount, SandboxConfig  # noqa: F401
 
 
 def detect_editable_source() -> Path | None:
@@ -186,3 +186,98 @@ def image_digest(tag: str) -> str | None:
         return None
     digest = result.stdout.strip()
     return digest or None
+
+
+def build_docker_argv(
+    *,
+    cfg: SandboxConfig,
+    image: str,
+    env: dict[str, str],
+    workspace: Path,
+    project_root: Path,
+    user_skills: Path,
+    project_skills: Path | None,
+    editable_source: Path | None,
+    inner_argv: list[str],
+    interactive: bool,
+    publish_ports: list[int],
+    digest: str | None,
+) -> list[str]:
+    """Assemble the full `docker run ...` argv that the launcher will execvp into."""
+    user = cfg.user
+    if user == "host":
+        user = f"{os.getuid()}:{os.getgid()}"
+
+    argv: list[str] = ["docker", "run", "--rm"]
+    if interactive:
+        argv += ["-i", "-t"]
+
+    # Security
+    argv += [
+        "--security-opt",
+        "no-new-privileges",
+        "--cap-drop",
+        "ALL",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:size=256m",
+        "--tmpfs",
+        "/run:size=64m",
+        "--user",
+        user,
+        "--workdir",
+        "/workspace",
+        f"--network={cfg.network}",
+        f"--cpus={cfg.cpu}",
+        f"--memory={cfg.memory_mb}m",
+        f"--pids-limit={cfg.pids}",
+        "--env=PYTHONDONTWRITEBYTECODE=1",
+    ]
+
+    # Sandbox metadata env vars (read by observer.py inside container)
+    argv += [
+        "--env=BLUECLAW_SANDBOX_MODE=docker",
+        f"--env=BLUECLAW_SANDBOX_IMAGE={image}",
+    ]
+    if digest:
+        argv += [f"--env=BLUECLAW_SANDBOX_DIGEST={digest}"]
+
+    # Composed env
+    for k, v in env.items():
+        argv += [f"--env={k}={v}"]
+
+    if editable_source is not None:
+        argv += [
+            f"--mount=type=bind,source={editable_source},"
+            f"target=/opt/blueclaw-src,readonly=true",
+            "--env=PYTHONPATH=/opt/blueclaw-src",
+        ]
+
+    # Mandatory mounts
+    argv += [
+        f"--mount=type=bind,source={workspace},target=/workspace,readonly=false",
+        f"--mount=type=bind,source={user_skills},"
+        f"target=/home/blueclaw/skills,readonly=true",
+        f"--mount=type=bind,source={project_root}/blueclaw.yaml,"
+        f"target=/project/blueclaw.yaml,readonly=true",
+    ]
+    if project_skills is not None:
+        argv += [
+            f"--mount=type=bind,source={project_skills},"
+            f"target=/project/.blueclaw/skills,readonly=true",
+        ]
+
+    # Extra mounts
+    for m in cfg.extra_mounts:
+        readonly = "true" if m.mode == "ro" else "false"
+        argv += [
+            f"--mount=type=bind,source={os.path.expanduser(m.host)},"
+            f"target={m.container},readonly={readonly}",
+        ]
+
+    # Port publishing
+    for port in publish_ports:
+        argv += [f"--publish={port}:{port}"]
+
+    argv += [image, *inner_argv]
+    return argv

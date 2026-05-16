@@ -8,11 +8,12 @@ import pytest
 from blueclaw.launcher import (
     BUILTIN_ENV_ALLOWLIST,
     NetworkValidationError,
+    build_docker_argv,
     compose_env,
     detect_editable_source,
     validate_network_model,
 )
-from blueclaw.models import SandboxConfig
+from blueclaw.models import ExtraMount, SandboxConfig
 
 
 class TestDetectEditableSource:
@@ -248,3 +249,301 @@ class TestImageDigest:
         mock.return_value.returncode = 1
         mock.return_value.stdout = ""
         assert image_digest("blueclaw/runtime:missing") is None
+
+
+def _basic_cfg(**kw):
+    return SandboxConfig(**kw)
+
+
+class TestBuildDockerArgv:
+    def test_includes_image_and_subcommand(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="blueclaw/runtime:test",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run", "hello"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert argv[0:2] == ["docker", "run"]
+        assert "--rm" in argv
+        assert "blueclaw/runtime:test" in argv
+        assert argv[-2:] == ["run", "hello"]
+
+    def test_security_flags_present(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert "--security-opt" in argv and "no-new-privileges" in argv
+        assert "--cap-drop" in argv and "ALL" in argv
+        assert "--read-only" in argv
+
+    def test_resource_caps(self, tmp_path):
+        cfg = _basic_cfg(cpu=2.5, memory_mb=2048, pids=256)
+        argv = build_docker_argv(
+            cfg=cfg,
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert "--cpus=2.5" in argv
+        assert "--memory=2048m" in argv
+        assert "--pids-limit=256" in argv
+
+    def test_user_host_resolves_to_uid_gid(self, tmp_path, mocker):
+        mocker.patch("blueclaw.launcher.os.getuid", return_value=501)
+        mocker.patch("blueclaw.launcher.os.getgid", return_value=20)
+        argv = build_docker_argv(
+            cfg=_basic_cfg(user="host"),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert "--user" in argv
+        i = argv.index("--user")
+        assert argv[i + 1] == "501:20"
+
+    def test_user_explicit_uses_value(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(user="1000:1000"),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        i = argv.index("--user")
+        assert argv[i + 1] == "1000:1000"
+
+    def test_network_modes(self, tmp_path):
+        for mode in ("bridge", "none"):
+            argv = build_docker_argv(
+                cfg=_basic_cfg(network=mode),
+                image="img",
+                env={},
+                workspace=tmp_path,
+                project_root=tmp_path,
+                user_skills=tmp_path / "skills",
+                project_skills=None,
+                editable_source=None,
+                inner_argv=["run"],
+                interactive=False,
+                publish_ports=[],
+                digest=None,
+            )
+            assert f"--network={mode}" in argv
+
+    def test_workspace_mount(self, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=ws,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert f"--mount=type=bind,source={ws},target=/workspace,readonly=false" in argv
+
+    def test_editable_source_mounted_with_pythonpath(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=src,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert any(
+            f"source={src},target=/opt/blueclaw-src,readonly=true" in a for a in argv
+        )
+        assert "--env=PYTHONPATH=/opt/blueclaw-src" in argv
+
+    def test_user_skills_mounted_ro(self, tmp_path):
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=skills,
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert any(
+            f"source={skills},target=/home/blueclaw/skills,readonly=true" in a
+            for a in argv
+        )
+
+    def test_project_skills_omitted_when_absent(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert not any("/project/.blueclaw/skills" in a for a in argv)
+
+    def test_extra_mounts_included(self, tmp_path):
+        cfg = _basic_cfg(
+            extra_mounts=[
+                ExtraMount(host=str(tmp_path / "x"), container="/mnt/x", mode="rw")
+            ]
+        )
+        argv = build_docker_argv(
+            cfg=cfg,
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert any(
+            "target=/mnt/x,readonly=false" in a and str(tmp_path / "x") in a
+            for a in argv
+        )
+
+    def test_env_emitted_as_env_flags(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={"FOO": "bar", "BAZ": "qux"},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert "--env=FOO=bar" in argv
+        assert "--env=BAZ=qux" in argv
+
+    def test_sandbox_metadata_env_vars(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="blueclaw/runtime:test",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest="sha256:abc",
+        )
+        assert "--env=BLUECLAW_SANDBOX_MODE=docker" in argv
+        assert "--env=BLUECLAW_SANDBOX_IMAGE=blueclaw/runtime:test" in argv
+        assert "--env=BLUECLAW_SANDBOX_DIGEST=sha256:abc" in argv
+
+    def test_interactive_adds_it_flags(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=True,
+            publish_ports=[],
+            digest=None,
+        )
+        assert "-i" in argv and "-t" in argv
+
+    def test_publish_ports(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["serve"],
+            interactive=False,
+            publish_ports=[8420],
+            digest=None,
+        )
+        assert "--publish=8420:8420" in argv

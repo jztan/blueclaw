@@ -163,5 +163,5 @@
   <text x="350" y="471" text-anchor="middle" font-size="10" font-weight="600" fill="#6b4f95">blueclaw sandbox · build / doctor</text>
 
   <!-- Bottom credit -->
-  <text x="440" y="492" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK · v2.4 + SOUL.md + docker sandbox (Unreleased)</text>
+  <text x="440" y="492" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK · v2.5 + SOUL.md + docker sandbox</text>
 </svg>

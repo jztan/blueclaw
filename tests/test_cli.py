@@ -1304,3 +1304,33 @@ class TestLauncherWiring:
         mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:abc")
         runner.invoke(app, ["trace", "ui", "--no-open"])
         mock_execvp.assert_called_once()
+
+
+class TestInitGitignore:
+    def test_init_creates_gitignore_with_env_patterns(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0
+        gi = tmp_path / ".gitignore"
+        assert gi.exists()
+        body = gi.read_text()
+        assert ".env" in body
+        assert ".env.docker" in body
+
+    def test_init_appends_when_gitignore_exists(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        gi = tmp_path / ".gitignore"
+        gi.write_text("# preexisting\nnode_modules/\n")
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0
+        body = gi.read_text()
+        assert "node_modules/" in body
+        assert ".env.docker" in body
+
+    def test_init_idempotent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["init"])
+        first = (tmp_path / ".gitignore").read_text()
+        runner.invoke(app, ["init"])
+        second = (tmp_path / ".gitignore").read_text()
+        assert first == second  # no duplicate lines

@@ -589,6 +589,22 @@ def run(
         updater.wait()
 
 
+def _ensure_gitignore_entries(project_root: Path) -> None:
+    """Add .env.docker patterns to .gitignore (idempotent)."""
+    gi = project_root / ".gitignore"
+    needed = [".env", ".env.docker", ".env.*"]
+    existing = gi.read_text().splitlines() if gi.exists() else []
+    missing = [p for p in needed if p not in existing]
+    if not missing:
+        return
+    block = ["", "# blueclaw: never commit dotenv files (may contain secrets)"]
+    block += missing
+    with gi.open("a") as f:
+        if existing and existing[-1] != "":
+            f.write("\n")
+        f.write("\n".join(block) + "\n")
+
+
 @app.command()
 def init() -> None:
     """Initialize a blueclaw workspace."""
@@ -609,6 +625,8 @@ def init() -> None:
             "  trace_retention_days: 30\n\n"
             "tools:\n  - web\n  - shell\n  - pdf\n\nallowlist_domains: []\n"
         )
+
+    _ensure_gitignore_entries(Path.cwd())
 
     console.print(f"Workspace initialized at {workspace.root}")
 

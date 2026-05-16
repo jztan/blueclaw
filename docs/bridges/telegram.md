@@ -80,6 +80,18 @@ Single-target commands (`show`, `explain`, `graph`, `replay`, `timeline`,
 `diff`) scan every workspace looking for the run_id and print a
 disambiguation hint when the same id exists in more than one.
 
+## Empty replies
+
+Small Ollama models (e.g. `gemma4`) sometimes end a turn with only a tool-use
+block and no user-facing text. Telegram rejects empty messages, so the
+bridge substitutes:
+
+> `(no reply — the model produced empty output. Try rephrasing, /reset, or a stronger model.)`
+
+If you see this repeatedly, swap to a model that grounds answers in tool results
+better — `anthropic/claude-haiku-4-5-20251001` or `ollama/qwen2.5:7b-instruct`
+both behave well.
+
 ## Single-instance rule
 
 Long-polling allows exactly one `blueclaw telegram` process per bot token. If

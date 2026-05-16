@@ -15,6 +15,20 @@ All notable changes to blueclaw will be documented in this file.
 - **`blueclaw history --chat <id>` / `--all-chats`.** Inspect per-chat
   Telegram history without changing directory; `--all-chats` aggregates the
   default workspace with every `~/blueclaw/chats/<id>/`, labeling each row.
+- **Telegram bridge: empty-reply fallback.** Small Ollama models occasionally
+  emit only a tool-use block with no synthesized text. Previously this crashed
+  the handler with Telegram's `BadRequest: Message text is empty`. The bridge
+  now substitutes a friendly fallback (`(no reply — the model produced empty
+  output. Try rephrasing, /reset, or a stronger model.)`) and skips empty chunks.
+- **Sandbox: chats-root mount widened.** `~/blueclaw/chats/` is now bind-mounted
+  into the container whenever it exists on the host, not just for the
+  `telegram` subcommand. This lets `blueclaw trace ui --all-chats` and
+  `blueclaw history --all-chats` see per-chat data when running under
+  `sandbox.mode=docker`.
+- **Dashboard: strict-mode regression fixed.** The multi-workspace patch had
+  reassigned `function fetchJSON(...)`, which is a SyntaxError under the
+  dashboard's `'use strict'` directive and broke the entire SPA. Replaced
+  with an `apiFetch()` wrapper used at every `/api/*` call site.
 - **Multi-workspace trace coverage.** Every `blueclaw trace *` reader now
   accepts `--chat <id>` (single Telegram chat) and, where the union makes
   sense (`list`, `stats`, `purge`, `ui`), `--all-chats`. Single-target

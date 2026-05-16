@@ -4,6 +4,13 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to
+  Telegram with per-chat workspaces under `~/blueclaw/chats/<chat_id>/`,
+  Strands `FileSessionManager`-backed conversation continuity, allowlist-enforced
+  authorization (empty allowlist refuses everyone), `/whoami` `/reset` `/forget`
+  commands, long-polling by default and webhook mode opt-in, and a `--echo`
+  smoke-test mode. Install via `pip install -e ".[telegram]"`. See
+  `docs/bridges/telegram.md`.
 - **SOUL.md identity file.** Optional `<workspace>/SOUL.md` holds the agent's
   persona/voice (personality, values, communication style) separately from
   `CONTEXT.md` (which holds factual memory). When present, it is loaded as the

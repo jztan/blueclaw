@@ -1193,6 +1193,106 @@ def serve(
 
 
 @app.command()
+def telegram(
+    token: Optional[str] = typer.Option(
+        None, "--token", help="Bot token (overrides config / env)"
+    ),
+    allow: Optional[list[int]] = typer.Option(
+        None, "--allow", help="Chat IDs to allow (overrides config)"
+    ),
+    webhook: Optional[str] = typer.Option(
+        None, "--webhook", help="Switch to webhook mode at this URL"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="Model override (provider/model_id)"
+    ),
+    echo: bool = typer.Option(
+        False,
+        "--echo",
+        help="Echo messages back without calling the agent (smoke test)",
+    ),
+) -> None:
+    """Start the Telegram bridge."""
+    import os
+
+    from blueclaw.bridges.core import Allowlist, BridgeRouter
+    from blueclaw.bridges.telegram import run_telegram_bridge
+    from blueclaw.models import TelegramBridgeConfig
+    from blueclaw.session import build_model, load_config
+
+    config = load_config(_config_path(), model_override=model)
+    tg_block = (config.bridges or {}).get("telegram") or {}
+
+    raw_token = (
+        token or tg_block.get("bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN")
+    )
+    if (
+        isinstance(raw_token, str)
+        and raw_token.startswith("${")
+        and raw_token.endswith("}")
+    ):
+        raw_token = os.environ.get(raw_token[2:-1])
+    if not raw_token:
+        console.print(
+            "[red]No bot token. Set bridges.telegram.bot_token or "
+            "TELEGRAM_BOT_TOKEN.[/red]"
+        )
+        raise typer.Exit(1)
+
+    tg_cfg = TelegramBridgeConfig(
+        bot_token=raw_token,
+        allowed_chat_ids=(
+            allow if allow is not None else tg_block.get("allowed_chat_ids", [])
+        ),
+        allowed_user_ids=tg_block.get("allowed_user_ids", []),
+        mode="webhook" if webhook else tg_block.get("mode", "polling"),
+        webhook_url=webhook or tg_block.get("webhook_url"),
+        webhook_port=tg_block.get("webhook_port", 8421),
+        chats_root=tg_block.get("chats_root") or Path.home() / "blueclaw" / "chats",
+    )
+
+    allowlist = Allowlist(
+        chat_ids=tg_cfg.allowed_chat_ids,
+        user_ids=tg_cfg.allowed_user_ids,
+    )
+
+    if echo:
+
+        class _EchoRouter(BridgeRouter):
+            async def handle_message(self, *, chat_id, user_id, text):
+                if not self._allowlist.authorize(chat_id=chat_id, user_id=user_id):
+                    return f"Not authorized. chat_id={chat_id}"
+                return f"echo: {text}"
+
+        router = _EchoRouter(
+            config=config,
+            model=None,
+            allowlist=allowlist,
+            chats_root=tg_cfg.chats_root,
+        )
+    else:
+        model_obj = build_model(config)
+        router = BridgeRouter(
+            config=config,
+            model=model_obj,
+            allowlist=allowlist,
+            chats_root=tg_cfg.chats_root,
+        )
+
+    console.print(
+        f"[bold]blueclaw telegram[/bold] mode={tg_cfg.mode} "
+        f"allowlist_chats={tg_cfg.allowed_chat_ids or 'empty (refuse all)'}"
+    )
+    run_telegram_bridge(
+        bot_token=tg_cfg.bot_token,
+        router=router,
+        mode=tg_cfg.mode,
+        webhook_url=tg_cfg.webhook_url,
+        webhook_port=tg_cfg.webhook_port,
+    )
+
+
+@app.command()
 def test(
     spec_path: Path = typer.Argument(..., help="Path to test spec YAML"),
     dry_run: bool = typer.Option(

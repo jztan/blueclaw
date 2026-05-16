@@ -34,6 +34,7 @@
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
 - **Trace replay & diff** — step through any recorded run interactively, or compare steps, tokens, and cost between two runs
 - **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, per-`conversation_id` history persisted via `FileSessionManager`, plus `POST /upload` for attaching files (PDF, text, images, csv, json, zip) to a conversation
+- **Talk to blueclaw from your phone** — `blueclaw telegram` exposes the agent over Telegram with per-chat workspaces (each chat gets its own `CONTEXT.md` and `history.jsonl`), allowlist-enforced authorization, and Strands-backed conversation continuity. Long-polling by default (no public URL needed), webhook mode opt-in. Install with `pip install -e ".[telegram]"`. See `docs/bridges/telegram.md`
 - **File attachments with native vision** — drop `@<path>` (or just paste a bare/quoted absolute path) into any CLI prompt; PNG/JPEG/GIF/WEBP attachments reach vision-capable models as Strands `image` blocks, while PDFs and text reuse the shell/pdf-mcp tools. Works the same way over HTTP via `POST /upload` + `file_ids`
 - **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
 - **Skills** — package agent behavior as `SKILL.md` directories (AgentSkills.io standard). Install from a local path, a git URL (with optional `#subdir`), or a direct HTTPS URL pointing at raw SKILL.md. Project skills under `<project>/.blueclaw/skills/` shadow user-global skills under `~/blueclaw/skills/`
@@ -117,6 +118,20 @@ curl -X POST http://127.0.0.1:8420/message \
 ```
 
 Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap on JSON, 25 MB on `/upload`, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
+
+### Telegram Bridge — [docs/bridges/telegram.md](docs/bridges/telegram.md)
+
+Talk to blueclaw from your phone. Allowlist-enforced; each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` with its own `CONTEXT.md` and `history.jsonl`. Long-polling by default (no public URL needed); webhook mode opt-in for production.
+
+```bash
+pip install -e ".[telegram]"
+export TELEGRAM_BOT_TOKEN=123456:abc...
+blueclaw telegram                       # starts long-polling
+blueclaw telegram --echo --allow 12345  # smoke test, no model calls
+blueclaw telegram --webhook https://your.host/telegram
+```
+
+Commands: `/whoami` (returns your IDs, works even unauthorized — for onboarding), `/start`, `/reset` (clears history, keeps `CONTEXT.md`), `/forget` (wipes both).
 
 ### Skills — [docs/skills.md](docs/skills.md)
 

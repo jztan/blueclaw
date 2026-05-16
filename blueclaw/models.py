@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExtraMount(BaseModel):
@@ -129,6 +129,7 @@ class SessionConfig(BaseModel):
     context_summarize_after: int | None = None
     max_concurrent_runs: int = 4
     sandbox: SandboxConfig = SandboxConfig()
+    bridges: dict = Field(default_factory=dict)
 
     @field_validator("trace_retention_days")
     @classmethod
@@ -202,6 +203,32 @@ class MessageResponse(BaseModel):
     conversation_id: str | None
     tokens: int
     cost: float | None
+
+
+class TelegramBridgeConfig(BaseModel):
+    """Config block for `blueclaw telegram`. Loaded from `bridges.telegram`."""
+
+    bot_token: str
+    allowed_chat_ids: list[int] = Field(default_factory=list)
+    allowed_user_ids: list[int] = Field(default_factory=list)
+    mode: str = "polling"
+    webhook_url: str | None = None
+    webhook_port: int = 8421
+    chats_root: Path = Path.home() / "blueclaw" / "chats"
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        if v not in ("polling", "webhook"):
+            raise ValueError("mode must be 'polling' or 'webhook'")
+        return v
+
+    @field_validator("chats_root", mode="before")
+    @classmethod
+    def _expand_chats_root(cls, v):
+        if isinstance(v, str):
+            return Path(v).expanduser()
+        return v
 
 
 class UploadResponse(BaseModel):

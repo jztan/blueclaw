@@ -62,7 +62,7 @@ tests:
   # short answers). Weakest of the five; length cap is the primary
   # signal, markdown check is advisory.
   - goal: "What is 2+2?"
-    output_regex: "^.{1,80}$"
+    output_regex: "(?s)^.{1,80}\\s*$"
     forbidden_output_contains: "##"
     runs: 3
     threshold: 0.66

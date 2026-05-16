@@ -459,9 +459,14 @@ def decide_launch(
     workspace = home / "blueclaw" / "workspace"
     user_skills = home / "blueclaw" / "skills"
     user_skills.mkdir(parents=True, exist_ok=True)
+    # Chats root: mounted whenever it exists on the host, or when the
+    # subcommand actually writes to it (telegram). Read-side commands
+    # like `trace ui --all-chats` or `history --all-chats` need this
+    # mount to see anything other than the default workspace.
+    host_chats_root = home / "blueclaw" / "chats"
     chats_root: Path | None = None
-    if subcommand == "telegram":
-        chats_root = home / "blueclaw" / "chats"
+    if subcommand == "telegram" or host_chats_root.exists():
+        chats_root = host_chats_root
 
     project_skills: Path | None = project_root / ".blueclaw" / "skills"
     if project_skills is not None and not project_skills.exists():

@@ -1046,7 +1046,7 @@ code, .mono {
 
   // ─── Load Traces ───
   function loadTraces() {
-    fetchJSON('/api/traces').then(function(data) {
+    apiFetch('/api/traces').then(function(data) {
       allTraces = data.traces || [];
       sidebarTraceCount.textContent = data.total != null ? data.total : allTraces.length;
 
@@ -1067,7 +1067,7 @@ code, .mono {
   function startAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(function() {
-      fetchJSON('/api/traces').then(function(data) {
+      apiFetch('/api/traces').then(function(data) {
         var traces = data.traces || [];
         if (traces.length > 0 && traces[0].run_id !== latestRunId) {
           allTraces = traces;
@@ -1168,7 +1168,7 @@ code, .mono {
 
     detailContent.innerHTML = '<div class="empty-state"><p>Loading trace...</p></div>';
 
-    fetchJSON('/api/traces/' + encodeURIComponent(runId)).then(function(trace) {
+    apiFetch('/api/traces/' + encodeURIComponent(runId)).then(function(trace) {
       currentDetailTrace = trace;
       renderDetail(trace);
     }).catch(function(err) {
@@ -1307,8 +1307,8 @@ code, .mono {
     compareContent.innerHTML = '<div class="empty-state"><p>Loading comparison...</p></div>';
 
     Promise.all([
-      fetchJSON('/api/traces/' + encodeURIComponent(ids[0])),
-      fetchJSON('/api/traces/' + encodeURIComponent(ids[1]))
+      apiFetch('/api/traces/' + encodeURIComponent(ids[0])),
+      apiFetch('/api/traces/' + encodeURIComponent(ids[1]))
     ]).then(function(results) {
       var a = results[0];
       var b = results[1];
@@ -1399,7 +1399,7 @@ code, .mono {
       url += '?days=' + statsDaysFilter;
     }
 
-    fetchJSON(url).then(function(data) {
+    apiFetch(url).then(function(data) {
       statsData = data;
       renderStats(data);
     }).catch(function(err) {
@@ -1577,14 +1577,15 @@ code, .mono {
     });
   }
 
-  // Patch every fetch site to thread the workspace param.
-  var _originalFetchJSON = fetchJSON;
-  fetchJSON = function(url) {
+  // Wrap fetchJSON for API calls to inject ?workspace=
+  function apiFetch(url) {
     if (typeof url === 'string' && url.indexOf('/api/') === 0) {
       url = wsAppend(url);
     }
-    return _originalFetchJSON(url);
-  };
+    return fetchJSON(url);
+  }
+  // Hand the wrapped form to any code path that needs the workspace param.
+  window.apiFetch = apiFetch;
 
   // ─── Init ───
   populateWorkspaceSelect().then(function() {

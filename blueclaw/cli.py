@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import json as _json
 import os
 import shutil
+import subprocess
 import sys
 import warnings
 from io import StringIO
@@ -26,7 +28,12 @@ from rich.panel import Panel
 from rich.text import Text
 
 from blueclaw import __version__
-from blueclaw.models import SessionConfig
+from blueclaw.launcher import (
+    docker_available,
+    image_exists,
+    resolve_image_tag,
+)
+from blueclaw.models import SandboxConfig, SessionConfig
 from blueclaw.workspace import Workspace
 
 app = typer.Typer(add_completion=False)
@@ -1132,3 +1139,69 @@ def test(
             shutil.rmtree(workspace_dir, ignore_errors=True)
 
     raise typer.Exit(1 if any(r.verdict == "fail" for r in results) else 0)
+
+
+# --- Sandbox commands ---
+
+sandbox_app = typer.Typer(help="Manage the docker sandbox runtime image.")
+app.add_typer(sandbox_app, name="sandbox")
+
+
+@sandbox_app.command("build")
+def sandbox_build(
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Pass --no-cache to docker build"
+    ),
+    platform: Optional[str] = typer.Option(
+        None, "--platform", help="Pass --platform=<arch> to docker build"
+    ),
+) -> None:
+    """Build the blueclaw runtime image from docker/Dockerfile."""
+    cfg = SandboxConfig()
+    tag = resolve_image_tag(cfg)
+    repo_root = Path(__file__).resolve().parent.parent
+    dockerfile = repo_root / "docker" / "Dockerfile"
+    if not dockerfile.exists():
+        typer.echo(f"Dockerfile not found at {dockerfile}", err=True)
+        raise typer.Exit(2)
+    cmd = ["docker", "build", "-t", tag, "-f", str(dockerfile)]
+    if no_cache:
+        cmd.append("--no-cache")
+    if platform:
+        cmd.append(f"--platform={platform}")
+    cmd.append(str(repo_root))
+    typer.echo(f"Building {tag}...")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        typer.echo("docker build failed", err=True)
+        raise typer.Exit(result.returncode)
+    typer.echo(f"Built {tag}")
+
+
+@sandbox_app.command("doctor")
+def sandbox_doctor(
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit machine-readable JSON"
+    ),
+) -> None:
+    """Diagnose the docker sandbox configuration on this host."""
+    cfg = SandboxConfig()
+    tag = resolve_image_tag(cfg)
+    docker_ok = docker_available()
+    image_ok = image_exists(tag) if docker_ok else False
+
+    report = {
+        "docker_available": docker_ok,
+        "image_tag": tag,
+        "image_present": image_ok,
+    }
+    if json_output:
+        typer.echo(_json.dumps(report, indent=2))
+    else:
+        typer.echo(f"docker: {'ok' if docker_ok else 'not available'}")
+        typer.echo(
+            f"image:  {tag} "
+            f"{'(present)' if image_ok else '(MISSING - run `blueclaw sandbox build`)'}"
+        )
+    if not docker_ok or not image_ok:
+        raise typer.Exit(1)

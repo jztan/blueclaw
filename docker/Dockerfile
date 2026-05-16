@@ -15,7 +15,8 @@ RUN apt-get update \
 # for the parts that the agent writes to (skills cache, etc.), or read-only where it
 # doesn't.
 RUN useradd --create-home --home-dir /home/blueclaw --shell /bin/bash --uid 1000 blueclaw \
-    && mkdir -p /home/blueclaw/skills /workspace /project \
+    && mkdir -p /home/blueclaw/skills /home/blueclaw/blueclaw/workspace /workspace /project \
+    && chmod 0755 /home/blueclaw /home/blueclaw/blueclaw /home/blueclaw/blueclaw/workspace /home/blueclaw/skills \
     && chmod 0777 /workspace /project
 
 # Install blueclaw and its dependencies system-wide so any --user can import it.

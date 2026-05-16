@@ -355,6 +355,7 @@ class LauncherDecision:
     """Result of decide_launch when the agent should run inside docker."""
 
     argv: list[str]
+    image: str
 
 
 def image_exists(tag: str) -> bool:
@@ -467,7 +468,7 @@ def decide_launch(
         publish_ports=publish_ports,
         digest=digest,
     )
-    return LauncherDecision(argv=docker_argv)
+    return LauncherDecision(argv=docker_argv, image=image)
 
 
 def execvp_into(decision: LauncherDecision) -> None:

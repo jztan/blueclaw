@@ -507,16 +507,7 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     )
     if decision is not None:
         # Visible signal so users can confirm the sandbox actually fired.
-        # The image tag is the last argv element before the inner argv.
-        image_tag = next(
-            (
-                arg
-                for arg in decision.argv
-                if arg.startswith("blueclaw/runtime:") or "/" in arg and ":" in arg
-            ),
-            "?",
-        )
-        print(f"→ blueclaw sandbox: docker ({image_tag})", file=sys.stderr)
+        print(f"→ blueclaw sandbox: docker ({decision.image})", file=sys.stderr)
         os.execvp(decision.argv[0], decision.argv)
 
 

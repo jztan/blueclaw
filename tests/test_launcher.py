@@ -1,6 +1,7 @@
 """Tests for blueclaw.launcher — host-side sandbox decisions."""
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -581,3 +582,132 @@ class TestShouldSandboxSubcommand:
     )
     def test_host_commands(self, cmd):
         assert should_sandbox_subcommand(cmd) is False
+
+
+from blueclaw.launcher import normalize_subcommand
+
+
+class TestNormalizeSubcommand:
+    def test_no_args(self):
+        assert normalize_subcommand(["blueclaw"]) == ""
+
+    def test_run(self):
+        assert normalize_subcommand(["blueclaw", "run", "hello"]) == "run"
+
+    def test_two_word(self):
+        assert (
+            normalize_subcommand(["blueclaw", "trace", "ui", "--port", "9000"])
+            == "trace ui"
+        )
+
+    def test_stops_at_flag(self):
+        assert normalize_subcommand(["blueclaw", "run", "--model", "x"]) == "run"
+
+    def test_two_word_sandbox(self):
+        assert normalize_subcommand(["blueclaw", "sandbox", "build"]) == "sandbox build"
+
+
+from blueclaw.launcher import LauncherDecision, decide_launch
+
+
+class TestDecideLaunch:
+    def _ws_layout(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / "blueclaw" / "workspace").mkdir(parents=True)
+        (tmp_path / "blueclaw" / "skills").mkdir()
+        return tmp_path
+
+    def test_inprocess_returns_none(self, tmp_path, monkeypatch):
+        self._ws_layout(tmp_path, monkeypatch)
+        cfg = SandboxConfig(mode="inprocess")
+        decision = decide_launch(
+            sandbox_cfg=cfg,
+            model_id="anthropic/claude-sonnet-4-6",
+            argv=["blueclaw", "run", "hello"],
+            project_root=tmp_path,
+        )
+        assert decision is None
+
+    def test_host_command_returns_none(self, tmp_path, monkeypatch):
+        self._ws_layout(tmp_path, monkeypatch)
+        cfg = SandboxConfig(mode="docker")
+        decision = decide_launch(
+            sandbox_cfg=cfg,
+            model_id="anthropic/claude-sonnet-4-6",
+            argv=["blueclaw", "skill", "list"],
+            project_root=tmp_path,
+        )
+        assert decision is None
+
+    def test_container_command_returns_argv(self, tmp_path, monkeypatch, mocker):
+        self._ws_layout(tmp_path, monkeypatch)
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:deadbeef")
+        mocker.patch("blueclaw.launcher.image_exists", return_value=True)
+        cfg = SandboxConfig(mode="docker", image="blueclaw/runtime:test")
+        decision = decide_launch(
+            sandbox_cfg=cfg,
+            model_id="anthropic/claude-sonnet-4-6",
+            argv=["blueclaw", "run", "hello"],
+            project_root=tmp_path,
+        )
+        assert isinstance(decision, LauncherDecision)
+        assert decision.argv[0] == "docker"
+        assert "blueclaw/runtime:test" in decision.argv
+
+    def test_docker_unavailable_error_mode_raises(self, tmp_path, monkeypatch, mocker):
+        self._ws_layout(tmp_path, monkeypatch)
+        mocker.patch("blueclaw.launcher.docker_available", return_value=False)
+        cfg = SandboxConfig(mode="docker", on_unavailable="error")
+        with pytest.raises(SystemExit):
+            decide_launch(
+                sandbox_cfg=cfg,
+                model_id="anthropic/claude-sonnet-4-6",
+                argv=["blueclaw", "run"],
+                project_root=tmp_path,
+            )
+
+    def test_docker_unavailable_fallback_returns_none(
+        self, tmp_path, monkeypatch, mocker, capsys
+    ):
+        self._ws_layout(tmp_path, monkeypatch)
+        mocker.patch("blueclaw.launcher.docker_available", return_value=False)
+        cfg = SandboxConfig(mode="docker", on_unavailable="fallback")
+        decision = decide_launch(
+            sandbox_cfg=cfg,
+            model_id="anthropic/claude-sonnet-4-6",
+            argv=["blueclaw", "run"],
+            project_root=tmp_path,
+        )
+        assert decision is None
+        out = capsys.readouterr()
+        assert "Docker unavailable" in out.err
+        assert os.environ.get("BLUECLAW_SANDBOX_FALLBACK_REASON")
+
+    def test_missing_image_errors_with_build_hint(
+        self, tmp_path, monkeypatch, mocker, capsys
+    ):
+        self._ws_layout(tmp_path, monkeypatch)
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_exists", return_value=False)
+        cfg = SandboxConfig(mode="docker", image="blueclaw/runtime:test")
+        with pytest.raises(SystemExit):
+            decide_launch(
+                sandbox_cfg=cfg,
+                model_id="anthropic/claude-sonnet-4-6",
+                argv=["blueclaw", "run"],
+                project_root=tmp_path,
+            )
+        out = capsys.readouterr()
+        assert "sandbox build" in out.err
+
+    def test_network_validation_runs(self, tmp_path, monkeypatch):
+        self._ws_layout(tmp_path, monkeypatch)
+        cfg = SandboxConfig(mode="docker", network="none")
+        with pytest.raises(NetworkValidationError):
+            decide_launch(
+                sandbox_cfg=cfg,
+                model_id="anthropic/claude-sonnet-4-6",
+                argv=["blueclaw", "run"],
+                project_root=tmp_path,
+            )

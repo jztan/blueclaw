@@ -7,6 +7,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -296,3 +298,164 @@ def should_sandbox_subcommand(subcommand: str) -> bool:
     interactive case.
     """
     return subcommand in _CONTAINER_COMMANDS
+
+
+# Pairs of (first, second) that constitute a two-word subcommand. Add as needed.
+_TWO_WORD_COMMANDS = frozenset(
+    {("trace", "ui"), ("sandbox", "build"), ("sandbox", "doctor")}
+    | {("skill", x) for x in ("install", "uninstall", "list", "show")}
+    | {
+        ("trace", x)
+        for x in (
+            "list",
+            "show",
+            "explain",
+            "graph",
+            "diff",
+            "replay",
+            "timeline",
+            "stats",
+        )
+    }
+)
+
+
+def normalize_subcommand(argv: list[str]) -> str:
+    """Extract the (one- or two-word) subcommand from argv. Empty string if none."""
+    words = []
+    for token in argv[1:]:
+        if token.startswith("-"):
+            break
+        words.append(token)
+        if len(words) == 2:
+            break
+    if len(words) >= 2 and (words[0], words[1]) in _TWO_WORD_COMMANDS:
+        return f"{words[0]} {words[1]}"
+    if words:
+        return words[0]
+    return ""
+
+
+@dataclass(frozen=True)
+class LauncherDecision:
+    """Result of decide_launch when the agent should run inside docker."""
+
+    argv: list[str]
+
+
+def image_exists(tag: str) -> bool:
+    """Return True if a local image with `tag` exists."""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", tag],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def _parse_port_flag(argv: list[str], *, default: int) -> int:
+    """Best-effort scan for --port N or -p N in argv."""
+    for i, tok in enumerate(argv):
+        if tok in ("--port", "-p") and i + 1 < len(argv):
+            try:
+                return int(argv[i + 1])
+            except ValueError:
+                pass
+        if tok.startswith("--port="):
+            try:
+                return int(tok.split("=", 1)[1])
+            except ValueError:
+                pass
+    return default
+
+
+def decide_launch(
+    *,
+    sandbox_cfg: SandboxConfig,
+    model_id: str,
+    argv: list[str],
+    project_root: Path,
+) -> LauncherDecision | None:
+    """Return a LauncherDecision if we should execvp into docker; None otherwise."""
+    if sandbox_cfg.mode != "docker":
+        return None
+
+    subcommand = normalize_subcommand(argv)
+    if not should_sandbox_subcommand(subcommand):
+        return None
+
+    # Runtime validation — depends on model_id which isn't in SandboxConfig itself.
+    validate_network_model(network=sandbox_cfg.network, model_id=model_id)
+
+    if not docker_available():
+        if sandbox_cfg.on_unavailable == "fallback":
+            print(
+                "WARN: Docker unavailable; falling back to in-process sandbox",
+                file=sys.stderr,
+            )
+            os.environ["BLUECLAW_SANDBOX_FALLBACK_REASON"] = "docker unavailable"
+            return None
+        print(
+            "ERROR: sandbox.mode is 'docker' but Docker is unavailable. "
+            "Set sandbox.on_unavailable: fallback to degrade to in-process, "
+            "or fix your Docker installation.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    image = resolve_image_tag(sandbox_cfg)
+    if not image_exists(image):
+        print(
+            f"ERROR: image {image!r} not found.\n" f"  Run: blueclaw sandbox build",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    home = Path(os.path.expanduser("~"))
+    workspace = home / "blueclaw" / "workspace"
+    user_skills = home / "blueclaw" / "skills"
+    user_skills.mkdir(parents=True, exist_ok=True)
+
+    project_skills: Path | None = project_root / ".blueclaw" / "skills"
+    if project_skills is not None and not project_skills.exists():
+        project_skills = None
+
+    editable = detect_editable_source()
+    digest = image_digest(image)
+    env = compose_env(sandbox_cfg, project_root=project_root, home=home)
+
+    interactive = (
+        sys.stdin.isatty() and sys.stdout.isatty() and subcommand in ("", "run")
+    )
+
+    publish_ports: list[int] = []
+    if subcommand == "serve":
+        publish_ports = [_parse_port_flag(argv, default=8420)]
+    elif subcommand == "trace ui":
+        publish_ports = [_parse_port_flag(argv, default=8421)]
+
+    inner_argv = argv[1:]
+    docker_argv = build_docker_argv(
+        cfg=sandbox_cfg,
+        image=image,
+        env=env,
+        workspace=workspace,
+        project_root=project_root,
+        user_skills=user_skills,
+        project_skills=project_skills,
+        editable_source=editable,
+        inner_argv=inner_argv,
+        interactive=interactive,
+        publish_ports=publish_ports,
+        digest=digest,
+    )
+    return LauncherDecision(argv=docker_argv)
+
+
+def execvp_into(decision: LauncherDecision) -> None:
+    """Replace the current process with docker run. Never returns on success."""
+    os.execvp(decision.argv[0], decision.argv)

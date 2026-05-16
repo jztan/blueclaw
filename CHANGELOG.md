@@ -59,13 +59,13 @@ All notable changes to blueclaw will be documented in this file.
   — and surfaced an opaque "All connection attempts failed" mid-stream.
   Requires the host Ollama daemon to bind a reachable interface
   (`OLLAMA_HOST=0.0.0.0:11434 ollama serve`).
-- **`blueclaw serve` saves CONTEXT.md on shutdown.** Each successful turn now
-  appends its `(user, assistant)` snippet to a bounded (50-turn) in-memory
-  buffer. On graceful shutdown (Ctrl+C → uvicorn → Starlette lifespan), the
-  buffer is summarized into `CONTEXT.md` via `update_context_background`. CLI
-  sessions already did this per turn; the server previously dropped all
-  persistent-context updates on exit because the file is global across
-  conversations and per-turn writes would race.
+- **`blueclaw serve` updates CONTEXT.md per turn.** Matches CLI behavior: each
+  successful `/message` or `/message/stream` turn calls
+  `BackgroundContextUpdater.trigger(agent)`, which spawns one background
+  summarization thread. Concurrent triggers are coalesced (the updater is a
+  no-op while a previous one is in flight), so multiple conversations writing
+  the same global file can't race. The Starlette lifespan handler now waits
+  on the last in-flight thread (up to 15s) so Ctrl+C never truncates a write.
 - **Runtime image** installs all four model-provider extras (`anthropic`,
   `ollama`, `openai`, `gemini`) so the image works for any configured provider
   without a rebuild.

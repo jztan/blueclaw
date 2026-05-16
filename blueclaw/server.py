@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import secrets
-from collections import deque
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -43,11 +42,11 @@ from blueclaw.uploads import (
 )
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
+    BackgroundContextUpdater,
     build_trace_and_record,
     cleanup_mcp_clients,
     create_agent,
     extract_text,
-    update_context_background,
 )
 from blueclaw.workspace import Workspace, WorkspaceError
 from strands.session.file_session_manager import FileSessionManager
@@ -55,7 +54,6 @@ from strands.session.file_session_manager import FileSessionManager
 _BODY_LIMIT = 1_048_576
 _TIMEOUT = 300
 _MAX_ATTACHMENTS = 10
-_CONTEXT_BUFFER_MAX_TURNS = 50
 
 logger = logging.getLogger(__name__)
 
@@ -195,27 +193,19 @@ def create_server_app(
     uploads_root = workspace.root / ".blueclaw" / "uploads"
     upload_store = UploadStore(uploads_root)
 
-    # Rolling buffer of recent turns, flushed into CONTEXT.md on shutdown
-    # (Ctrl+C). The server does not update CONTEXT.md per turn because the
-    # file is global across conversations and per-turn writes would race.
-    recent_turns: deque[tuple[str, str]] = deque(maxlen=_CONTEXT_BUFFER_MAX_TURNS)
-
-    def _record_turn(user_message: str, reply: str) -> None:
-        if user_message or reply:
-            recent_turns.append((user_message, reply))
+    # Per-turn CONTEXT.md updater. trigger() is no-op if a previous update is
+    # still running, so concurrent turns across conversations can't race and
+    # never queue more than one writer at a time. The shutdown handler waits
+    # on the last in-flight thread so Ctrl+C doesn't truncate a write.
+    context_updater = BackgroundContextUpdater(model, workspace) if model else None
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
         yield
-        if not recent_turns:
+        if context_updater is None:
             return
-        snapshot = "\n\n".join(
-            f"user: {u[:1000]}\nassistant: {r[:1000]}" for u, r in recent_turns
-        )
         try:
-            await asyncio.to_thread(
-                update_context_background, model, snapshot, workspace
-            )
+            await asyncio.to_thread(context_updater.wait, 15.0)
         except Exception as exc:  # pragma: no cover - best-effort on shutdown
             logger.warning("CONTEXT.md update on shutdown failed: %s", exc)
 
@@ -281,7 +271,11 @@ def create_server_app(
                     )
                     workspace.write_trace(trace)
                     workspace.append_history(record)
-                    _record_turn(req.message, extract_text(result.message))
+                    if context_updater is not None and hasattr(agent, "messages"):
+                        try:
+                            context_updater.trigger(agent)
+                        except Exception as exc:
+                            logger.debug("context update trigger failed: %s", exc)
                     return JSONResponse(
                         _build_response_payload(result, req, config, run_id)
                     )
@@ -382,9 +376,8 @@ def create_server_app(
                             )
                             workspace.write_trace(trace)
                             workspace.append_history(record)
-                            _record_turn(
-                                req.message, extract_text(final_result.message)
-                            )
+                            if context_updater is not None:
+                                context_updater.trigger(agent)
                         except WorkspaceError as exc:
                             yield _sse(
                                 "error",

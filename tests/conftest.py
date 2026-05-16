@@ -221,3 +221,19 @@ def mock_agent_result():
     }
     result.stop_reason = "end_turn"
     return result
+
+
+_BLUECLAW_SANDBOX_ENV = (
+    "BLUECLAW_SANDBOX_MODE",
+    "BLUECLAW_SANDBOX_IMAGE",
+    "BLUECLAW_SANDBOX_DIGEST",
+    "BLUECLAW_SANDBOX_FALLBACK_REASON",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_sandbox_env(monkeypatch):
+    """Ensure BLUECLAW_SANDBOX_* env vars are unset at the start of each test."""
+    for name in _BLUECLAW_SANDBOX_ENV:
+        monkeypatch.delenv(name, raising=False)
+    yield

@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [2.5.0] - 2026-05-16
 ### Added
 - **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to
   Telegram with per-chat workspaces under `~/blueclaw/chats/<chat_id>/`,

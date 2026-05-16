@@ -2,7 +2,7 @@
 
 > Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → sandbox hardening → subagents → multi-channel runtime.
 
-**Current:** v2.4 complete. v2.5 next.
+**Current:** v2.5 complete. v2.6 next.
 
 ---
 

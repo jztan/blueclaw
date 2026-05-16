@@ -280,6 +280,26 @@ class TestBuildSystemPrompt:
         # Rule E
         assert "Polish does not substitute for completeness" in prompt
 
+    def test_api_channel_has_rule_d_constraint_carryforward(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws, channel="api")
+        # Rule D — "carry forward" is the load-bearing signal
+        assert "carry forward earlier constraints" in prompt
+        # The old "Answer ONLY" line must be gone
+        assert "Answer ONLY what the user just asked" not in prompt
+
+    def test_terminal_channel_does_not_have_rule_d(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws, channel="terminal")
+        # Rule D is api-only; terminal channel has neither the new nor
+        # the old version
+        assert "carry forward earlier constraints" not in prompt
+        assert "Answer ONLY what the user just asked" not in prompt
+
     def test_system_prompt_includes_history_summary(self, tmp_workspace):
         ws = Workspace(tmp_workspace)
         from datetime import datetime, timezone

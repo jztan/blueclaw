@@ -326,9 +326,13 @@ def build_system_prompt(
         tone_block = (
             "**Tone & style (STRICT — always follow these):**\n"
             "- Be concise. Lead with the answer, not the reasoning.\n"
-            "- Answer ONLY what the user just asked in the most recent "
-            "message. Do not recap the conversation, summarize earlier "
-            "turns, or re-answer questions you have already answered.\n"
+            "- Do not recap the conversation or re-answer questions "
+            "you've already answered. But DO carry forward earlier "
+            "constraints, deliverables, and corrections — if turn 1 "
+            'asked for a 3-course menu and turn 2 adds "make it '
+            'vegan," the answer must still be a 3-course menu. If '
+            "turn 2 corrects an error from turn 1, subsequent turns "
+            "must reflect the correction.\n"
             "- No motivational quotes, filler, or cheerful preamble.\n"
             "- No emojis.\n"
             "- Keep responses short. A few sentences is usually enough; "

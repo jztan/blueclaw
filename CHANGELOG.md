@@ -2,6 +2,22 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- **Docker sandbox.** Opt-in via `sandbox.mode: docker` in `blueclaw.yaml`. Runs the
+  entire agent process inside a short-lived container with the workspace bind-mounted,
+  read-only root FS, no-new-privileges, all capabilities dropped, and configurable
+  resource caps. Launcher transparently `execvp`s into `docker run` while keeping
+  the user's TTY and signal forwarding intact. See `docs/sandbox.md`.
+- **`.env.docker` and `~/blueclaw/.env` support.** Layered env composition
+  (allowlist → user dotenv → project dotenv → YAML `extra_env`). `blueclaw init`
+  adds the dotenv files to `.gitignore`.
+- **`blueclaw sandbox build` / `blueclaw sandbox doctor`** CLI commands.
+- **Editable-install detection** (PEP 610): editable installs build `dev-<sha>` images
+  and overlay the source tree at `/opt/blueclaw-src` via `PYTHONPATH`.
+- **Trace metadata** records `sandbox.mode/image/image_digest/fallback_reason` on every
+  `TraceStep`.
+
 ## [2.4.0] - 2026-05-16
 ### Added
 - Skill packaging (v2.4): blueclaw now adopts the AgentSkills.io standard.

@@ -213,6 +213,7 @@ class ObserverHooks(HookProvider):
             input_summary=input_summary,
             output_summary=output_summary,
             error=error_msg,
+            sandbox=build_sandbox_metadata(),
         )
         self.trace_steps.append(step)
         self.tools_called.append(tool_name)
@@ -224,3 +225,25 @@ class ObserverHooks(HookProvider):
         self._step_starts.clear()
         self._cancelled = False
         self._last_esc = 0.0
+
+
+_SANDBOX_METADATA: dict[str, str | None] | None = None
+
+
+def build_sandbox_metadata() -> dict[str, str | None]:
+    """Construct TraceStep.sandbox from launcher-supplied env vars. Cached."""
+    global _SANDBOX_METADATA
+    if _SANDBOX_METADATA is None:
+        _SANDBOX_METADATA = {
+            "mode": os.environ.get("BLUECLAW_SANDBOX_MODE", "inprocess"),
+            "image": os.environ.get("BLUECLAW_SANDBOX_IMAGE"),
+            "image_digest": os.environ.get("BLUECLAW_SANDBOX_DIGEST"),
+            "fallback_reason": os.environ.get("BLUECLAW_SANDBOX_FALLBACK_REASON"),
+        }
+    return _SANDBOX_METADATA
+
+
+def _reset_sandbox_metadata_cache() -> None:
+    """Test hook: forces the next build_sandbox_metadata() to re-read env."""
+    global _SANDBOX_METADATA
+    _SANDBOX_METADATA = None

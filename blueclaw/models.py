@@ -251,6 +251,7 @@ class TraceStep(BaseModel):
     error: str | None = None
     tokens: int | None = None  # v1.2
     cost: float | None = None  # v1.2
+    sandbox: dict[str, str | None] | None = None
 
 
 class RunTrace(BaseModel):

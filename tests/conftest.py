@@ -237,3 +237,12 @@ def _clear_sandbox_env(monkeypatch):
     for name in _BLUECLAW_SANDBOX_ENV:
         monkeypatch.delenv(name, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _clear_observer_sandbox_cache():
+    from blueclaw.observer import _reset_sandbox_metadata_cache
+
+    _reset_sandbox_metadata_cache()
+    yield
+    _reset_sandbox_metadata_cache()

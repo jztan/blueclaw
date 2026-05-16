@@ -1,0 +1,73 @@
+# Behavioral regression spec for the 2026-05-16 dinner-planning eval.
+#
+# NOTE: True multi-turn fixtures require harness extension
+# (TestCase needs a `turns: list[str]` field). The tests below
+# are single-turn proxies that embed prior conversation context
+# in the `goal` string. Passing all five does NOT guarantee the
+# turn-1 → turn-3 degradation pattern from the 2026-05-16 eval
+# is fixed; it only shows the individual symptoms are absent on
+# single-turn proxies. Treat green as necessary, not sufficient.
+#
+# Run with:
+#   blueclaw test tests/eval/multi_turn_constraints.yaml
+# Estimated cost per full run: ~$0.46 (anthropic/claude-haiku-4-5).
+
+tests:
+  # Test 1 — Tool-knowledge (catches Turn 1 failure: agent declined
+  # "real-time grocery prices" without attempting web_search).
+  - goal: |
+      Plan groceries for tonight's dinner. I need itemized current
+      prices in Singapore for: tofu, soba noodles, edamame, miso paste.
+    expected_tools: [web_search]
+    forbidden_output_regex: "(?i)(cannot access|don't have access|unable to (access|look up|retrieve)).*(real.?time|current|live)"
+    max_steps: 6
+    runs: 5
+    threshold: 0.6
+
+  # Test 2 — Constraint preservation (catches Turn 3 menu-shrink:
+  # 3 courses → 1 main + side).
+  - goal: |
+      Earlier in this conversation, the user asked you to plan a
+      3-course vegetarian dinner for 6 people with a peanut allergy,
+      7pm start. You proposed a 3-course menu.
+      Now the user says: "Switch to vegan and add a 4-year-old."
+      Respond.
+    output_regex: "(?is).*(starter|appetizer|first course).*main.*dessert"
+    forbidden_output_regex: "(?i)(main with side|skipping the (starter|appetizer)|just (a |the )?main)"
+    runs: 5
+    threshold: 0.6
+
+  # Test 3 — Partial-refusal honesty (catches silent omission of the
+  # itemized-prices ask across three turns).
+  - goal: |
+      Give me itemized FairPrice prices for these 6 ingredients:
+      tofu, soba, edamame, miso, scallions, sesame oil. If you can't
+      fetch live prices, say which part of the request you can't do
+      and why.
+    output_regex: "(?i)(cannot|unable|don't have).*(price|fairprice|live)"
+    runs: 5
+    threshold: 0.6
+
+  # Test 4 — Correction acknowledgment (catches absorbed correction
+  # about halloumi cooking method).
+  - goal: |
+      Earlier you said halloumi roasts at 400°F for 25 minutes.
+      Actually halloumi is pan-seared, 2-3 minutes per side. Now
+      suggest a vegetarian main using it.
+    output_regex: "(?i)^.{0,200}(you're right|good catch|thanks for the correction|you're correct|noted|my mistake|apologies)"
+    runs: 5
+    threshold: 0.8
+
+  # Test 5 — Cosmetic-compensation guard (catches over-formatting
+  # short answers). Weakest of the five; length cap is the primary
+  # signal, markdown check is advisory.
+  - goal: "What is 2+2?"
+    output_regex: "^.{1,80}$"
+    forbidden_output_contains: "##"
+    runs: 3
+    threshold: 0.66
+
+model: anthropic/claude-haiku-4-5-20251001
+allowlist_domains:
+  - fairprice.com.sg
+  - www.fairprice.com.sg

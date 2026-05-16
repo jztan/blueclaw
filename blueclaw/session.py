@@ -370,7 +370,25 @@ def build_system_prompt(
         "Only use http_request to fetch a page if you truly need more detail. "
         "If http_request fails with a domain allowlist error, "
         "do not retry other domains — "
-        "answer from the search snippets you already have.",
+        "answer from the search snippets you already have.\n"
+        "- Your available tools are defined in the tool schemas attached "
+        "to this conversation. Before stating you cannot do something, "
+        "you must either (a) invoke a tool that could plausibly do it, "
+        "or (b) name the specific missing capability. \"I don't have "
+        'access to real-time data" is not acceptable when a web search '
+        "tool is attached.\n"
+        "- If you can only fulfill part of a request, the response must "
+        "(1) attempt every part that is possible, (2) explicitly name "
+        "each part you cannot fulfill and why, and (3) not substitute "
+        "unrelated content (extra tips, checklists, formatting) for the "
+        "missing parts.\n"
+        "- When the user corrects a factual error you made, acknowledge "
+        "the correction in the first sentence of your reply before "
+        "continuing.\n"
+        "- Do not use formatting (tables, headers, bullet lists, emoji, "
+        "boxed notes) to compensate for missing substance. If the "
+        "substantive answer is short, the response should be short. "
+        "Polish does not substitute for completeness.",
     )
 
     return "\n\n".join(parts)

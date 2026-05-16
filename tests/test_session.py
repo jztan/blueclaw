@@ -245,6 +245,41 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(ws)
         assert isinstance(prompt, str)
 
+    def test_system_prompt_has_tool_inventory_rule(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        # Rule A — quoted failure pattern is the load-bearing signal.
+        # Tighter than `"real-time data" in prompt` (which would match
+        # incidental uses); this fragment is unique to Rule A.
+        assert "tool schemas attached" in prompt
+        assert 'real-time data" is not acceptable' in prompt
+
+    def test_system_prompt_has_partial_refusal_rule(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        # Rule B — clause 3 (no substitution) is the load-bearing signal
+        assert "not substitute unrelated content" in prompt
+
+    def test_system_prompt_has_correction_ack_rule(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        # Rule C — first-sentence placement is the load-bearing signal
+        assert "first sentence of your reply" in prompt
+
+    def test_system_prompt_has_cosmetic_compensation_rule(self, tmp_path):
+        from blueclaw.workspace import Workspace
+
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        # Rule E
+        assert "Polish does not substitute for completeness" in prompt
+
     def test_system_prompt_includes_history_summary(self, tmp_workspace):
         ws = Workspace(tmp_workspace)
         from datetime import datetime, timezone

@@ -24,7 +24,10 @@ RUN useradd --create-home --home-dir /home/blueclaw --shell /bin/bash --uid 1000
 WORKDIR /tmp/build
 COPY pyproject.toml uv.lock* README.md ./
 COPY blueclaw ./blueclaw
-RUN pip install --no-cache-dir --root-user-action=ignore . \
+# Install with ALL model-provider extras so the image works regardless of
+# which provider the user configures. Adds ~50MB; acceptable for a runtime
+# image that's meant to be provider-agnostic.
+RUN pip install --no-cache-dir --root-user-action=ignore ".[anthropic,ollama,openai,gemini]" \
     && rm -rf /tmp/build
 
 # Ensure imports work from any HOME at runtime.

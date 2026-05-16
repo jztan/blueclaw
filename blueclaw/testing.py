@@ -192,6 +192,18 @@ def _check_assertions(
         except re.error as e:
             failures.append(f"Invalid regex: {case.output_regex}: {e}")
 
+    if case.forbidden_output_regex is not None:
+        try:
+            if re.search(case.forbidden_output_regex, response_text):
+                failures.append(
+                    f"Output matches forbidden regex:"
+                    f" '{case.forbidden_output_regex}'"
+                )
+        except re.error as e:
+            failures.append(
+                f"Invalid forbidden regex: {case.forbidden_output_regex}: {e}"
+            )
+
     if case.tool_order:
         it = iter(tools_called)
         for expected in case.tool_order:

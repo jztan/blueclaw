@@ -437,6 +437,29 @@ class TestCheckAssertions:
         failures = _check_assertions(case, [], "hello world", 1, 0.01)
         assert any("Output does not match regex" in f for f in failures)
 
+    # --- forbidden_output_regex ---
+
+    def test_forbidden_output_regex_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"(?i)error \d+")
+        failures = _check_assertions(case, [], "everything worked fine", 1, 0.01)
+        assert failures == []
+
+    def test_forbidden_output_regex_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"(?i)error \d+")
+        failures = _check_assertions(case, [], "got Error 42", 1, 0.01)
+        assert any("Output matches forbidden regex" in f for f in failures)
+
+    def test_forbidden_output_regex_invalid(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"[invalid")
+        failures = _check_assertions(case, [], "text", 1, 0.01)
+        assert any("Invalid forbidden regex" in f for f in failures)
+
     # --- tool_order ---
 
     def test_tool_order_pass(self):

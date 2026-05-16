@@ -2,6 +2,30 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- **`forbidden_output_regex` test-case assertion.** New optional field on
+  `TestCase` in test-spec YAMLs. Mirrors `output_regex` but inverts the
+  semantics — fails the test if the regex matches the response. Lets eval
+  specs assert on reworded refusal phrasings and other anti-patterns that a
+  single `forbidden_output_contains` substring would miss.
+- **Behavioral system-prompt rules (tool-knowledge, partial-refusal,
+  correction acknowledgment, cosmetic-compensation).** Four new rules in the
+  shared `**Rules:**` block of `build_system_prompt` (both terminal and api
+  channels) targeting failure modes surfaced by an external eval: declining
+  requests without attempting available tools, silently dropping parts of a
+  request, ignoring user corrections, and reaching for formatting to mask
+  thin substance.
+- **api-channel "constraint carry-forward" rule.** Replaces the previous
+  "Answer ONLY what the user just asked" instruction in the api/Telegram
+  tone block. Preserves the original anti-recap intent while explicitly
+  requiring the model to carry forward earlier turns' constraints,
+  deliverables, and corrections — closes a loophole where the model would
+  treat prior-turn commitments (e.g., "3-course menu") as stale and drop them.
+- **`tests/eval/multi_turn_constraints.yaml`.** New behavioral regression
+  spec with five single-turn proxies of multi-turn failure modes. Manual run
+  only (~$0.46 per full run on `anthropic/claude-haiku-4-5`).
+
 ## [2.5.0] - 2026-05-16
 ### Added
 - **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to

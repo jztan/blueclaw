@@ -4,6 +4,12 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **SOUL.md identity file.** Optional `<workspace>/SOUL.md` holds the agent's
+  persona/voice (personality, values, communication style) separately from
+  `CONTEXT.md` (which holds factual memory). When present, it is loaded as the
+  `## Identity` section of the system prompt before `## Persistent Context`.
+  `blueclaw init` writes a default template; the file is human-managed
+  (no auto-writes) and re-read every turn so edits are picked up live.
 - **Docker sandbox.** Opt-in via `sandbox.mode: docker` in `blueclaw.yaml`. Runs the
   entire agent process inside a short-lived container with the workspace bind-mounted,
   read-only root FS, no-new-privileges, all capabilities dropped, and configurable
@@ -24,6 +30,14 @@ All notable changes to blueclaw will be documented in this file.
 - **Recursion guard** for the in-container blueclaw: when
   `BLUECLAW_SANDBOX_MODE=docker` is set, the launcher hook short-circuits so the
   container never tries to launch another container.
+
+### Fixed
+- **Launcher hook fall-through.** `_maybe_execvp_into_docker` now raises
+  `SystemExit(0)` after `os.execvp` so the function cannot continue into the
+  in-process subcommand if execvp ever returns. Fixes a CI hang where the
+  `test_docker_mode_trace_ui_calls_execvp` test mocked `os.execvp`, fell
+  through to typer's subcommand dispatch, and blocked forever inside a real
+  `uvicorn.run`.
 
 ### Changed
 - **Runtime image** installs all four model-provider extras (`anthropic`,

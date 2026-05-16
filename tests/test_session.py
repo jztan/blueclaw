@@ -261,6 +261,27 @@ class TestBuildSystemPrompt:
         prompt = build_system_prompt(ws)
         assert "searched docs" in prompt
 
+    def test_system_prompt_includes_soul(self, tmp_path):
+        ws = Workspace(tmp_path)
+        (tmp_path / "SOUL.md").write_text(
+            "# Soul\nI am blueclaw — terse and curious.\n"
+        )
+        prompt = build_system_prompt(ws)
+        assert "terse and curious" in prompt
+        assert "Identity" in prompt
+
+    def test_system_prompt_no_soul_file(self, tmp_path):
+        ws = Workspace(tmp_path)
+        prompt = build_system_prompt(ws)
+        assert "Identity" not in prompt
+
+    def test_system_prompt_soul_before_context(self, tmp_path):
+        ws = Workspace(tmp_path)
+        (tmp_path / "SOUL.md").write_text("SOUL_MARKER")
+        ws.write_context("CONTEXT_MARKER")
+        prompt = build_system_prompt(ws)
+        assert prompt.index("SOUL_MARKER") < prompt.index("CONTEXT_MARKER")
+
     def test_create_agent_loads_skills_via_plugin(self, tmp_path, monkeypatch):
         """A skill on disk shows up as the 'skills' tool on the built Agent."""
         from unittest.mock import MagicMock

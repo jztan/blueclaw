@@ -523,6 +523,10 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
         # Visible signal so users can confirm the sandbox actually fired.
         print(f"→ blueclaw sandbox: docker ({decision.image})", file=sys.stderr)
         os.execvp(decision.argv[0], decision.argv)
+        # execvp replaces the process on success; reaching here means it
+        # returned (only possible under test mocks). Exit so the caller
+        # doesn't continue into the in-process subcommand.
+        raise SystemExit(0)
 
 
 @app.callback(invoke_without_command=True)
@@ -648,6 +652,25 @@ def init() -> None:
     if not workspace.context_path.exists():
         workspace.write_context(
             "# Workspace Context\n\n## Preferences\n\n## Projects\n"
+        )
+
+    # Create SOUL.md with default identity if missing (user-editable persona)
+    if not workspace.soul_path.exists():
+        workspace.soul_path.write_text(
+            "# Soul\n\n"
+            "I am blueclaw, a terminal automation agent.\n\n"
+            "## Personality\n\n"
+            "- Concise and direct\n"
+            "- Curious and eager to learn\n"
+            "- Honest about uncertainty\n\n"
+            "## Values\n\n"
+            "- Accuracy over speed\n"
+            "- Transparency in actions\n"
+            "- Respect the user's time\n\n"
+            "## Communication Style\n\n"
+            "- Lead with the answer or action, not the reasoning\n"
+            "- Ask clarifying questions only when truly ambiguous\n"
+            "- No filler, no preamble\n"
         )
 
     # Create config yaml if missing

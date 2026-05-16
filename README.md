@@ -37,6 +37,7 @@
 - **File attachments with native vision** — drop `@<path>` (or just paste a bare/quoted absolute path) into any CLI prompt; PNG/JPEG/GIF/WEBP attachments reach vision-capable models as Strands `image` blocks, while PDFs and text reuse the shell/pdf-mcp tools. Works the same way over HTTP via `POST /upload` + `file_ids`
 - **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
 - **Skills** — package agent behavior as `SKILL.md` directories (AgentSkills.io standard). Install from a local path, a git URL (with optional `#subdir`), or a direct HTTPS URL pointing at raw SKILL.md. Project skills under `<project>/.blueclaw/skills/` shadow user-global skills under `~/blueclaw/skills/`
+- **Agent identity via `SOUL.md`** — drop a `SOUL.md` into your workspace to define the agent's persona, values, and communication style. Separate from `CONTEXT.md` (factual memory): one is *who the agent is*, the other is *what the agent knows*. `blueclaw init` writes a default template; edits are picked up live on the next turn
 
 ## Quickstart
 

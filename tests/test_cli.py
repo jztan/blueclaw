@@ -121,6 +121,20 @@ class TestInitCommand:
                 tmp_path / "workspace" / "CONTEXT.md"
             ).read_text() == "custom content"
 
+    def test_init_creates_soul_md(self, tmp_path):
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", tmp_path / "workspace"):
+            runner.invoke(app, ["init"])
+            soul = tmp_path / "workspace" / "SOUL.md"
+            assert soul.exists()
+            assert "blueclaw" in soul.read_text().lower()
+
+    def test_init_soul_idempotent(self, tmp_path):
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", tmp_path / "workspace"):
+            runner.invoke(app, ["init"])
+            (tmp_path / "workspace" / "SOUL.md").write_text("custom soul")
+            runner.invoke(app, ["init"])
+            assert (tmp_path / "workspace" / "SOUL.md").read_text() == "custom soul"
+
     def test_init_prints_confirmation(self, tmp_path):
         with patch("blueclaw.cli.DEFAULT_WORKSPACE", tmp_path / "workspace"):
             result = runner.invoke(app, ["init"])

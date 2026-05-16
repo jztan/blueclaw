@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from blueclaw import __version__
 from blueclaw.cli import app, render_pixel_art, render_welcome_banner
-from blueclaw.models import RunTrace, SessionConfig, TraceStep
+from blueclaw.models import RunTrace, SandboxConfig, SessionConfig, TraceStep
 from blueclaw.workspace import Workspace
 
 runner = CliRunner()
@@ -1223,3 +1223,60 @@ class TestSandboxCli:
         assert call_argv[0] == "docker"
         assert "build" in call_argv
         assert "-t" in call_argv and "blueclaw/runtime:test" in call_argv
+
+
+class TestLauncherWiring:
+    def test_inprocess_host_command_no_execvp(self, mocker, tmp_path, monkeypatch):
+        """sandbox.mode=inprocess and a host-only command: no docker invocation."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="inprocess"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        runner.invoke(app, ["sandbox", "doctor", "--json"])
+        mock_execvp.assert_not_called()
+
+    def test_docker_mode_run_calls_execvp(self, mocker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        mocker.patch("blueclaw.launcher.docker_available", return_value=True)
+        mocker.patch("blueclaw.launcher.image_exists", return_value=True)
+        mocker.patch("blueclaw.launcher.image_digest", return_value="sha256:abc")
+        runner.invoke(app, ["run", "hi"])
+        mock_execvp.assert_called_once()
+        args, _ = mock_execvp.call_args
+        assert args[0] == "docker"
+
+    def test_docker_mode_host_subcommand_no_execvp(self, mocker, tmp_path, monkeypatch):
+        """sandbox.mode=docker but `skill list` is a host command: no docker."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "blueclaw.yaml").write_text(
+            "model_id: anthropic/claude-sonnet-4-6\n"
+        )
+        mock_execvp = mocker.patch("blueclaw.cli.os.execvp")
+        mocker.patch(
+            "blueclaw.session.load_config",
+            return_value=SessionConfig(
+                sandbox=SandboxConfig(mode="docker", image="blueclaw/runtime:test"),
+                model_id="anthropic/claude-sonnet-4-6",
+            ),
+        )
+        runner.invoke(app, ["skill", "list"])
+        mock_execvp.assert_not_called()

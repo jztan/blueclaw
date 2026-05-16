@@ -102,3 +102,16 @@ def compose_env(
             env[key] = value
 
     return env
+
+
+class NetworkValidationError(ValueError):
+    """Raised when network mode is incompatible with the selected model."""
+
+
+def validate_network_model(*, network: str, model_id: str) -> None:
+    """Reject configurations that would fail silently inside the container."""
+    if network == "none" and not model_id.startswith("ollama/"):
+        raise NetworkValidationError(
+            f"network: none requires a local model; configured model "
+            f"{model_id!r} needs network access"
+        )

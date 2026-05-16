@@ -3,7 +3,15 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from blueclaw.launcher import BUILTIN_ENV_ALLOWLIST, compose_env, detect_editable_source
+import pytest
+
+from blueclaw.launcher import (
+    BUILTIN_ENV_ALLOWLIST,
+    NetworkValidationError,
+    compose_env,
+    detect_editable_source,
+    validate_network_model,
+)
 from blueclaw.models import SandboxConfig
 
 
@@ -132,3 +140,22 @@ class TestComposeEnv:
         cfg = SandboxConfig(env_files=[])
         result = compose_env(cfg, project_root=tmp_path, home=tmp_path)
         assert result == {}
+
+
+class TestValidateNetworkModel:
+    def test_bridge_with_cloud_model_ok(self):
+        validate_network_model(network="bridge", model_id="anthropic/claude-sonnet-4-6")
+
+    def test_none_with_ollama_ok(self):
+        validate_network_model(network="none", model_id="ollama/llama3")
+
+    def test_none_with_cloud_rejected(self):
+        with pytest.raises(NetworkValidationError, match="requires a local model"):
+            validate_network_model(
+                network="none", model_id="anthropic/claude-sonnet-4-6"
+            )
+
+    def test_none_with_bare_model_rejected(self):
+        # model ids without 'ollama/' prefix assumed cloud
+        with pytest.raises(NetworkValidationError):
+            validate_network_model(network="none", model_id="claude-sonnet-4-6")

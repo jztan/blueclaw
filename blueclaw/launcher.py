@@ -487,7 +487,7 @@ def decide_launch(
     if subcommand == "serve":
         publish_ports = [_parse_port_flag(argv, default=8420)]
     elif subcommand == "trace ui":
-        publish_ports = [_parse_port_flag(argv, default=8421)]
+        publish_ports = [_parse_port_flag(argv, default=8111)]
 
     inner_argv = argv[1:]
     docker_argv = build_docker_argv(

@@ -36,6 +36,13 @@ All notable changes to blueclaw will be documented in this file.
   images as `blueclaw/runtime:dev-<short-sha>`, so every commit produced a new
   tag and the previous one lingered on disk. `sandbox build` now sweeps stale
   `dev-*` tags after a successful build so it behaves like an overwrite.
+- **Spurious "unable to find previously injected skills XML" warning** on every
+  resumed turn under `blueclaw serve`. `FileSessionManager` rehydrated the
+  Strands skills plugin's `last_injected_xml` state from disk, but the system
+  prompt was rebuilt fresh each turn, so the plugin couldn't match its prior
+  injection and warned (harmlessly) before re-appending. `create_agent` now
+  clears the `agent_skills` state key after construction when a session manager
+  is attached, so the plugin treats the next invocation as a first injection.
 - **Launcher hook fall-through.** `_maybe_execvp_into_docker` now raises
   `SystemExit(0)` after `os.execvp` so the function cannot continue into the
   in-process subcommand if execvp ever returns. Fixes a CI hang where the

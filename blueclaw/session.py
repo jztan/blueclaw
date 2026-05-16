@@ -522,6 +522,13 @@ def create_agent(
     if session_manager is not None:
         agent_kwargs["session_manager"] = session_manager
     agent = Agent(**agent_kwargs)
+    # FileSessionManager rehydrates agent.state, including the skills plugin's
+    # `last_injected_xml`. But we rebuild the system prompt fresh each turn, so
+    # that XML is never present. Clearing the key makes the plugin treat the
+    # next invocation as a first injection (no spurious "unable to find
+    # previously injected skills XML" warning).
+    if session_manager is not None and plugins:
+        agent.state.set("agent_skills", {})
     # Attach refs for cleanup and metrics
     observer.mcp_clients = mcp_clients
     observer.conversation_manager = conversation_manager

@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim
+
+# Runtime utilities the agent needs at minimum.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gh \
+        ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user. uid/gid are placeholders — the launcher overrides at runtime
+# with --user $(id -u):$(id -g). The HOME directory must therefore be world-writable
+# for the parts that the agent writes to (skills cache, etc.), or read-only where it
+# doesn't.
+RUN useradd --create-home --home-dir /home/blueclaw --shell /bin/bash --uid 1000 blueclaw \
+    && mkdir -p /home/blueclaw/skills /workspace /project \
+    && chmod 0777 /workspace /project
+
+# Install blueclaw and its dependencies system-wide so any --user can import it.
+# In editable installs the launcher overlays /opt/blueclaw-src via PYTHONPATH at runtime.
+WORKDIR /tmp/build
+COPY pyproject.toml uv.lock* README.md ./
+COPY blueclaw ./blueclaw
+RUN pip install --no-cache-dir --root-user-action=ignore . \
+    && rm -rf /tmp/build
+
+# Ensure imports work from any HOME at runtime.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/blueclaw
+
+WORKDIR /workspace
+ENTRYPOINT ["blueclaw"]

@@ -1228,15 +1228,64 @@ class TestSandboxCli:
     def test_sandbox_build_invokes_docker_build(self, mocker, tmp_path):
         mock_run = mocker.patch("blueclaw.cli.subprocess.run")
         mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
         mocker.patch(
             "blueclaw.cli.resolve_image_tag", return_value="blueclaw/runtime:test"
         )
         result = runner.invoke(app, ["sandbox", "build"])
         assert result.exit_code == 0
-        call_argv = mock_run.call_args[0][0]
-        assert call_argv[0] == "docker"
-        assert "build" in call_argv
-        assert "-t" in call_argv and "blueclaw/runtime:test" in call_argv
+        build_call = mock_run.call_args_list[0][0][0]
+        assert build_call[0] == "docker"
+        assert "build" in build_call
+        assert "-t" in build_call and "blueclaw/runtime:test" in build_call
+
+    def test_sandbox_build_prunes_stale_dev_tags(self, mocker, tmp_path):
+        """After a successful dev build, stale `dev-<sha>` images get rmi'd."""
+        current = "blueclaw/runtime:dev-aaaaaaa"
+        stale1 = "blueclaw/runtime:dev-bbbbbbb"
+        stale2 = "blueclaw/runtime:dev-ccccccc"
+        release = "blueclaw/runtime:2.4.0"
+
+        def fake_run(argv, *args, **kwargs):
+            result = mocker.MagicMock()
+            result.returncode = 0
+            if argv[:2] == ["docker", "build"]:
+                result.stdout = ""
+            elif argv[:3] == ["docker", "image", "ls"]:
+                result.stdout = f"{current}\n{stale1}\n{stale2}\n{release}\n"
+            else:
+                result.stdout = ""
+            return result
+
+        mock_run = mocker.patch("blueclaw.cli.subprocess.run", side_effect=fake_run)
+        mocker.patch("blueclaw.cli.resolve_image_tag", return_value=current)
+
+        result = runner.invoke(app, ["sandbox", "build"])
+        assert result.exit_code == 0
+
+        rmi_calls = [
+            call[0][0]
+            for call in mock_run.call_args_list
+            if call[0][0][:3] == ["docker", "rmi", "-f"]
+            or call[0][0][:2] == ["docker", "rmi"]
+        ]
+        rmi_tags = {argv[-1] for argv in rmi_calls}
+        assert stale1 in rmi_tags
+        assert stale2 in rmi_tags
+        assert current not in rmi_tags
+        assert release not in rmi_tags
+
+    def test_sandbox_build_skips_prune_on_release_tag(self, mocker, tmp_path):
+        """For non-dev (release-version) tags, do not prune other dev images."""
+        mock_run = mocker.patch("blueclaw.cli.subprocess.run")
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mocker.patch(
+            "blueclaw.cli.resolve_image_tag", return_value="blueclaw/runtime:2.4.0"
+        )
+        runner.invoke(app, ["sandbox", "build"])
+        for call in mock_run.call_args_list:
+            assert call[0][0][:2] != ["docker", "rmi"]
 
 
 class TestLauncherWiring:

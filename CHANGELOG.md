@@ -32,6 +32,10 @@ All notable changes to blueclaw will be documented in this file.
   container never tries to launch another container.
 
 ### Fixed
+- **`blueclaw sandbox build` accumulated dev images.** Editable installs tag
+  images as `blueclaw/runtime:dev-<short-sha>`, so every commit produced a new
+  tag and the previous one lingered on disk. `sandbox build` now sweeps stale
+  `dev-*` tags after a successful build so it behaves like an overwrite.
 - **Launcher hook fall-through.** `_maybe_execvp_into_docker` now raises
   `SystemExit(0)` after `os.execvp` so the function cannot continue into the
   in-process subcommand if execvp ever returns. Fixes a CI hang where the

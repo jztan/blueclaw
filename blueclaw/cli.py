@@ -1272,6 +1272,35 @@ sandbox_app = typer.Typer(help="Manage the docker sandbox runtime image.")
 app.add_typer(sandbox_app, name="sandbox")
 
 
+def _prune_stale_dev_images(*, keep: str) -> None:
+    """Remove `blueclaw/runtime:dev-*` images other than `keep`."""
+    listing = subprocess.run(
+        [
+            "docker",
+            "image",
+            "ls",
+            "--format={{.Repository}}:{{.Tag}}",
+            "blueclaw/runtime",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listing.returncode != 0:
+        return
+    stale = [
+        line.strip()
+        for line in listing.stdout.splitlines()
+        if ":dev-" in line and line.strip() and line.strip() != keep
+    ]
+    for tag in stale:
+        rm = subprocess.run(
+            ["docker", "rmi", "-f", tag], capture_output=True, text=True, check=False
+        )
+        if rm.returncode == 0:
+            typer.echo(f"Pruned {tag}")
+
+
 @sandbox_app.command("build")
 def sandbox_build(
     no_cache: bool = typer.Option(
@@ -1301,6 +1330,12 @@ def sandbox_build(
         typer.echo("docker build failed", err=True)
         raise typer.Exit(result.returncode)
     typer.echo(f"Built {tag}")
+
+    # Dev builds are SHA-tagged, so each commit produces a new image tag and
+    # the previous one lingers untagged-or-tagged on disk. Sweep stale
+    # `dev-*` tags so `blueclaw sandbox build` behaves like an overwrite.
+    if ":dev-" in tag:
+        _prune_stale_dev_images(keep=tag)
 
 
 @sandbox_app.command("doctor")

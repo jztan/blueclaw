@@ -497,6 +497,13 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     if os.environ.get("BLUECLAW_SANDBOX_MODE") == "docker":
         return
 
+    # Host-program guard: this hook inspects sys.argv to route subcommands. If
+    # the Typer app is being driven from something other than the `blueclaw`
+    # entrypoint (pytest, a REPL, an embedding library), sys.argv reflects that
+    # host program's args and is not meaningful here — skip.
+    if os.path.basename(sys.argv[0] or "") != "blueclaw":
+        return
+
     from blueclaw.session import load_config  # lazy: matches existing pattern
 
     # Cheap pre-filter: skip entirely for host-only subcommands so we don't

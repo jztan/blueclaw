@@ -68,6 +68,19 @@ All notable changes to blueclaw will be documented in this file.
   container never tries to launch another container.
 
 ### Fixed
+- **Launcher hook misfired under bare `pytest`.** `_maybe_execvp_into_docker`
+  inspected `sys.argv` directly to route subcommands. Under bare `pytest` from a
+  project with `sandbox.mode: docker` in `blueclaw.yaml`, `sys.argv=['pytest']`
+  → `normalize_subcommand` returned `""` (the interactive-mode marker, which is
+  in `_CONTAINER_COMMANDS`) → the hook tried to re-exec the test process into
+  docker, causing every `runner.invoke(app, [])` in `tests/test_cli.py` to fail
+  with `exit_code=2`. Added a host-program guard: the hook returns early when
+  `os.path.basename(sys.argv[0]) != "blueclaw"`. CI didn't catch it because
+  `.github/workflows/ci.yml` invoked `pytest tests/` (where `sys.argv[1]="tests"`
+  isn't sandbox-routed) and ran in a clean checkout without `blueclaw.yaml`.
+- **Test invocation parity with CI.** Added `testpaths = ["tests"]` to
+  `[tool.pytest.ini_options]` and dropped the `tests/` arg from the CI test
+  step so bare `pytest` and CI collect identically.
 - **`blueclaw sandbox build` accumulated dev images.** Editable installs tag
   images as `blueclaw/runtime:dev-<short-sha>`, so every commit produced a new
   tag and the previous one lingered on disk. `sandbox build` now sweeps stale

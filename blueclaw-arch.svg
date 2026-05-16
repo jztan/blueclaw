@@ -171,7 +171,7 @@
   <rect x="178" y="450" width="160" height="92" rx="12" fill="#f0e0ec" filter="url(#shadow)"/>
   <text x="258" y="470" text-anchor="middle" font-size="12" font-weight="600" fill="#6b4f80">bridges/</text>
   <text x="258" y="486" text-anchor="middle" font-size="9" fill="#7d5e94">Allowlist · ChatContext</text>
-  <text x="258" y="498" text-anchor="middle" font-size="9" fill="#7d5e94">BridgeRouter (Strands FSM)</text>
+  <text x="258" y="498" text-anchor="middle" font-size="9" fill="#7d5e94">BridgeRouter · FileSessionManager</text>
   <text x="258" y="510" text-anchor="middle" font-size="9" fill="#7d5e94">telegram.py (PTB v22)</text>
   <text x="258" y="522" text-anchor="middle" font-size="9" fill="#7d5e94">per-chat workspace</text>
   <text x="258" y="534" text-anchor="middle" font-size="9" fill="#7d5e94">~/blueclaw/chats/&lt;id&gt;/</text>
@@ -181,8 +181,10 @@
        the Session box, not on Tools. -->
   <path d="M 178 470 L 148 470 L 148 170 L 178 170" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-purple)"/>
 
-  <!-- ===== Sandbox CLI badge ===== -->
-  <line x1="350" y1="320" x2="350" y2="350" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#arrow-purple)"/>
+  <!-- ===== Sandbox CLI badge =====
+       Curved purple dashed connector from the sandbox boundary's bottom-right
+       corner area down to the badge, replacing the old orphan arrow at x=350. -->
+  <path d="M 500 320 Q 550 380 595 455" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-purple)"/>
   <rect x="490" y="455" width="210" height="22" rx="11" fill="#e6dcf0" stroke="#8a6fb0" stroke-width="1"/>
   <text x="595" y="471" text-anchor="middle" font-size="10" font-weight="600" fill="#6b4f95">blueclaw sandbox · build / doctor</text>
 

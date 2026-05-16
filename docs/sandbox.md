@@ -124,6 +124,26 @@ sandbox:
   user: host
 ```
 
+### `gh` (GitHub CLI) not available in the container
+
+The default runtime image does not include `gh` — it isn't packaged in standard
+Debian repos and adding an apt source bloats the image. If a skill needs `gh`,
+either add it via `extra_mounts` (mount the host binary) or build a custom
+image extending `blueclaw/runtime`:
+
+```dockerfile
+FROM blueclaw/runtime:<tag>
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+USER blueclaw
+```
+
 ### macOS performance
 
 Bind mounts on Docker Desktop for Mac are slower than native — expect 5–10× for

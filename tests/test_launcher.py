@@ -145,22 +145,19 @@ class TestComposeEnv:
 
 
 class TestValidateNetworkModel:
-    def test_bridge_with_cloud_model_ok(self):
-        validate_network_model(network="bridge", model_id="anthropic/claude-sonnet-4-6")
+    def test_bridge_with_cloud_provider_ok(self):
+        validate_network_model(network="bridge", provider="anthropic")
 
     def test_none_with_ollama_ok(self):
-        validate_network_model(network="none", model_id="ollama/llama3")
+        validate_network_model(network="none", provider="ollama")
 
     def test_none_with_cloud_rejected(self):
         with pytest.raises(NetworkValidationError, match="requires a local model"):
-            validate_network_model(
-                network="none", model_id="anthropic/claude-sonnet-4-6"
-            )
+            validate_network_model(network="none", provider="anthropic")
 
-    def test_none_with_bare_model_rejected(self):
-        # model ids without 'ollama/' prefix assumed cloud
+    def test_none_with_openai_rejected(self):
         with pytest.raises(NetworkValidationError):
-            validate_network_model(network="none", model_id="claude-sonnet-4-6")
+            validate_network_model(network="none", provider="openai")
 
 
 from blueclaw.launcher import docker_available
@@ -390,7 +387,74 @@ class TestBuildDockerArgv:
             publish_ports=[],
             digest=None,
         )
-        assert f"--mount=type=bind,source={ws},target=/workspace,readonly=false" in argv
+        assert (
+            f"--mount=type=bind,source={ws},"
+            f"target=/home/blueclaw/blueclaw/workspace,readonly=false"
+        ) in argv
+
+    def test_workdir_is_in_container_workspace(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        i = argv.index("--workdir")
+        assert argv[i + 1] == "/home/blueclaw/blueclaw/workspace"
+
+    def test_config_file_mounted_inside_workspace(self, tmp_path):
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path / "ws",
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=None,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert any(
+            f"source={tmp_path}/blueclaw.yaml,"
+            f"target=/home/blueclaw/blueclaw/workspace/blueclaw.yaml,"
+            f"readonly=true" in a
+            for a in argv
+        )
+
+    def test_project_skills_target_is_inside_workspace(self, tmp_path):
+        pskills = tmp_path / "psk"
+        pskills.mkdir()
+        argv = build_docker_argv(
+            cfg=_basic_cfg(),
+            image="img",
+            env={},
+            workspace=tmp_path,
+            project_root=tmp_path,
+            user_skills=tmp_path / "skills",
+            project_skills=pskills,
+            editable_source=None,
+            inner_argv=["run"],
+            interactive=False,
+            publish_ports=[],
+            digest=None,
+        )
+        assert any(
+            f"source={pskills},"
+            f"target=/home/blueclaw/blueclaw/workspace/.blueclaw/skills,"
+            f"readonly=true" in a
+            for a in argv
+        )
 
     def test_editable_source_mounted_with_pythonpath(self, tmp_path):
         src = tmp_path / "src"
@@ -432,7 +496,7 @@ class TestBuildDockerArgv:
             digest=None,
         )
         assert any(
-            f"source={skills},target=/home/blueclaw/skills,readonly=true" in a
+            f"source={skills},target=/home/blueclaw/blueclaw/skills,readonly=true" in a
             for a in argv
         )
 
@@ -451,7 +515,9 @@ class TestBuildDockerArgv:
             publish_ports=[],
             digest=None,
         )
-        assert not any("/project/.blueclaw/skills" in a for a in argv)
+        assert not any(
+            "/home/blueclaw/blueclaw/workspace/.blueclaw/skills" in a for a in argv
+        )
 
     def test_extra_mounts_included(self, tmp_path):
         cfg = _basic_cfg(
@@ -622,7 +688,7 @@ class TestDecideLaunch:
         cfg = SandboxConfig(mode="inprocess")
         decision = decide_launch(
             sandbox_cfg=cfg,
-            model_id="anthropic/claude-sonnet-4-6",
+            provider="anthropic",
             argv=["blueclaw", "run", "hello"],
             project_root=tmp_path,
         )
@@ -633,7 +699,7 @@ class TestDecideLaunch:
         cfg = SandboxConfig(mode="docker")
         decision = decide_launch(
             sandbox_cfg=cfg,
-            model_id="anthropic/claude-sonnet-4-6",
+            provider="anthropic",
             argv=["blueclaw", "skill", "list"],
             project_root=tmp_path,
         )
@@ -647,7 +713,7 @@ class TestDecideLaunch:
         cfg = SandboxConfig(mode="docker", image="blueclaw/runtime:test")
         decision = decide_launch(
             sandbox_cfg=cfg,
-            model_id="anthropic/claude-sonnet-4-6",
+            provider="anthropic",
             argv=["blueclaw", "run", "hello"],
             project_root=tmp_path,
         )
@@ -662,7 +728,7 @@ class TestDecideLaunch:
         with pytest.raises(SystemExit):
             decide_launch(
                 sandbox_cfg=cfg,
-                model_id="anthropic/claude-sonnet-4-6",
+                provider="anthropic",
                 argv=["blueclaw", "run"],
                 project_root=tmp_path,
             )
@@ -675,7 +741,7 @@ class TestDecideLaunch:
         cfg = SandboxConfig(mode="docker", on_unavailable="fallback")
         decision = decide_launch(
             sandbox_cfg=cfg,
-            model_id="anthropic/claude-sonnet-4-6",
+            provider="anthropic",
             argv=["blueclaw", "run"],
             project_root=tmp_path,
         )
@@ -694,7 +760,7 @@ class TestDecideLaunch:
         with pytest.raises(SystemExit):
             decide_launch(
                 sandbox_cfg=cfg,
-                model_id="anthropic/claude-sonnet-4-6",
+                provider="anthropic",
                 argv=["blueclaw", "run"],
                 project_root=tmp_path,
             )
@@ -707,7 +773,7 @@ class TestDecideLaunch:
         with pytest.raises(NetworkValidationError):
             decide_launch(
                 sandbox_cfg=cfg,
-                model_id="anthropic/claude-sonnet-4-6",
+                provider="anthropic",
                 argv=["blueclaw", "run"],
                 project_root=tmp_path,
             )

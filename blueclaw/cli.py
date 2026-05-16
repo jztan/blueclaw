@@ -483,7 +483,7 @@ def _maybe_execvp_into_docker(*, model_override: Optional[str]) -> None:
     project_root = config_path.resolve().parent
     decision = decide_launch(
         sandbox_cfg=config.sandbox,
-        model_id=config.model_id,
+        provider=config.provider,
         argv=sys.argv,
         project_root=project_root,
     )

@@ -112,12 +112,12 @@ class NetworkValidationError(ValueError):
     """Raised when network mode is incompatible with the selected model."""
 
 
-def validate_network_model(*, network: str, model_id: str) -> None:
+def validate_network_model(*, network: str, provider: str) -> None:
     """Reject configurations that would fail silently inside the container."""
-    if network == "none" and not model_id.startswith("ollama/"):
+    if network == "none" and provider != "ollama":
         raise NetworkValidationError(
-            f"network: none requires a local model; configured model "
-            f"{model_id!r} needs network access"
+            f"network: none requires a local model; configured provider "
+            f"{provider!r} needs network access"
         )
 
 
@@ -228,7 +228,7 @@ def build_docker_argv(
         "--user",
         user,
         "--workdir",
-        "/workspace",
+        "/home/blueclaw/blueclaw/workspace",
         f"--network={cfg.network}",
         f"--cpus={cfg.cpu}",
         f"--memory={cfg.memory_mb}m",
@@ -255,18 +255,23 @@ def build_docker_argv(
             "--env=PYTHONPATH=/opt/blueclaw-src",
         ]
 
-    # Mandatory mounts
+    # Mandatory mounts. Targets are chosen so that Path.home() / "blueclaw" / ...
+    # resolves correctly inside the container (HOME=/home/blueclaw). The config
+    # file is mounted *inside* the workspace mount so find_project_root() finds
+    # the workspace as the project root.
     argv += [
-        f"--mount=type=bind,source={workspace},target=/workspace,readonly=false",
+        f"--mount=type=bind,source={workspace},"
+        f"target=/home/blueclaw/blueclaw/workspace,readonly=false",
         f"--mount=type=bind,source={user_skills},"
-        f"target=/home/blueclaw/skills,readonly=true",
+        f"target=/home/blueclaw/blueclaw/skills,readonly=true",
         f"--mount=type=bind,source={project_root}/blueclaw.yaml,"
-        f"target=/project/blueclaw.yaml,readonly=true",
+        f"target=/home/blueclaw/blueclaw/workspace/blueclaw.yaml,readonly=true",
     ]
     if project_skills is not None:
         argv += [
             f"--mount=type=bind,source={project_skills},"
-            f"target=/project/.blueclaw/skills,readonly=true",
+            f"target=/home/blueclaw/blueclaw/workspace/.blueclaw/skills,"
+            f"readonly=true",
         ]
 
     # Extra mounts
@@ -376,7 +381,7 @@ def _parse_port_flag(argv: list[str], *, default: int) -> int:
 def decide_launch(
     *,
     sandbox_cfg: SandboxConfig,
-    model_id: str,
+    provider: str,
     argv: list[str],
     project_root: Path,
 ) -> LauncherDecision | None:
@@ -388,8 +393,8 @@ def decide_launch(
     if not should_sandbox_subcommand(subcommand):
         return None
 
-    # Runtime validation — depends on model_id which isn't in SandboxConfig itself.
-    validate_network_model(network=sandbox_cfg.network, model_id=model_id)
+    # Runtime validation — depends on provider which isn't in SandboxConfig itself.
+    validate_network_model(network=sandbox_cfg.network, provider=provider)
 
     if not docker_available():
         if sandbox_cfg.on_unavailable == "fallback":

@@ -188,7 +188,8 @@ class TestLauncherEndToEnd:
         # (so we never reach the network even if the agent code tries).
         cfg_path = tmp_path / "blueclaw.yaml"
         cfg_path.write_text(
-            f"model_id: ollama/llama3\n"
+            f"provider: ollama\n"
+            f"model_id: llama3\n"
             f"sandbox:\n"
             f"  mode: docker\n"
             f"  image: {IMAGE_TAG}\n"
@@ -210,7 +211,8 @@ class TestLauncherEndToEnd:
         monkeypatch.setenv("HOME", str(tmp_path))
         cfg_path = tmp_path / "blueclaw.yaml"
         cfg_path.write_text(
-            f"model_id: ollama/llama3\n"
+            f"provider: ollama\n"
+            f"model_id: llama3\n"
             f"sandbox:\n"
             f"  mode: docker\n"
             f"  image: {IMAGE_TAG}\n"
@@ -236,7 +238,8 @@ class TestLauncherEndToEnd:
         monkeypatch.setenv("HOME", str(tmp_path))
         cfg_path = tmp_path / "blueclaw.yaml"
         cfg_path.write_text(
-            f"model_id: ollama/llama3\n"
+            f"provider: ollama\n"
+            f"model_id: llama3\n"
             f"sandbox:\n"
             f"  mode: docker\n"
             f"  image: {IMAGE_TAG}\n"
@@ -246,14 +249,15 @@ class TestLauncherEndToEnd:
         # Run is expected to fail because network: none + ollama is unreachable.
         # We do not assert on returncode. We assert on side-effects.
         _run("blueclaw", "run", "test goal")
-        # If the launcher routed correctly, the in-container blueclaw should have
-        # at least created the .blueclaw/ directory and (likely) attempted a turn.
-        # The minimum proof: the workspace was actually written from inside the
-        # container by our uid.
+        # The launcher must have created .blueclaw inside the workspace mount.
         bcdir = ws / ".blueclaw"
-        if bcdir.exists():
-            st = bcdir.stat()
-            assert st.st_uid == os.getuid(), (
-                f".blueclaw owned by uid {st.st_uid}, expected {os.getuid()} "
-                f"(host-uid mapping is broken)"
-            )
+        assert bcdir.exists(), (
+            f"Expected {bcdir} to exist after `blueclaw run` in docker mode. "
+            f"If missing, the launcher likely did not route into the container "
+            f"or the workspace mount target path is wrong."
+        )
+        st = bcdir.stat()
+        assert st.st_uid == os.getuid(), (
+            f".blueclaw owned by uid {st.st_uid}, expected {os.getuid()} "
+            f"(host-uid mapping is broken)"
+        )

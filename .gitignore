@@ -56,3 +56,9 @@ blueclaw.db
 .vscode/
 *.iml
 docs/superpowers
+
+
+# blueclaw: never commit dotenv files (may contain secrets)
+.env
+.env.docker
+.env.*

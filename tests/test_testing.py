@@ -134,6 +134,15 @@ class TestValidateSpec:
         warnings = validate_spec(spec)
         assert any("invalid output_regex" in w for w in warnings)
 
+    def test_validate_spec_invalid_forbidden_regex(self):
+        from blueclaw.testing import validate_spec
+
+        spec = TestSpec(
+            tests=[TestCase(goal="test", forbidden_output_regex="[invalid")]
+        )
+        warnings = validate_spec(spec)
+        assert any("invalid forbidden_output_regex" in w for w in warnings)
+
     def test_validate_spec_negative_duration(self):
         from blueclaw.testing import validate_spec
 

@@ -367,6 +367,7 @@ class TestCase(BaseModel):
     expected_file_contains: dict[str, str] = {}
     forbidden_output_contains: str | None = None
     output_regex: str | None = None
+    forbidden_output_regex: str | None = None
     tool_order: list[str] = []
     max_duration_s: float | None = None
     runs: int = 1

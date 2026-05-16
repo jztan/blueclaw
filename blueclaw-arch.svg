@@ -114,7 +114,7 @@
   <text x="258" y="434" text-anchor="middle" font-size="9" fill="#3d7a54">bearer auth · CORS · 1MB cap</text>
 
   <!-- Arrow: server.py up to Session -->
-  <line x1="258" y1="350" x2="258" y2="220" stroke="#5a9a72" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
+  <line x1="258" y1="350" x2="258" y2="218" stroke="#5a9a72" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
 
   <!-- ===== Right: Workspace ===== -->
   <line x1="518" y1="140" x2="560" y2="140" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>

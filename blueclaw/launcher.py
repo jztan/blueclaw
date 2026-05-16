@@ -281,3 +281,18 @@ def build_docker_argv(
 
     argv += [image, *inner_argv]
     return argv
+
+
+# Commands that run inside the docker container when sandbox.mode == "docker".
+# Everything else runs on the host.
+_CONTAINER_COMMANDS = frozenset({"", "run", "serve", "test", "trace ui"})
+
+
+def should_sandbox_subcommand(subcommand: str) -> bool:
+    """Decide whether a given (already-normalized) subcommand routes to the container.
+
+    `subcommand` is the space-joined sequence of positional words before any flags,
+    e.g. "run", "trace ui", "sandbox build", or "" for the no-subcommand
+    interactive case.
+    """
+    return subcommand in _CONTAINER_COMMANDS

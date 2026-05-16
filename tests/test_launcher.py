@@ -547,3 +547,37 @@ class TestBuildDockerArgv:
             digest=None,
         )
         assert "--publish=8420:8420" in argv
+
+
+from blueclaw.launcher import should_sandbox_subcommand
+
+
+class TestShouldSandboxSubcommand:
+    @pytest.mark.parametrize("cmd", ["run", "serve", "test", "trace ui", ""])
+    def test_container_commands(self, cmd):
+        # empty string = no subcommand = interactive
+        assert should_sandbox_subcommand(cmd) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "sandbox build",
+            "sandbox doctor",
+            "skill install",
+            "skill uninstall",
+            "skill list",
+            "skill show",
+            "init",
+            "history",
+            "trace list",
+            "trace show",
+            "trace explain",
+            "trace graph",
+            "trace diff",
+            "trace replay",
+            "trace timeline",
+            "trace stats",
+        ],
+    )
+    def test_host_commands(self, cmd):
+        assert should_sandbox_subcommand(cmd) is False

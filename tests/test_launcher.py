@@ -190,3 +190,43 @@ class TestDockerAvailable:
             side_effect=FileNotFoundError("docker"),
         )
         assert docker_available() is False
+
+
+from blueclaw.launcher import resolve_image_tag, image_digest
+
+
+class TestResolveImageTag:
+    def test_user_override_wins(self, mocker):
+        cfg = SandboxConfig(image="custom/img:1")
+        assert resolve_image_tag(cfg) == "custom/img:1"
+
+    def test_release_tag_when_not_editable(self, mocker):
+        mocker.patch("blueclaw.launcher.detect_editable_source", return_value=None)
+        mocker.patch(
+            "blueclaw.launcher.importlib.metadata.version", return_value="2.5.0"
+        )
+        assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:2.5.0"
+
+    def test_dev_tag_when_editable(self, mocker, tmp_path):
+        mocker.patch("blueclaw.launcher.detect_editable_source", return_value=tmp_path)
+        mocker.patch("blueclaw.launcher._git_short_sha", return_value="abc1234")
+        assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:dev-abc1234"
+
+    def test_dev_tag_falls_back_to_nogit(self, mocker, tmp_path):
+        mocker.patch("blueclaw.launcher.detect_editable_source", return_value=tmp_path)
+        mocker.patch("blueclaw.launcher._git_short_sha", return_value=None)
+        assert resolve_image_tag(SandboxConfig()) == "blueclaw/runtime:dev-nogit"
+
+
+class TestImageDigest:
+    def test_inspect_returns_digest(self, mocker):
+        mock = mocker.patch("blueclaw.launcher.subprocess.run")
+        mock.return_value.returncode = 0
+        mock.return_value.stdout = "sha256:abc123\n"
+        assert image_digest("blueclaw/runtime:2.5.0") == "sha256:abc123"
+
+    def test_missing_image_returns_none(self, mocker):
+        mock = mocker.patch("blueclaw.launcher.subprocess.run")
+        mock.return_value.returncode = 1
+        mock.return_value.stdout = ""
+        assert image_digest("blueclaw/runtime:missing") is None

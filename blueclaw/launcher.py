@@ -130,3 +130,49 @@ def docker_available(timeout: float = 5.0) -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
+
+
+def _git_short_sha(repo: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--short=7", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def resolve_image_tag(cfg: SandboxConfig) -> str:
+    """Resolve the image tag the launcher will run."""
+    if cfg.image:
+        return cfg.image
+    src = detect_editable_source()
+    if src is not None:
+        sha = _git_short_sha(src) or "nogit"
+        return f"blueclaw/runtime:dev-{sha}"
+    version = importlib.metadata.version("blueclaw")
+    return f"blueclaw/runtime:{version}"
+
+
+def image_digest(tag: str) -> str | None:
+    """Return sha256 digest of a local image tag, or None if not present."""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", "--format={{.Id}}", tag],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    digest = result.stdout.strip()
+    return digest or None

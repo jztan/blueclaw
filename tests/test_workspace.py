@@ -174,6 +174,19 @@ class TestContextOps:
         ws.write_context("# Updated\nNew content.")
         assert ws.context_path.read_text() == "# Updated\nNew content."
 
+    def test_soul_path(self, tmp_path):
+        ws = Workspace(tmp_path)
+        assert ws.soul_path == tmp_path / "SOUL.md"
+
+    def test_read_soul_exists(self, tmp_path):
+        ws = Workspace(tmp_path)
+        (tmp_path / "SOUL.md").write_text("# Soul\nI am blueclaw.\n")
+        assert "I am blueclaw" in ws.read_soul()
+
+    def test_read_soul_missing(self, tmp_path):
+        ws = Workspace(tmp_path)
+        assert ws.read_soul() == ""
+
     def test_read_history(self, tmp_workspace):
         ws = Workspace(tmp_workspace)
         rec = RunRecord(

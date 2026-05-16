@@ -47,6 +47,10 @@ class Workspace:
         return self.root / "CONTEXT.md"
 
     @property
+    def soul_path(self) -> Path:
+        return self.root / "SOUL.md"
+
+    @property
     def history_path(self) -> Path:
         return self.root / ".blueclaw" / "history.jsonl"
 
@@ -113,6 +117,12 @@ class Workspace:
         """Read CONTEXT.md. Returns empty string if missing."""
         if self.context_path.exists():
             return self.context_path.read_text()
+        return ""
+
+    def read_soul(self) -> str:
+        """Read SOUL.md (agent identity). Returns empty string if missing."""
+        if self.soul_path.exists():
+            return self.soul_path.read_text()
         return ""
 
     def write_context(self, content: str) -> None:

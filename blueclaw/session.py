@@ -295,6 +295,11 @@ def build_system_prompt(
     """
     parts = []
 
+    # Identity (SOUL.md — persona/voice, user-managed, optional)
+    soul = workspace.read_soul()
+    if soul:
+        parts.append(f"## Identity\n\n{soul}")
+
     # Context
     context = workspace.read_context()
     if context:

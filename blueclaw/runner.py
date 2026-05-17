@@ -12,11 +12,64 @@ See docs/superpowers/specs/2026-05-17-unified-agent-runner-design.md
 
 from __future__ import annotations
 
+import json
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from blueclaw.models import RunRecord, RunTrace
 from blueclaw.observer import ObserverHooks
+
+
+def _write_capture_artifacts(
+    capture_path: Path,
+    *,
+    response_text: str,
+    messages: list,
+) -> list[dict]:
+    """Write response.txt + messages.json directly into capture_path.
+
+    Returns a list of capture-failure records (empty on success). Each:
+        {"stage": "mkdir" | "response.txt" | "messages.json", "error": "<msg>"}
+
+    Best-effort: never raises. Adapters that need to attach case_idx/run_idx
+    or other identity wrap the returned entries themselves before recording
+    them anywhere durable.
+    """
+    failures: list[dict] = []
+
+    try:
+        capture_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        failures.append({"stage": "mkdir", "error": f"{type(e).__name__}: {e}"})
+        print(
+            f"blueclaw runner: capture failure at {capture_path}: mkdir: {e}",
+            file=sys.stderr,
+        )
+        return failures
+
+    try:
+        (capture_path / "response.txt").write_text(response_text)
+    except OSError as e:
+        failures.append({"stage": "response.txt", "error": f"{type(e).__name__}: {e}"})
+        print(
+            f"blueclaw runner: capture failure at {capture_path}: response.txt: {e}",
+            file=sys.stderr,
+        )
+
+    try:
+        (capture_path / "messages.json").write_text(
+            json.dumps(messages, indent=2, default=str)
+        )
+    except OSError as e:
+        failures.append({"stage": "messages.json", "error": f"{type(e).__name__}: {e}"})
+        print(
+            f"blueclaw runner: capture failure at {capture_path}: messages.json: {e}",
+            file=sys.stderr,
+        )
+
+    return failures
 
 
 @dataclass

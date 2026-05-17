@@ -124,31 +124,50 @@ async def test_router_refuses_unauthorized(tmp_path: Path):
     assert "42" in reply
 
 
+def _stub_outcome(response_text: str = "hello back", error: Exception | None = None):
+    from blueclaw.runner import RunOutcome
+
+    return RunOutcome(
+        result=MagicMock() if error is None else None,
+        agent=MagicMock(),
+        response_text="" if error is not None else response_text,
+        trace=MagicMock() if error is None else None,
+        record=MagicMock() if error is None else None,
+        capture_errors=[],
+        error=error,
+    )
+
+
 @pytest.mark.asyncio
 async def test_router_routes_authorized_to_agent(tmp_path: Path):
     router = _make_router(tmp_path, allow_chat=[42])
 
-    fake_agent = MagicMock()
-    fake_agent.return_value = MagicMock(message="hello back", metrics=None)
-
     with (
-        patch("blueclaw.bridges.core.create_agent", return_value=fake_agent),
-        patch("blueclaw.bridges.core.extract_text", return_value="hello back"),
+        patch(
+            "blueclaw.bridges.core.run_turn", return_value=_stub_outcome("hello back")
+        ) as mock_run_turn,
         patch("blueclaw.bridges.core.FileSessionManager"),
     ):
         reply = await router.handle_message(chat_id=42, user_id=42, text="ping")
 
     assert reply == "hello back"
-    fake_agent.assert_called_once_with("ping")
+    mock_run_turn.assert_called_once()
+    kwargs = mock_run_turn.call_args.kwargs
+    assert kwargs["source"] == "telegram"
+    assert kwargs["conversation_id"] == "42"
+    assert kwargs["channel"] == "telegram"
+    assert kwargs["callback_handler"] is None
+    assert kwargs["capture_path"] is None
+    assert kwargs["goal"] == "ping"
+    # text passes as the 4th positional (agent_input)
+    assert mock_run_turn.call_args.args[3] == "ping"
 
 
 @pytest.mark.asyncio
 async def test_router_creates_per_chat_workspace(tmp_path: Path):
     router = _make_router(tmp_path, allow_chat=[1, 2])
-    fake_agent = MagicMock(return_value=MagicMock(message="ok"))
     with (
-        patch("blueclaw.bridges.core.create_agent", return_value=fake_agent),
-        patch("blueclaw.bridges.core.extract_text", return_value="ok"),
+        patch("blueclaw.bridges.core.run_turn", return_value=_stub_outcome("ok")),
         patch("blueclaw.bridges.core.FileSessionManager"),
     ):
         await router.handle_message(chat_id=1, user_id=1, text="x")
@@ -158,6 +177,31 @@ async def test_router_creates_per_chat_workspace(tmp_path: Path):
     assert (tmp_path / "2").is_dir()
     assert (tmp_path / "1" / ".blueclaw" / "sessions").is_dir()
     assert (tmp_path / "2" / ".blueclaw" / "sessions").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_router_returns_error_reply_on_agent_failure(tmp_path: Path):
+    router = _make_router(tmp_path, allow_chat=[42])
+    ctx = await router._get_context(42)
+    write_trace = MagicMock()
+    append_history = MagicMock()
+    ctx.workspace.write_trace = write_trace
+    ctx.workspace.append_history = append_history
+
+    with (
+        patch(
+            "blueclaw.bridges.core.run_turn",
+            return_value=_stub_outcome(error=RuntimeError("boom")),
+        ),
+        patch("blueclaw.bridges.core.FileSessionManager"),
+    ):
+        reply = await router.handle_message(chat_id=42, user_id=42, text="ping")
+
+    assert reply.startswith("Agent error: ")
+    assert "boom" in reply
+    assert len(reply) <= 500
+    write_trace.assert_not_called()
+    append_history.assert_not_called()
 
 
 @pytest.mark.asyncio

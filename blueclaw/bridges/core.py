@@ -5,18 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from strands.session.file_session_manager import FileSessionManager
 
-from datetime import datetime, timezone
-
 from blueclaw.models import SessionConfig
-from blueclaw.observer import ObserverHooks
-from blueclaw.session import build_trace_and_record, create_agent, extract_text
+from blueclaw.runner import run_turn
 from blueclaw.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -111,45 +106,35 @@ class BridgeRouter:
 
         ctx = await self._get_context(chat_id)
         async with ctx.lock:
-            observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
             session_manager = FileSessionManager(
                 session_id=str(chat_id), storage_dir=ctx.sessions_dir
             )
-            agent = create_agent(
+            outcome = await asyncio.to_thread(
+                run_turn,
                 self._config,
                 ctx.workspace,
-                observer,
-                model=self._model,
-                scripted=True,
-                callback_handler=None,
+                self._model,
+                text,
+                goal=text,
+                source="telegram",
+                conversation_id=str(chat_id),
                 session_manager=session_manager,
                 channel="telegram",
+                callback_handler=None,
+                scripted=True,
+                capture_path=None,
             )
-            start_time = datetime.now(timezone.utc)
-            try:
-                result = await asyncio.to_thread(agent, text)
-            except Exception as exc:
-                logger.exception("agent turn failed for chat %s", chat_id)
-                return f"Agent error: {exc!s}"[:500]
-            end_time = datetime.now(timezone.utc)
-            run_id = start_time.strftime("%Y%m%d-%H%M%S")
-            try:
-                trace, record = build_trace_and_record(
-                    result,
-                    text,
-                    observer,
-                    self._config,
-                    run_id,
-                    start_time,
-                    end_time,
-                    source="telegram",
-                    conversation_id=str(chat_id),
+            if outcome.error is not None:
+                logger.error(
+                    "agent turn failed for chat %s: %s", chat_id, outcome.error
                 )
-                ctx.workspace.write_trace(trace)
-                ctx.workspace.append_history(record)
+                return f"Agent error: {outcome.error!s}"[:500]
+            try:
+                ctx.workspace.write_trace(outcome.trace)
+                ctx.workspace.append_history(outcome.record)
             except Exception:
                 logger.exception("failed to persist trace/history for chat %s", chat_id)
-            return extract_text(result.message)
+            return outcome.response_text
 
     async def handle_command(self, *, chat_id: int, user_id: int, command: str) -> str:
         cmd = command.strip().split()[0].lower()

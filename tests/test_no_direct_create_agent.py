@@ -32,7 +32,6 @@ ALLOWLIST_OWNS_CREATE_AGENT = {
 # branch. Each is removed from this list as its migration lands.
 ALLOWLIST_PENDING_MIGRATION = {
     "blueclaw/server.py",  # HTTP migration — separate branch
-    "blueclaw/bridges/core.py",  # Telegram migration — separate branch
 }
 
 PATTERN = re.compile(r"\bcreate_agent\b")

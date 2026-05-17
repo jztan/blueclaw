@@ -222,10 +222,10 @@ allowlist_domains:
 | Module | Purpose |
 |---|---|
 | `cli.py` | Typer entrypoints, welcome banner, trace tooling |
-| `runner.py` | Unified agent runner. Single owner of agent construction, invocation, capture, and MCP cleanup. `runner_session` (long-lived context manager) for terminal; `run_turn` (per-call convenience) for eval. `runner_session.__exit__` enforces `cleanup_mcp_clients` so adapters can't forget. HTTP and Telegram migrations to the runner are tracked separately |
+| `runner.py` | Unified agent runner. Single owner of agent construction, invocation, capture, and MCP cleanup. `runner_session` (long-lived context manager) for terminal; `run_turn` (per-call convenience) for eval and Telegram. `runner_session.__exit__` enforces `cleanup_mcp_clients` so adapters can't forget. HTTP migration to the runner is tracked separately |
 | `session.py` | Config, model factory, agent factory (`create_agent`, called by the runner), chat loop (delegates to `runner_session`), background context updater. `print_run_summary` is print-only — persistence is the adapter's job |
 | `server.py` | HTTP API gateway (`blueclaw serve`) — `/message`, `/message/stream`, `/playground`, `/health`, `/api/traces`; bearer auth, CORS, per-conversation locks. Constructs agents directly; runner migration pending |
-| `bridges/` | Messenger bridges. `core.py` holds platform-agnostic `Allowlist`, `ChatContext`, `BridgeRouter`. `telegram.py` is the python-telegram-bot adapter (long-polling default, webhook opt-in). Each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/`. Runner migration pending — will incidentally fix a historical missing-`cleanup_mcp_clients` bug |
+| `bridges/` | Messenger bridges. `core.py` holds platform-agnostic `Allowlist`, `ChatContext`, `BridgeRouter` (routes through `runner.run_turn`). `telegram.py` is the python-telegram-bot adapter (long-polling default, webhook opt-in). Each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` |
 | `workspace.py` | Sandbox enforcement, context/history/trace I/O; multi-workspace resolver for trace + history readers |
 | `observer.py` | Structured tool tracing + output truncation |
 | `context.py` | Observation masking and hybrid summarization for context management |

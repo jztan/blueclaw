@@ -31,10 +31,10 @@ ALLOWLIST_OWNS_CREATE_AGENT = {
 # Adapter files whose migrations are explicitly out of scope for the runner
 # branch. Each is removed from this list as its migration lands.
 ALLOWLIST_PENDING_MIGRATION = {
-    "blueclaw/cli.py",  # terminal migration — Task 9
+    "blueclaw/cli.py",  # terminal migration — same branch; removed in Task 9
     "blueclaw/server.py",  # HTTP migration — separate branch
     "blueclaw/bridges/core.py",  # Telegram migration — separate branch
-    "blueclaw/testing.py",  # eval migration — same branch; removed in Task 8
+    # blueclaw/testing.py was migrated 2026-05-17 (this branch).
 }
 
 PATTERN = re.compile(r"\bcreate_agent\b")

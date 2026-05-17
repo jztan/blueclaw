@@ -9,7 +9,6 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
-from io import StringIO
 from math import sqrt
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -17,14 +16,10 @@ from xml.etree import ElementTree as ET
 import yaml
 from rich.console import Console
 
-from blueclaw.models import TestCase, TestResult, TestSpec, calculate_cost
-from blueclaw.observer import ObserverHooks
+from blueclaw.models import TestCase, TestResult, TestSpec
 from blueclaw.session import (
     build_model,
     build_system_prompt,
-    cleanup_mcp_clients,
-    create_agent,
-    extract_text,
 )
 from blueclaw.workspace import Workspace
 from strands import Agent, tool
@@ -270,81 +265,6 @@ def _write_run_result(workspace_path: Path, result: TestResult) -> None:
         pass  # Best-effort; don't fail the test over a diagnostic write
 
 
-def _write_artifacts(
-    invocation_dir: Path,
-    case_idx: int,
-    run_idx: int,
-    response_text: str,
-    messages: list,
-) -> list[dict]:
-    """Write response.txt + messages.json for one run.
-
-    Returns a list of capture-failure records (empty on success). Each record:
-        {"case_idx": int, "run_idx": int, "stage": str, "reason": str}
-    where stage is one of "mkdir" | "response.txt" | "messages.json".
-    """
-    import json
-
-    failures: list[dict] = []
-    run_dir = invocation_dir / f"case-{case_idx:03d}" / f"run-{run_idx:03d}"
-    try:
-        run_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        failures.append(
-            {
-                "case_idx": case_idx,
-                "run_idx": run_idx,
-                "stage": "mkdir",
-                "reason": f"{type(e).__name__}: {e}",
-            }
-        )
-        print(
-            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
-            f"mkdir: {e}",
-            file=sys.stderr,
-        )
-        return failures
-
-    # Attempt both files independently so one failure does not block the other.
-    try:
-        (run_dir / "response.txt").write_text(response_text)
-    except OSError as e:
-        failures.append(
-            {
-                "case_idx": case_idx,
-                "run_idx": run_idx,
-                "stage": "response.txt",
-                "reason": f"{type(e).__name__}: {e}",
-            }
-        )
-        print(
-            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
-            f"response.txt: {e}",
-            file=sys.stderr,
-        )
-
-    try:
-        (run_dir / "messages.json").write_text(
-            json.dumps(messages, indent=2, default=str)
-        )
-    except OSError as e:
-        failures.append(
-            {
-                "case_idx": case_idx,
-                "run_idx": run_idx,
-                "stage": "messages.json",
-                "reason": f"{type(e).__name__}: {e}",
-            }
-        )
-        print(
-            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
-            f"messages.json: {e}",
-            file=sys.stderr,
-        )
-
-    return failures
-
-
 def _run_single(
     case: TestCase,
     config,
@@ -355,111 +275,96 @@ def _run_single(
     run_idx: int = 0,
     capture_failures: list[dict] | None = None,
 ) -> TestResult:
-    """Execute a single agent run for a test case.
+    """Execute a single agent run for a test case via the unified runner.
 
-    If invocation_dir is provided, writes response.txt + messages.json to
-    invocation_dir/case-<NNN>/run-<NNN>/. Any capture failures are appended
-    to capture_failures (which the caller owns).
+    If invocation_dir is provided, the runner writes response.txt +
+    messages.json into invocation_dir/case-<NNN>/run-<NNN>/. Capture
+    failures are translated to include case_idx/run_idx and appended to
+    capture_failures (caller-owned, becomes part of invocation.json).
     """
+    from blueclaw.runner import run_turn
+
     if capture_failures is None:
         capture_failures = []
+
     workspace = Workspace(workspace_path)
-    quiet_console = Console(file=StringIO())
-    observer = ObserverHooks(console=quiet_console, quiet=True)
+    capture_path = (
+        invocation_dir / f"case-{case_idx:03d}" / f"run-{run_idx:03d}"
+        if invocation_dir is not None
+        else None
+    )
     start = time.time()
-    result = None
-    agent = None
-    error_str: str | None = None
-    try:
-        try:
-            agent = create_agent(
-                config,
-                workspace,
-                observer,
-                model=model,
-                scripted=True,
-                console=quiet_console,
-            )
-            result = agent(case.goal)
-        except Exception as e:
-            error_str = str(e)
-        elapsed = time.time() - start
+    outcome = run_turn(
+        config,
+        workspace,
+        model,
+        case.goal,
+        goal=case.goal,
+        source="eval",
+        scripted=True,
+        capture_path=capture_path,
+    )
+    elapsed = time.time() - start
 
-        if result is not None:
-            usage = result.metrics.accumulated_usage
-            input_tokens = usage.get("inputTokens", 0)
-            output_tokens = usage.get("outputTokens", 0)
-            cache_read_tokens = usage.get("cacheReadInputTokens", 0)
-            cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
-            cost = calculate_cost(
-                config.model_id,
-                input_tokens,
-                output_tokens,
-                cache_read_tokens,
-                cache_write_tokens,
-            )
-            step_count = len(observer.tools_called)
-            tools_called = list(observer.tools_called)
-            response_text = (
-                extract_text(result.message)
-                if getattr(result, "message", None) is not None
-                else ""
-            )
+    # Translate runner-emitted capture errors into the invocation.json shape.
+    for entry in outcome.capture_errors:
+        capture_failures.append(
+            {
+                "case_idx": case_idx,
+                "run_idx": run_idx,
+                "stage": entry.get("stage", "unknown"),
+                "reason": entry.get("error", ""),
+            }
+        )
 
-            failures = _check_assertions(
-                case,
-                tools_called,
-                response_text,
-                step_count,
-                cost,
-                duration_s=elapsed,
-                workspace_root=workspace.root,
-            )
-            passed = len(failures) == 0
-            verdict = "pass" if passed else "fail"
-        else:
-            # Agent exception path — no result available
-            response_text = ""
-            tools_called = []
-            step_count = 0
-            cost = None
-            failures = []
-            passed = False
-            verdict = "fail"
+    artifacts_path = str(capture_path) if capture_path is not None else None
 
-        # Capture artifacts before constructing TestResult (need artifacts_path)
-        artifacts_path: str | None = None
-        if invocation_dir is not None:
-            cap_errs = _write_artifacts(
-                invocation_dir,
-                case_idx,
-                run_idx,
-                response_text,
-                list(getattr(agent, "messages", [])),
-            )
-            capture_failures.extend(cap_errs)
-            # Always record the intended path even if some files failed to write;
-            # the existence of capture_failures entries flags partial captures.
-            artifacts_path = str(
-                invocation_dir / f"case-{case_idx:03d}" / f"run-{run_idx:03d}"
-            )
-
+    if outcome.error is not None:
         test_result = TestResult(
             goal=case.goal,
-            passed=passed,
-            verdict=verdict,
-            failures=failures,
-            tools_called=tools_called,
-            steps=step_count,
-            cost=cost,
+            passed=False,
+            verdict="fail",
+            failures=[],
+            tools_called=[],
+            steps=0,
+            cost=None,
             duration_s=elapsed,
-            error=error_str,
+            error=str(outcome.error),
             artifacts_path=artifacts_path,
         )
         _write_run_result(workspace_path, test_result)
         return test_result
-    finally:
-        cleanup_mcp_clients(observer)
+
+    # Happy path — translate the outcome into a TestResult, run assertions.
+    tools_called = list(outcome.record.tools)
+    step_count = len(tools_called)
+    cost = outcome.record.cost
+
+    failures = _check_assertions(
+        case,
+        tools_called,
+        outcome.response_text,
+        step_count,
+        cost,
+        duration_s=elapsed,
+        workspace_root=workspace.root,
+    )
+    passed = len(failures) == 0
+
+    test_result = TestResult(
+        goal=case.goal,
+        passed=passed,
+        verdict="pass" if passed else "fail",
+        failures=failures,
+        tools_called=tools_called,
+        steps=step_count,
+        cost=cost,
+        duration_s=elapsed,
+        error=None,
+        artifacts_path=artifacts_path,
+    )
+    _write_run_result(workspace_path, test_result)
+    return test_result
 
 
 # --- Orchestration ---

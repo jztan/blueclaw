@@ -32,8 +32,9 @@
   <text x="80" y="137" text-anchor="middle" font-size="20">⌨️</text>
   <text x="80" y="160" text-anchor="middle" font-size="13" font-weight="600" fill="#2c5f7c">Terminal</text>
 
-  <!-- Arrow: Terminal → Session -->
+  <!-- Arrow: Terminal → Session (via runner_session) -->
   <line x1="130" y1="140" x2="168" y2="140" stroke="#7a9bb5" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="149" y="134" text-anchor="middle" font-size="7" font-weight="600" fill="#d97a4a">runner_session</text>
 
   <!-- ===== Agent Loop boundary ===== -->
   <rect x="165" y="48" width="370" height="262" rx="16" fill="none" stroke="#a3c4d6" stroke-width="1.5" stroke-dasharray="6 4"/>
@@ -51,12 +52,12 @@
 
   <!-- ===== Session ===== -->
   <rect x="178" y="122" width="120" height="96" rx="12" fill="#f5ecd0" filter="url(#shadow)"/>
-  <text x="238" y="142" text-anchor="middle" font-size="13" font-weight="600" fill="#7a6420">Session</text>
-  <text x="238" y="158" text-anchor="middle" font-size="9" fill="#9a8234">SOUL + CONTEXT prompt</text>
-  <text x="238" y="171" text-anchor="middle" font-size="9" fill="#a89238">ObservationMaskingMgr</text>
-  <text x="238" y="184" text-anchor="middle" font-size="9" fill="#a89238">FileSessionManager</text>
-  <text x="238" y="197" text-anchor="middle" font-size="9" fill="#a89238">Skills loader</text>
-  <text x="238" y="210" text-anchor="middle" font-size="9" fill="#a89238">Lessons injector</text>
+  <text x="238" y="140" text-anchor="middle" font-size="12" font-weight="600" fill="#7a6420">Session + Runner</text>
+  <text x="238" y="154" text-anchor="middle" font-size="8" fill="#d97a4a" font-weight="600">runner.py: runner_session / run_turn / finalize</text>
+  <text x="238" y="166" text-anchor="middle" font-size="9" fill="#9a8234">SOUL + CONTEXT prompt</text>
+  <text x="238" y="178" text-anchor="middle" font-size="9" fill="#a89238">ObservationMaskingMgr</text>
+  <text x="238" y="190" text-anchor="middle" font-size="9" fill="#a89238">FileSessionManager</text>
+  <text x="238" y="202" text-anchor="middle" font-size="9" fill="#a89238">Skills · Lessons · MCP cleanup</text>
 
   <!-- Arrow: Session → Model pills -->
   <line x1="238" y1="122" x2="238" y2="116" stroke="#7a9bb5" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -116,8 +117,9 @@
   <text x="258" y="422" text-anchor="middle" font-size="9" fill="#3d7a54">GET /api/traces (trace ui)</text>
   <text x="258" y="434" text-anchor="middle" font-size="9" fill="#3d7a54">bearer auth · CORS · 1MB cap</text>
 
-  <!-- Arrow: server.py up to Session -->
+  <!-- Arrow: server.py up to Session (via runner_session — owns trigger-before-cleanup) -->
   <line x1="258" y1="350" x2="258" y2="218" stroke="#5a9a72" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
+  <text x="263" y="290" font-size="8" font-weight="600" fill="#5a9a72">runner_session</text>
 
   <!-- ===== Right: Workspace ===== -->
   <line x1="518" y1="140" x2="560" y2="140" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
@@ -156,9 +158,10 @@
   <line x1="518" y1="195" x2="560" y2="395" stroke="#c9a84c" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#arrow-gold)"/>
 
   <rect x="564" y="375" width="290" height="60" rx="14" fill="#e8d9a0" filter="url(#shadow)"/>
-  <text x="709" y="399" text-anchor="middle" font-size="13" font-weight="600" fill="#6b5518">Regression Testing</text>
-  <text x="709" y="417" text-anchor="middle" font-size="10" fill="#7a6420">YAML specs · 11 assertions · TAP / JUnit</text>
-  <text x="709" y="429" text-anchor="middle" font-size="9" fill="#9a8234">Wilson CI scoring · stub tools · keep-workspace</text>
+  <text x="709" y="395" text-anchor="middle" font-size="13" font-weight="600" fill="#6b5518">Regression Testing</text>
+  <text x="709" y="409" text-anchor="middle" font-size="9" fill="#d97a4a" font-weight="600">testing.py → runner.run_turn</text>
+  <text x="709" y="421" text-anchor="middle" font-size="10" fill="#7a6420">YAML specs · 11 assertions · TAP / JUnit</text>
+  <text x="709" y="431" text-anchor="middle" font-size="9" fill="#9a8234">Wilson CI scoring · stub tools · keep-workspace</text>
 
   <!-- ===== Telegram bridge path =====
        Orange tones distinguish messenger bridges from the purple sandbox
@@ -181,11 +184,12 @@
   <text x="258" y="522" text-anchor="middle" font-size="9" fill="#a04a32">per-chat workspace</text>
   <text x="258" y="534" text-anchor="middle" font-size="9" fill="#a04a32">~/blueclaw/chats/&lt;id&gt;/</text>
 
-  <!-- Arrow: bridges → Session (re-uses create_agent + FileSessionManager)
+  <!-- Arrow: bridges → Session (via runner.run_turn — single per-message turn).
        Routed around server.py on the left so it actually terminates on
        the Session box, not on Tools. x=135 keeps clear of the blue
        Response arrow that runs at x=145. -->
   <path d="M 178 470 L 135 470 L 135 170 L 178 170" stroke="#d97a4a" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-orange)"/>
+  <text x="125" y="320" text-anchor="end" font-size="8" font-weight="600" fill="#d97a4a">run_turn</text>
 
   <!-- ===== Sandbox CLI badge =====
        Curved purple dashed connector from the sandbox boundary's bottom-right
@@ -195,5 +199,5 @@
   <text x="595" y="471" text-anchor="middle" font-size="10" font-weight="600" fill="#6b4f95">blueclaw sandbox · build / doctor</text>
 
   <!-- Bottom credit -->
-  <text x="440" y="565" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK · v2.5 + SOUL.md + docker sandbox + Telegram bridge + multi-workspace traces</text>
+  <text x="440" y="565" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK · v2.5 + SOUL.md + docker sandbox + Telegram bridge + unified runner.py (runner_session / run_turn / finalize) + multi-workspace traces</text>
 </svg>

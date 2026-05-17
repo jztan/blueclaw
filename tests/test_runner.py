@@ -240,3 +240,44 @@ def test_finalize_default_run_id_format(fake_session):
 
     assert outcome.trace.run_id.startswith("20260517-143005-")
     assert len(outcome.trace.run_id) == len("20260517-143005-") + 4
+
+
+# ---------------------------------------------------------------------------
+# finalize_error() tests (Task 5)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_error_populates_error_and_skips_trace(fake_session, tmp_path: Path):
+    config, workspace = fake_session
+    capture_path = tmp_path / "case-001" / "run-000"
+    fake_agent = _fake_agent_factory()
+    fake_agent.messages = [{"role": "user", "content": "boom"}]
+
+    err = RuntimeError("model exploded")
+
+    with patch("blueclaw.runner.create_agent", return_value=fake_agent):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            from blueclaw.runner import finalize_error
+
+            now = datetime.now(timezone.utc)
+            outcome = finalize_error(
+                ctx,
+                err,
+                goal="g",
+                source="terminal",
+                conversation_id=None,
+                start_time=now,
+                end_time=now,
+                config=config,
+                capture_path=capture_path,
+            )
+
+    assert outcome.error is err
+    assert outcome.trace is None
+    assert outcome.record is None
+    assert outcome.response_text == ""
+    # Capture still happened against agent.messages at failure point.
+    assert (capture_path / "response.txt").read_text() == ""
+    assert json.loads((capture_path / "messages.json").read_text()) == [
+        {"role": "user", "content": "boom"}
+    ]

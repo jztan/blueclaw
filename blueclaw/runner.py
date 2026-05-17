@@ -182,6 +182,57 @@ def finalize(
     )
 
 
+def finalize_error(
+    ctx: RunnerCtx,
+    error: Exception,
+    *,
+    goal: str,
+    source: str,
+    conversation_id: str | None,
+    start_time: datetime,
+    end_time: datetime,
+    config: SessionConfig,
+    capture_path: Path | None = None,
+    run_id: str | None = None,
+) -> RunOutcome:
+    """Build a RunOutcome when the adapter caught the exception itself.
+
+    Used by adapters whose error semantics differ from the runner's default
+    (e.g. terminal's "print and continue the loop"). Without this path,
+    those adapters silently skip capture on every agent error.
+
+    Behavior: trace=None, record=None, response_text="". Capture is still
+    attempted against ctx.agent.messages (whatever the agent accumulated
+    before raising).
+
+    start_time mints the default run_id. end_time is unused but accepted
+    for signature symmetry with finalize — adapters that branch on
+    success vs error don't have to construct a different argument shape.
+    """
+    del end_time  # accepted for signature symmetry; reserved for partial records later
+    if run_id is None:
+        run_id = _mint_run_id(start_time)
+    del run_id  # not surfaced yet (no record); reserved for partial records later
+
+    capture_errors: list[dict] = []
+    if capture_path is not None:
+        capture_errors = _write_capture_artifacts(
+            capture_path,
+            response_text="",
+            messages=list(getattr(ctx.agent, "messages", [])),
+        )
+
+    return RunOutcome(
+        result=None,
+        agent=ctx.agent,
+        response_text="",
+        trace=None,
+        record=None,
+        capture_errors=capture_errors,
+        error=error,
+    )
+
+
 _UNSET = object()
 
 

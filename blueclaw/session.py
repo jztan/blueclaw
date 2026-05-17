@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from prompt_toolkit import PromptSession
@@ -29,6 +28,9 @@ from blueclaw.models import RunRecord, RunTrace, SessionConfig, calculate_cost
 from blueclaw.tools import get_tools, get_mcp_servers
 from blueclaw.workspace import Workspace
 from blueclaw.approval import ApprovalHooks
+
+if TYPE_CHECKING:
+    from blueclaw.runner import RunOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -631,15 +633,22 @@ class BackgroundContextUpdater:
 
 
 def run_chat_loop(
-    agent,
     workspace: Workspace,
-    observer,
     console: Console,
     config: SessionConfig,
     model=None,
     scripted: bool = False,
 ) -> None:
-    """Run the interactive chat loop."""
+    """Run the interactive chat loop.
+
+    The chat loop holds a single runner_session across many turns —
+    agent.messages accumulates conversation history because terminal has
+    no FileSessionManager. Each turn invokes ctx.agent(...) then calls
+    finalize (or finalize_error on adapter-caught exception). The
+    context manager's __exit__ runs MCP cleanup once at loop end.
+    """
+    from blueclaw.runner import finalize, finalize_error, runner_session
+
     exit_commands = {
         "exit",
         "quit",
@@ -653,148 +662,150 @@ def run_chat_loop(
         "bye",
         "q",
     }
-    session = PromptSession()
+    prompt_session = PromptSession()
     turn_count = 0
     total_tool_calls = 0
-    updater = BackgroundContextUpdater(model, workspace) if model else None
 
-    try:
-        while True:
-            try:
-                user_input = session.prompt("blueclaw> ")
-            except KeyboardInterrupt:
-                break
-            except EOFError:
-                break
+    with runner_session(
+        config,
+        workspace,
+        model,
+        callback_handler=_StreamingCallback(file=console.file),
+        channel="terminal",
+        scripted=scripted,
+        observer_console=console,
+        observer_quiet=False,
+    ) as ctx:
+        updater = BackgroundContextUpdater(model, workspace) if model else None
+        try:
+            while True:
+                try:
+                    user_input = prompt_session.prompt("blueclaw> ")
+                except (KeyboardInterrupt, EOFError):
+                    break
 
-            stripped = user_input.strip()
-            if not stripped:
-                continue
-            if stripped.lower() in exit_commands:
-                break
+                stripped = user_input.strip()
+                if not stripped:
+                    continue
+                if stripped.lower() in exit_commands:
+                    break
 
-            turn_count += 1
+                turn_count += 1
 
-            # Parse @<path> attachments before composing the agent prompt.
-            from blueclaw.uploads import (
-                UploadError,
-                build_agent_input,
-                parse_at_attachments,
-            )
+                from blueclaw.uploads import (
+                    UploadError,
+                    build_agent_input,
+                    parse_at_attachments,
+                )
 
-            cleaned_message, attachments, failed = parse_at_attachments(stripped)
-            for att in attachments:
-                console.print(f"[dim]attached:[/dim] {att.path} " f"({att.mime_type})")
-            for token, reason in failed:
-                console.print(f"[yellow]could not attach[/yellow] {token}: {reason}")
+                cleaned_message, attachments, failed = parse_at_attachments(stripped)
+                for att in attachments:
+                    console.print(f"[dim]attached:[/dim] {att.path} ({att.mime_type})")
+                for token, reason in failed:
+                    console.print(
+                        f"[yellow]could not attach[/yellow] {token}: {reason}"
+                    )
 
-            # Inject trace lessons for this goal
-            prompt_text = cleaned_message
-            try:
-                traces = workspace.list_traces(limit=50)
-                lessons = build_lessons_block(cleaned_message, traces)
-                if lessons:
-                    prompt_text = f"{lessons}\n\n{cleaned_message}"
-            except Exception:
-                pass
+                prompt_text = cleaned_message
+                try:
+                    traces = workspace.list_traces(limit=50)
+                    lessons = build_lessons_block(cleaned_message, traces)
+                    if lessons:
+                        prompt_text = f"{lessons}\n\n{cleaned_message}"
+                except Exception:
+                    pass
 
-            try:
-                agent_input = build_agent_input(attachments, prompt_text)
-            except UploadError as exc:
-                console.print(f"[yellow]could not attach:[/yellow] {exc}")
-                turn_count -= 1
-                continue
+                try:
+                    agent_input = build_agent_input(attachments, prompt_text)
+                except UploadError as exc:
+                    console.print(f"[yellow]could not attach:[/yellow] {exc}")
+                    turn_count -= 1
+                    continue
 
-            start = time.time()
-            try:
-                result = agent(agent_input)
-            except Exception as exc:
-                console.print(f"[red]agent error:[/red] {exc}")
-                turn_count -= 1
-                continue
-            elapsed = time.time() - start
-            total_tool_calls += len(observer.tools_called)
+                start_time = datetime.now(timezone.utc)
+                try:
+                    result = ctx.agent(agent_input)
+                    end_time = datetime.now(timezone.utc)
+                    outcome = finalize(
+                        ctx,
+                        result,
+                        goal=stripped,
+                        source="terminal",
+                        conversation_id=None,
+                        start_time=start_time,
+                        end_time=end_time,
+                        config=config,
+                        capture_path=None,
+                    )
+                    total_tool_calls += len(outcome.record.tools)
+                    elapsed = (end_time - start_time).total_seconds()
 
-            # Strands streams the response via callback — don't reprint
+                    try:
+                        write_turn_checkpoint(workspace, stripped, result.message)
+                    except Exception as e:
+                        logger.debug("Failed to write turn checkpoint: %s", e)
 
-            try:
-                write_turn_checkpoint(workspace, stripped, result.message)
-            except Exception as e:
-                logger.debug("Failed to write turn checkpoint: %s", e)
+                    print_run_summary(outcome, console=console, elapsed=elapsed)
+                    workspace.write_trace(outcome.trace)
+                    workspace.append_history(outcome.record)
 
-            print_run_summary(
-                result=result,
-                goal=stripped,
-                observer=observer,
-                workspace=workspace,
-                config=config,
-                console=console,
-                elapsed=elapsed,
-                start_time=start,
-            )
+                    cm = getattr(ctx.observer, "conversation_manager", None)
+                    if cm is not None and hasattr(cm, "reset_metrics"):
+                        cm.reset_metrics()
+                    ctx.observer.reset()
 
-            if updater and (turn_count >= 2 or total_tool_calls > 0):
-                updater.trigger(agent)
-    except Exception as exc:
-        console.print(f"[red]session error:[/red] {exc}")
-    finally:
-        if updater and turn_count > 0 and (turn_count >= 2 or total_tool_calls > 0):
-            updater.wait()
-        cleanup_mcp_clients(observer)
+                    if updater and (turn_count >= 2 or total_tool_calls > 0):
+                        updater.trigger(ctx.agent)
+                except Exception as exc:
+                    end_time = datetime.now(timezone.utc)
+                    console.print(f"[red]agent error:[/red] {exc}")
+                    # finalize_error is called for forward-compatibility with
+                    # future terminal capture. With capture_path=None it is
+                    # currently a no-op (returns a RunOutcome we discard).
+                    finalize_error(
+                        ctx,
+                        exc,
+                        goal=stripped,
+                        source="terminal",
+                        conversation_id=None,
+                        start_time=start_time,
+                        end_time=end_time,
+                        config=config,
+                        capture_path=None,
+                    )
+                    turn_count -= 1
+                    continue
+        except Exception as exc:
+            console.print(f"[red]session error:[/red] {exc}")
+        finally:
+            if updater and turn_count > 0 and (turn_count >= 2 or total_tool_calls > 0):
+                updater.wait()
 
 
 def print_run_summary(
-    result,
-    goal: str,
-    observer,
-    workspace: Workspace,
-    config: SessionConfig,
+    outcome: "RunOutcome",
+    *,
     console: Console,
-    elapsed: float = 0.0,
-    start_time: float | None = None,
+    elapsed: float,
 ) -> None:
-    """Print end-of-run summary and record to history + trace."""
-    now = datetime.now(timezone.utc)
-    usage = result.metrics.accumulated_usage
-    total_tokens = usage.get("totalTokens", 0)
-    cost = calculate_cost(
-        config.model_id,
-        usage.get("inputTokens", 0),
-        usage.get("outputTokens", 0),
-    )
-    steps = len(observer.tools_called)
+    """Print the end-of-turn summary line for terminal.
 
-    # Ensure summary starts on a new line after streamed response
-    console.print()
+    The runner builds the trace and record; the adapter persists them.
+    This function only prints — no I/O against the workspace, no
+    metric reset on the observer (which now lives inside the runner).
+    """
+    record = outcome.record
+    if record is None:
+        # finalize_error path — adapter handles the error printout separately.
+        return
 
-    # Build summary line
-    parts = [f"Done \u00b7 {steps} steps \u00b7 {total_tokens} tokens"]
-    if cost is not None:
-        parts.append(f"${cost:.4f}")
+    console.print()  # newline after streamed response
+    parts = [f"Done · {len(record.tools)} steps · {record.tokens} tokens"]
+    if record.cost is not None:
+        parts.append(f"${record.cost:.4f}")
     if elapsed > 0:
         parts.append(f"{elapsed:.1f}s")
-    console.print(" \u00b7 ".join(parts))
-
-    run_start = (
-        datetime.fromtimestamp(start_time, tz=timezone.utc) if start_time else now
-    )
-    run_id = run_start.strftime("%Y%m%d-%H%M%S")
-
-    trace, record = build_trace_and_record(
-        result, goal, observer, config, run_id, run_start, now, source="terminal"
-    )
-
-    # Reset context metrics after capturing them in build_trace_and_record
-    cm = getattr(observer, "conversation_manager", None)
-    if cm is not None and hasattr(cm, "reset_metrics"):
-        cm.reset_metrics()
-
-    workspace.write_trace(trace)
-    workspace.append_history(record)
-
-    # observer.reset() stays here — NOT in build_trace_and_record
-    # (API handler discards observer without reset)
-    observer.reset()
+    console.print(" · ".join(parts))
 
 
 def update_context_on_exit(agent, workspace: Workspace) -> None:

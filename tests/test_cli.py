@@ -1520,7 +1520,11 @@ class TestEvalArtifactsBreadcrumb:
         monkeypatch.setattr("blueclaw.testing.run_spec", fake_run_spec)
         monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
 
-        runner = CliRunner(mix_stderr=False)
+        try:
+            runner = CliRunner(mix_stderr=False)
+        except TypeError:
+            # Click >= 8.2 removed mix_stderr; stderr is always captured separately.
+            runner = CliRunner()
         result = runner.invoke(app, ["test", str(spec_yaml)])
         assert result.exit_code == 0
         # Stdout has the TAP output; stderr has the breadcrumb

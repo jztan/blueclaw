@@ -13,6 +13,7 @@ See docs/superpowers/specs/2026-05-17-unified-agent-runner-design.md
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import sys
 from contextlib import contextmanager
@@ -33,6 +34,67 @@ from blueclaw.session import (
     extract_text,
 )
 from blueclaw.workspace import Workspace
+
+logger = logging.getLogger(__name__)
+
+
+_FORBIDDEN_ID_CHARS = ("/", "\\", "\x00")
+
+
+def validate_session_id(session_id: str) -> None:
+    """Reject session IDs that would break out of the workspace.
+
+    Pure — no I/O, no side effects. HTTP's `<id>` is the client-supplied
+    `conversation_id` (free-form string), so this validation is load-bearing
+    for that adapter. Terminal and Telegram mint IDs locally; the check is
+    defense-in-depth there. Adapters that need early validation (before
+    grabbing a conversation lock, before opening a stream) should call this
+    directly rather than calling `next_capture_path` for its side effect.
+    """
+    if not session_id:
+        raise ValueError("session_id must be non-empty")
+    if any(ch in session_id for ch in _FORBIDDEN_ID_CHARS):
+        raise ValueError(f"session_id contains forbidden path char: {session_id!r}")
+    if session_id in (".", ".."):
+        raise ValueError(f"session_id resolves to current/parent dir: {session_id!r}")
+
+
+def next_capture_path(workspace_root: Path, session_id: str) -> Path:
+    """Return the path for the next turn capture directory.
+
+    Layout: ``<workspace_root>/.blueclaw/turns/<session_id>/turn-NNN/``.
+    Numbering is filesystem-derived: scans existing entries whose names
+    match ``turn-NNN`` (any kind — directory OR plain file — to remain
+    collision-safe against operator-created stray files) and returns
+    ``max + 1`` (or ``turn-001`` if none). Entries whose name starts with
+    ``turn-`` but whose suffix is not a parseable integer are ignored
+    (with a debug log line).
+
+    No locking. HTTP serializes per-cid via conv_locks; terminal is
+    single-process; Telegram serializes per-chat via ChatContext.lock.
+    A future adapter introducing concurrent turns on the same session
+    must add its own serialization.
+
+    Side effect: creates the parent ``turns/<session_id>/`` directory if
+    it does not already exist. Callers wanting pure validation should use
+    ``validate_session_id`` instead.
+    """
+    validate_session_id(session_id)
+    turns_dir = workspace_root / ".blueclaw" / "turns" / session_id
+    turns_dir.mkdir(parents=True, exist_ok=True)
+
+    existing: list[int] = []
+    for p in turns_dir.iterdir():
+        if not p.name.startswith("turn-"):
+            continue
+        try:
+            existing.append(int(p.name.split("-", 1)[1]))
+        except (ValueError, IndexError):
+            logger.debug("turn-capture: ignoring malformed entry %s", p)
+            continue
+
+    next_n = max(existing, default=0) + 1
+    return turns_dir / f"turn-{next_n:03d}"
 
 
 def _write_capture_artifacts(

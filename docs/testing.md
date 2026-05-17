@@ -51,6 +51,7 @@ ok 2 - check the current weather in Tokyo using wttr.in
 | `expected_file_contains` | File exists AND contains substring (case-insensitive) |
 | `forbidden_output_contains` | Substring must NOT appear in response |
 | `output_regex` | Regex pattern must match response |
+| `forbidden_output_regex` | Regex pattern must NOT match response |
 | `tool_order` | Tools appear in this subsequence order |
 | `max_duration_s` | Wall-clock time under budget |
 
@@ -84,21 +85,47 @@ blueclaw test spec.yaml --model anthropic/claude-haiku-4-5-20251001
 
 Exit code: `0` on all pass/inconclusive, `1` on any failure.
 
-## Per-run diagnostics
+## Per-run artifacts
 
-With `--keep-workspace`, each run directory contains `.blueclaw/result.json`:
+Every `blueclaw test` invocation persists artifacts under `~/blueclaw/test-runs/<invocation-ts>/`, regardless of whether the run passed or `--keep-workspace` was set. This is the answer to "what did the model actually say?" — no inference from regex misses.
 
-```bash
-$ cat /tmp/blueclaw-test-.../case-007/run-002/.blueclaw/result.json
-{
-  "goal": "check the current weather in Tokyo using wttr.in",
-  "passed": true,
-  "verdict": "pass",
-  "tools_called": ["http_request"],
-  "cost": 0.009,
-  "duration_s": 4.4
-}
 ```
+~/blueclaw/test-runs/20260517T143005123Z-a7f3/
+├── invocation.json              # model, version, argv, summary counts, total cost
+├── case-000/
+│   ├── run-000/
+│   │   ├── response.txt         # final assistant message text
+│   │   └── messages.json        # full agent.messages (user/assistant turns + tool_use/tool_result blocks)
+│   └── run-001/...
+└── case-001/...
+```
+
+After the TAP/JUnit output, a stderr breadcrumb points at the invocation directory:
+
+```
+Artifacts: /Users/you/blueclaw/test-runs/20260517T143005123Z-a7f3/
+```
+
+Per-failure TAP records inline the path to the specific case/run:
+
+```
+not ok 2 - ...
+  ---
+  failures:
+    - "Output does not match regex: ..."
+  artifacts: /Users/you/blueclaw/test-runs/20260517T143005123Z-a7f3/case-001/run-002
+  ...
+```
+
+Override the root via `BLUECLAW_ARTIFACTS_ROOT=/some/path` for one-off runs or CI.
+
+**`response.txt` vs `messages.json`:** `response.txt` is the final user-visible answer (one read = one answer). `messages.json` preserves the full agent loop including tool calls, tool results, and per-turn usage metrics — use it when the response alone doesn't explain why the assertion failed (silent tool failure, sprawl, fabricated continuity refusal, etc.).
+
+Capture is best-effort: write failures log to stderr and are recorded in `invocation.json:capture_failures`, but never fail the eval.
+
+`--keep-workspace` is now only relevant for tests that need the agent's scratch workspace itself (e.g., assertions on files the agent created). It does not affect artifact capture.
+
+The legacy `<workspace>/.blueclaw/result.json` (a small assertion-outcome record) still gets written for `--keep-workspace`-enabled workflows but is orthogonal to the artifact capture above.
 
 ## Stub replay
 

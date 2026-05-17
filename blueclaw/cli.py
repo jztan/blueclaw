@@ -1515,9 +1515,14 @@ def test(
         for d in spec.allowlist_domains:
             if d not in config.allowlist_domains:
                 config.allowlist_domains.append(d)
+    # Stash the spec path on the spec object so _write_invocation_metadata
+    # can pick it up. TestSpec uses Pydantic's default config (no
+    # extra="forbid"), so attribute-set on instances works.
+    spec._spec_path = str(spec_path)
+
     workspace_dir = Path(tempfile.mkdtemp(prefix="blueclaw-test-"))
     try:
-        results = run_spec(spec, config, workspace_dir)
+        results, invocation_dir = run_spec(spec, config, workspace_dir)
         formatted = (
             format_junit(results) if output_format == "junit" else format_tap(results)
         )
@@ -1525,6 +1530,15 @@ def test(
             Path(output).write_text(formatted)
         else:
             sys.stdout.write(formatted)
+
+        # Per-invocation breadcrumb (stderr so --output consumers see clean
+        # TAP/JUnit on stdout). invocation_dir is the source of truth from
+        # run_spec; no path-derivation from result.artifacts_path needed.
+        progress = Console(stderr=True)
+        if invocation_dir is not None:
+            progress.print(f"Artifacts: {invocation_dir}")
+        else:
+            progress.print("Artifacts: (disabled — see stderr above)")
     finally:
         if keep_workspace:
             console.print(f"Workspace kept at: {workspace_dir}")

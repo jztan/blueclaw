@@ -1415,3 +1415,55 @@ class TestInitGitignore:
         runner.invoke(app, ["init"])
         second = (tmp_path / ".gitignore").read_text()
         assert first == second  # no duplicate lines
+
+
+class TestEvalArtifactsBreadcrumb:
+    def test_test_command_prints_artifacts_path_breadcrumb(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from blueclaw.cli import app
+
+        spec_yaml = tmp_path / "spec.yaml"
+        spec_yaml.write_text(
+            "tests:\n"
+            "  - goal: print pwd\n"
+            "    expected_tools: [shell_command]\n"
+            "model: anthropic/claude-haiku-4-5\n"
+        )
+
+        # Stub run_spec so we don't actually call a model. Returns the
+        # tuple (results, invocation_dir) matching Task 5's signature.
+        from blueclaw.models import TestResult
+
+        def fake_run_spec(spec, config, workspace_dir, artifacts_root=None):
+            import os
+
+            inv_dir = None
+            root = artifacts_root or (
+                Path(os.environ["BLUECLAW_ARTIFACTS_ROOT"])
+                if os.environ.get("BLUECLAW_ARTIFACTS_ROOT")
+                else None
+            )
+            if root is not None:
+                inv_dir = root / "20260517T000000000Z-aaaa"
+                inv_dir.mkdir(parents=True, exist_ok=True)
+            results = [
+                TestResult(
+                    goal="print pwd",
+                    passed=True,
+                    verdict="pass",
+                    artifacts_path=(
+                        str(inv_dir / "case-000" / "run-000") if inv_dir else None
+                    ),
+                )
+            ]
+            return results, inv_dir
+
+        monkeypatch.setattr("blueclaw.testing.run_spec", fake_run_spec)
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+
+        runner = CliRunner(mix_stderr=False)
+        result = runner.invoke(app, ["test", str(spec_yaml)])
+        assert result.exit_code == 0
+        # Stdout has the TAP output; stderr has the breadcrumb
+        assert "Artifacts:" in result.stderr
+        assert "20260517T000000000Z-aaaa" in result.stderr

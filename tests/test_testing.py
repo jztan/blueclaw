@@ -1238,7 +1238,10 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [TestResult(goal="test", passed=True, verdict="pass")]
+        mock_rs.return_value = (
+            [TestResult(goal="test", passed=True, verdict="pass")],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 0
@@ -1250,14 +1253,17 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [
-            TestResult(
-                goal="test",
-                passed=False,
-                verdict="fail",
-                failures=["bad"],
-            )
-        ]
+        mock_rs.return_value = (
+            [
+                TestResult(
+                    goal="test",
+                    passed=False,
+                    verdict="fail",
+                    failures=["bad"],
+                )
+            ],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 1
@@ -1269,15 +1275,18 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [
-            TestResult(
-                goal="test",
-                passed=False,
-                verdict="inconclusive",
-                pass_count=24,
-                total_runs=30,
-            )
-        ]
+        mock_rs.return_value = (
+            [
+                TestResult(
+                    goal="test",
+                    passed=False,
+                    verdict="inconclusive",
+                    pass_count=24,
+                    total_runs=30,
+                )
+            ],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 0

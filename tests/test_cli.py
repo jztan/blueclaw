@@ -1527,6 +1527,9 @@ class TestEvalArtifactsBreadcrumb:
             runner = CliRunner()
         result = runner.invoke(app, ["test", str(spec_yaml)])
         assert result.exit_code == 0
-        # Stdout has the TAP output; stderr has the breadcrumb
+        # Stdout has the TAP output; stderr has the breadcrumb.
+        # Rich may wrap long paths across newlines depending on terminal width,
+        # so collapse whitespace before matching.
+        stderr_flat = "".join(result.stderr.split())
         assert "Artifacts:" in result.stderr
-        assert "20260517T000000000Z-aaaa" in result.stderr
+        assert "20260517T000000000Z-aaaa" in stderr_flat

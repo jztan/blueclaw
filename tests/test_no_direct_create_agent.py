@@ -28,11 +28,10 @@ ALLOWLIST_OWNS_CREATE_AGENT = {
     "blueclaw/runner.py",  # only sanctioned consumer
 }
 
-# Adapter files whose migrations are explicitly out of scope for the runner
-# branch. Each is removed from this list as its migration lands.
-ALLOWLIST_PENDING_MIGRATION = {
-    "blueclaw/server.py",  # HTTP migration — separate branch
-}
+# Empty after the HTTP migration closed the runner thesis (v3.0 moment).
+# Keep the set declaration in place so future adapter additions have a
+# documented place to land if they ever need temporary exemption.
+ALLOWLIST_PENDING_MIGRATION: set[str] = set()
 
 PATTERN = re.compile(r"\bcreate_agent\b")
 

@@ -1270,3 +1270,67 @@ class TestStatefulStream:
             with TestClient(app) as tc:
                 tc.post("/message/stream", json={"message": "hi"})
             mock_fsm.assert_not_called()
+
+
+# --- Streaming workspace-error cleanup regression ---
+
+
+class TestStreamingWorkspaceErrorCleanup:
+    """Regression: when workspace.write_trace fails mid-stream, the SSE
+    error event must emit AND MCP cleanup must run (via runner_session.__exit__).
+    Closes the BridgeRouter-class bug structurally for HTTP streaming."""
+
+    def test_workspace_error_during_stream_emits_error_and_cleans_up(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        from blueclaw import runner as runner_mod
+
+        async def fake_stream(_msg):
+            yield {"data": "Hello"}
+            yield {"result": mock_agent_result}
+
+        agent = MagicMock()
+        agent.stream_async = fake_stream
+
+        write_trace_called: list = []
+
+        def boom(trace):
+            write_trace_called.append(trace)
+            raise WorkspaceError("disk full (simulated)")
+
+        cleanup_calls: list = []
+        original_cleanup = runner_mod.cleanup_mcp_clients
+
+        def spy_cleanup(observer):
+            cleanup_calls.append(observer)
+            return original_cleanup(observer)
+
+        with (
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients", side_effect=spy_cleanup),
+            patch.object(server_workspace, "write_trace", side_effect=boom),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+        ):
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            r = TestClient(app).post("/message/stream", json={"message": "hi"})
+
+        body = r.text
+
+        # Assertion 1: SSE error event emitted with workspace error message.
+        assert "event: error" in body
+        assert "workspace error" in body
+        assert "disk full" in body
+
+        # Assertion 2: cleanup_mcp_clients ran exactly once (via __exit__).
+        assert (
+            len(cleanup_calls) == 1
+        ), f"Expected exactly one cleanup call, got {len(cleanup_calls)}"
+
+        # Assertion 3: write_trace was actually invoked (sanity check that
+        # the test reached the persistence step, not failed earlier).
+        assert len(write_trace_called) == 1

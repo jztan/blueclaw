@@ -1,15 +1,22 @@
 # Pre-commit hooks for blueclaw.
 #
 # Install once per clone:
-#     pip install pre-commit && pre-commit install
+#     pip install pre-commit
+#     pre-commit install                       # commit hooks: black, flake8
+#     pre-commit install --hook-type pre-push  # push hook: pytest
 #
-# Hooks then run automatically on `git commit`. To run manually across the
-# whole tree (e.g., after pulling): `pre-commit run --all-files`.
+# Commit hooks run on `git commit` and mirror the `flake8` / `black --check`
+# steps in CI — a clean local commit means CI will accept the same formatting.
 #
-# These mirror the `flake8` and `black --check` steps that CI runs, so a
-# clean commit locally means CI will accept the same formatting. pytest is
-# intentionally NOT included — it's slow enough to discourage commits;
-# CI runs the full suite on every push.
+# The pytest hook runs on `git push` only (not every commit). It catches
+# regressions before they reach CI without adding friction to small/WIP
+# commits. Activate the project venv before pushing so the hook finds the
+# project's pytest:
+#     source .venv/bin/activate
+#
+# Manual whole-tree run: `pre-commit run --all-files`.
+# Manual push-stage run: `pre-commit run --hook-stage pre-push --all-files`.
+# Bypass for an emergency push: `git push --no-verify` (use sparingly).
 
 repos:
   - repo: https://github.com/psf/black
@@ -26,3 +33,13 @@ repos:
       - id: flake8
         args: ["--max-line-length=88"]
         files: ^(blueclaw|tests)/.*\.py$
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (full suite)
+        entry: pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

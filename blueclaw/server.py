@@ -48,6 +48,7 @@ from blueclaw.session import (
     create_agent,
     extract_text,
 )
+from blueclaw.runner import finalize, runner_session
 from blueclaw.workspace import Workspace, WorkspaceError
 from strands.session.file_session_manager import FileSessionManager
 
@@ -219,7 +220,6 @@ def create_server_app(
         req, err = await _parse_request(request)
         if err is not None:
             return err
-        observer = None
         try:
             cid = req.conversation_id
             records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
@@ -236,62 +236,71 @@ def create_server_app(
                 else None
             )
 
-            async def _run():
+            async def _run() -> JSONResponse:
                 async with semaphore:
-                    nonlocal observer
-                    observer = ObserverHooks(
-                        console=Console(file=StringIO()), quiet=True
-                    )
-                    agent = create_agent(
+                    # Symmetry with handle_message_stream: both use runner_session
+                    # directly. trigger(agent) must precede cleanup_mcp_clients
+                    # (runner_session.__exit__) — enforced structurally by this
+                    # scope. Do NOT "simplify" to run_turn; see
+                    # docs/superpowers/specs/2026-05-17-http-runner-migration-design.md.
+                    with runner_session(
                         config,
                         workspace,
-                        observer,
-                        model=model,
-                        scripted=True,
-                        callback_handler=None,
+                        model,
                         session_manager=session_manager,
                         channel="api",
-                    )
-                    start_time = datetime.now(timezone.utc)
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(agent, prompt), timeout=_TIMEOUT
-                    )
-                    end_time = datetime.now(timezone.utc)
-                    run_id = _make_run_id(start_time)
-                    trace, record = build_trace_and_record(
-                        result,
-                        req.message,
-                        observer,
-                        config,
-                        run_id,
-                        start_time,
-                        end_time,
-                        source="api",
-                        conversation_id=cid,
-                    )
-                    workspace.write_trace(trace)
-                    workspace.append_history(record)
-                    if context_updater is not None and hasattr(agent, "messages"):
+                        callback_handler=None,
+                        scripted=True,
+                    ) as ctx:
+                        start_time = datetime.now(timezone.utc)
                         try:
-                            context_updater.trigger(agent)
-                        except Exception as exc:
-                            logger.debug("context update trigger failed: %s", exc)
-                    return JSONResponse(
-                        _build_response_payload(result, req, config, run_id)
-                    )
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(ctx.agent, prompt),
+                                timeout=_TIMEOUT,
+                            )
+                        except asyncio.TimeoutError:
+                            return JSONResponse(
+                                {"error": "agent timed out"}, status_code=504
+                            )
+                        end_time = datetime.now(timezone.utc)
+                        outcome = finalize(
+                            ctx,
+                            result,
+                            goal=req.message,
+                            source="api",
+                            conversation_id=cid,
+                            start_time=start_time,
+                            end_time=end_time,
+                            config=config,
+                            capture_path=None,
+                        )
+                        if context_updater is not None:
+                            try:
+                                context_updater.trigger(ctx.agent)
+                            except Exception as exc:
+                                logger.debug("context update trigger failed: %s", exc)
+                        try:
+                            workspace.write_trace(outcome.trace)
+                            workspace.append_history(outcome.record)
+                        except WorkspaceError as exc:
+                            return JSONResponse(
+                                {"error": f"workspace error: {exc}"},
+                                status_code=500,
+                            )
+                        return JSONResponse(
+                            _build_response_payload(
+                                outcome.result, req, config, outcome.trace.run_id
+                            )
+                        )
 
             if conv_lock is not None:
                 async with conv_lock:
                     return await _run()
             return await _run()
-        except asyncio.TimeoutError:
-            return JSONResponse({"error": "agent timed out"}, status_code=504)
         except WorkspaceError as exc:
             return JSONResponse({"error": f"workspace error: {exc}"}, status_code=500)
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
-        finally:
-            cleanup_mcp_clients(observer)
 
     async def handle_message_stream(request: Request):
         req, err = await _parse_request(request)

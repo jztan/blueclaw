@@ -13,9 +13,11 @@ See docs/superpowers/specs/2026-05-17-unified-agent-runner-design.md
 from __future__ import annotations
 
 import json
+import secrets
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterator
@@ -24,7 +26,12 @@ from rich.console import Console
 
 from blueclaw.models import RunRecord, RunTrace, SessionConfig
 from blueclaw.observer import ObserverHooks
-from blueclaw.session import cleanup_mcp_clients, create_agent
+from blueclaw.session import (
+    build_trace_and_record,
+    cleanup_mcp_clients,
+    create_agent,
+    extract_text,
+)
 from blueclaw.workspace import Workspace
 
 
@@ -114,6 +121,65 @@ class RunOutcome:
     record: RunRecord | None
     capture_errors: list[dict] = field(default_factory=list)
     error: Exception | None = None
+
+
+def _mint_run_id(start_time: datetime) -> str:
+    return start_time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+
+
+def finalize(
+    ctx: RunnerCtx,
+    result,
+    *,
+    goal: str,
+    source: str,
+    conversation_id: str | None,
+    start_time: datetime,
+    end_time: datetime,
+    config: SessionConfig,
+    capture_path: Path | None = None,
+    run_id: str | None = None,
+) -> RunOutcome:
+    """Build trace + record from a completed agent run, optionally write capture.
+
+    Does NOT persist trace/history — adapters call workspace.write_trace
+    and append_history themselves.
+    """
+    if run_id is None:
+        run_id = _mint_run_id(start_time)
+
+    response_text = (
+        extract_text(result.message) if getattr(result, "message", None) else ""
+    )
+    trace, record = build_trace_and_record(
+        result,
+        goal,
+        ctx.observer,
+        config,
+        run_id,
+        start_time,
+        end_time,
+        source=source,
+        conversation_id=conversation_id,
+    )
+
+    capture_errors: list[dict] = []
+    if capture_path is not None:
+        capture_errors = _write_capture_artifacts(
+            capture_path,
+            response_text=response_text,
+            messages=list(getattr(ctx.agent, "messages", [])),
+        )
+
+    return RunOutcome(
+        result=result,
+        agent=ctx.agent,
+        response_text=response_text,
+        trace=trace,
+        record=record,
+        capture_errors=capture_errors,
+        error=None,
+    )
 
 
 _UNSET = object()

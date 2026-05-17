@@ -608,6 +608,10 @@ def run(
     end_time = datetime.now(timezone.utc)
     elapsed = (end_time - start_time).total_seconds()
 
+    if outcome.error is not None:
+        console.print(f"[red]agent error:[/red] {outcome.error}")
+        raise typer.Exit(1)
+
     # Strands streams the response via callback — don't reprint
 
     print_run_summary(outcome, console=console, elapsed=elapsed)

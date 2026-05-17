@@ -104,6 +104,41 @@ class TestCommands:
         assert result.exit_code == 0
         mock_updater_cls.return_value.trigger.assert_called_once()
 
+    @patch("blueclaw.runner.run_turn")
+    @patch("blueclaw.session.build_model")
+    def test_run_subcommand_propagates_agent_error(
+        self,
+        mock_build_model,
+        mock_run_turn,
+        tmp_path,
+    ):
+        """Agent exception in `blueclaw run` exits non-zero with an error message."""
+        from blueclaw.runner import RunOutcome
+
+        mock_build_model.return_value = MagicMock()
+        outcome = RunOutcome(
+            result=None,
+            agent=MagicMock(),
+            response_text="",
+            trace=None,
+            record=None,
+            error=RuntimeError("boom"),
+        )
+        mock_run_turn.return_value = outcome
+
+        config = SessionConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-6",
+            workspace_path=tmp_path / "workspace",
+            tools=[],
+        )
+
+        with patch("blueclaw.session.load_config", return_value=config):
+            result = runner.invoke(app, ["run", "hello"])
+
+        assert result.exit_code != 0
+        assert "agent error" in result.output.lower() or "boom" in result.output
+
 
 # --- Init command ---
 

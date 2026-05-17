@@ -371,15 +371,15 @@ def _run_single(
     agent = None
     error_str: str | None = None
     try:
-        agent = create_agent(
-            config,
-            workspace,
-            observer,
-            model=model,
-            scripted=True,
-            console=quiet_console,
-        )
         try:
+            agent = create_agent(
+                config,
+                workspace,
+                observer,
+                model=model,
+                scripted=True,
+                console=quiet_console,
+            )
             result = agent(case.goal)
         except Exception as e:
             error_str = str(e)

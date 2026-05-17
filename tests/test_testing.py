@@ -1481,3 +1481,35 @@ class TestRunSingleCapture:
         # No artifacts written; artifacts_path is None
         assert result.artifacts_path is None
         assert not (tmp_path / "artifacts").exists()
+
+    def test_run_single_records_create_agent_failure(self, tmp_path, monkeypatch):
+        """create_agent raising must produce a failed TestResult, not crash."""
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        def boom(*a, **kw):
+            raise RuntimeError("agent setup failed")
+
+        monkeypatch.setattr("blueclaw.testing.create_agent", boom)
+        monkeypatch.setattr(
+            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+        )
+
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        # Must not raise
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        assert result.error == "agent setup failed"
+        assert result.verdict == "fail"
+        # Capture still attempted with empty messages list
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == ""
+        assert (run_dir / "messages.json").read_text() == "[]"

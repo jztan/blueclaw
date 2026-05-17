@@ -1567,3 +1567,69 @@ class TestRunSingleCapture:
         run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
         assert (run_dir / "response.txt").read_text() == ""
         assert (run_dir / "messages.json").read_text() == "[]"
+
+
+class TestWriteInvocationMetadata:
+    def test_write_invocation_metadata_writes_required_fields(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_invocation_metadata
+        from blueclaw.models import TestSpec, TestCase, TestResult, SessionConfig
+        import json
+        import sys
+
+        # Fake argv
+        monkeypatch.setattr(sys, "argv", ["blueclaw", "test", "spec.yaml"])
+
+        spec = TestSpec(
+            tests=[TestCase(goal="a"), TestCase(goal="b")],
+            model="anthropic/claude-haiku-4-5",
+        )
+        # spec_path is not on TestSpec; pass via attribute (set in run_spec)
+        spec._spec_path = "tests/eval/multi_turn_constraints.yaml"
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        results = [
+            TestResult(goal="a", passed=True, verdict="pass", cost=0.05),
+            TestResult(goal="b", passed=False, verdict="fail", cost=0.07),
+        ]
+        # Invocation dir simulates an _artifacts_root result
+        inv_dir = tmp_path / "20260517T143005123Z-a7f3"
+        inv_dir.mkdir()
+
+        _write_invocation_metadata(inv_dir, spec, config, results, capture_failures=[])
+
+        meta_path = inv_dir / "invocation.json"
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta["timestamp"] == "20260517T143005123Z-a7f3"
+        assert meta["timestamp_format"].startswith("UTC compact:")
+        assert meta["model"] == "claude-haiku-4-5"
+        assert meta["argv"] == ["blueclaw", "test", "spec.yaml"]
+        assert meta["summary"] == {"pass": 1, "fail": 1, "inconclusive": 0}
+        assert meta["total_cost_usd"] == pytest.approx(0.12)  # 0.05 + 0.07
+        assert "blueclaw_version" in meta
+        assert meta["capture_failures"] == []
+
+    def test_write_invocation_metadata_records_capture_failures(self, tmp_path):
+        from blueclaw.testing import _write_invocation_metadata
+        from blueclaw.models import TestSpec, TestCase, TestResult, SessionConfig
+        import json
+
+        spec = TestSpec(tests=[TestCase(goal="x")])
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        results = [TestResult(goal="x", passed=True)]
+        cap_failures = [
+            {
+                "case_idx": 0,
+                "run_idx": 1,
+                "stage": "messages.json",
+                "reason": "OSError: disk full",
+            }
+        ]
+        inv_dir = tmp_path / "20260517T143005123Z-a7f3"
+        inv_dir.mkdir()
+
+        _write_invocation_metadata(inv_dir, spec, config, results, cap_failures)
+
+        meta = json.loads((inv_dir / "invocation.json").read_text())
+        assert meta["capture_failures"] == cap_failures

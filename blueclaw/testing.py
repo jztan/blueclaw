@@ -554,8 +554,40 @@ def _write_invocation_metadata(
     results: list[TestResult],
     capture_failures: list[dict],
 ) -> None:
-    """Stub — implemented in Task 6."""
-    pass
+    """Write invocation.json summarizing the run.
+
+    Best-effort: a write failure here is logged to stderr but does not
+    fail the eval.
+    """
+    import json
+    from blueclaw import __version__ as blueclaw_version
+
+    summary = {
+        "pass": sum(1 for r in results if r.verdict == "pass"),
+        "fail": sum(1 for r in results if r.verdict == "fail"),
+        "inconclusive": sum(1 for r in results if r.verdict == "inconclusive"),
+    }
+    known_costs = [r.cost for r in results if r.cost is not None]
+    meta = {
+        "timestamp": invocation_dir.name,
+        "timestamp_format": "UTC compact: YYYYMMDDTHHMMSSfffZ-<4hex>",
+        "spec_path": getattr(spec, "_spec_path", None),
+        "model": config.model_id,
+        "blueclaw_version": blueclaw_version,
+        "argv": list(sys.argv),
+        "total_cost_usd": sum(known_costs) if known_costs else None,
+        "summary": summary,
+        "capture_failures": capture_failures,
+    }
+    try:
+        (invocation_dir / "invocation.json").write_text(
+            json.dumps(meta, indent=2, default=str)
+        )
+    except OSError as e:
+        print(
+            f"blueclaw test: failed to write invocation.json: {e}",
+            file=sys.stderr,
+        )
 
 
 def run_spec(

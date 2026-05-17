@@ -1633,3 +1633,57 @@ class TestWriteInvocationMetadata:
 
         meta = json.loads((inv_dir / "invocation.json").read_text())
         assert meta["capture_failures"] == cap_failures
+
+
+class TestTapBreadcrumb:
+    def test_tap_failure_includes_artifacts_path(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=False,
+                verdict="fail",
+                failures=["something failed"],
+                artifacts_path="/tmp/inv-abc/case-000/run-000",
+            )
+        ]
+        out = format_tap(results)
+        assert "  artifacts: /tmp/inv-abc/case-000/run-000" in out
+        # Sibling key in the existing YAML block — still has the closing ...
+        assert "  ..." in out
+        # Did not modify failures: structure
+        assert "  failures:" in out
+        assert '    - "something failed"' in out
+
+    def test_tap_pass_does_not_include_artifacts(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=True,
+                verdict="pass",
+                artifacts_path="/tmp/inv-abc/case-000/run-000",
+            )
+        ]
+        out = format_tap(results)
+        assert "artifacts:" not in out  # PASS lines don't get the breadcrumb
+
+    def test_tap_failure_without_artifacts_path_omits_breadcrumb(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=False,
+                verdict="fail",
+                failures=["x"],
+                artifacts_path=None,
+            )
+        ]
+        out = format_tap(results)
+        assert "artifacts:" not in out

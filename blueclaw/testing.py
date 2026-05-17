@@ -655,6 +655,8 @@ def format_tap(results: list[TestResult]) -> str:
                 lines.append("  failures:")
                 for f in r.failures:
                     lines.append(f'    - "{f}"')
+                if r.artifacts_path:
+                    lines.append(f"  artifacts: {r.artifacts_path}")
                 lines.append("  ...")
         elif r.verdict == "pass":
             lines.append(f"ok {i} - {goal}")
@@ -665,10 +667,14 @@ def format_tap(results: list[TestResult]) -> str:
                 lines.append("  failures:")
                 for f in r.failures:
                     lines.append(f'    - "{f}"')
+                if r.artifacts_path:
+                    lines.append(f"  artifacts: {r.artifacts_path}")
                 lines.append("  ...")
             elif r.error:
                 lines.append("  ---")
                 lines.append(f'  error: "{r.error}"')
+                if r.artifacts_path:
+                    lines.append(f"  artifacts: {r.artifacts_path}")
                 lines.append("  ...")
     return "\n".join(lines) + "\n"
 

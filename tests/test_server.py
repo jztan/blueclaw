@@ -14,10 +14,53 @@ import pytest
 from starlette.testclient import TestClient
 
 import blueclaw.server
-from blueclaw.models import SessionConfig
+from blueclaw.models import RunRecord, RunTrace, SessionConfig
 from blueclaw.server import create_server_app
 from blueclaw.web import create_app
 from blueclaw.workspace import Workspace, WorkspaceError
+
+# --- Test helpers ---
+
+
+def _fake_build_trace_and_record(
+    result,
+    goal,
+    observer,
+    config,
+    run_id,
+    start_time,
+    end_time,
+    source="terminal",
+    conversation_id=None,
+):
+    """Stand-in for session.build_trace_and_record that produces real models
+    using the run_id minted by runner.finalize. Used wherever tests previously
+    patched build_trace_and_record to return (MagicMock(), MagicMock()) —
+    the migrated handle_message reads outcome.trace.run_id, which needs to
+    be a real string."""
+    trace = RunTrace(
+        run_id=run_id,
+        goal=goal,
+        start_time=start_time,
+        end_time=end_time,
+        model_id=config.model_id,
+        steps=[],
+        total_tokens=150,
+        total_cost=None,
+        status="success",
+        source=source,
+        conversation_id=conversation_id,
+    )
+    record = RunRecord(
+        ts=end_time,
+        goal=goal,
+        tools=[],
+        tokens=150,
+        cost=None,
+        conversation_id=conversation_id,
+    )
+    return trace, record
+
 
 # --- Fixtures ---
 
@@ -34,16 +77,22 @@ def server_workspace(server_config):
 
 @pytest.fixture
 def client(server_config, server_workspace, mock_agent_result):
+    # Both /message and /message/stream now go through runner_session +
+    # finalize — patch at blueclaw.runner.* (where they resolve their
+    # imports). Streaming tests that need agent.stream_async build their
+    # own apps with the same pattern.
     with (
-        patch("blueclaw.server.create_agent") as mock_ca,
-        patch("blueclaw.server.build_trace_and_record") as mock_btr,
-        patch("blueclaw.server.cleanup_mcp_clients"),
+        patch("blueclaw.runner.create_agent") as mock_ca,
+        patch(
+            "blueclaw.runner.build_trace_and_record",
+            side_effect=_fake_build_trace_and_record,
+        ),
+        patch("blueclaw.runner.cleanup_mcp_clients"),
         patch.object(server_workspace, "write_trace"),
         patch.object(server_workspace, "append_history"),
         patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
     ):
         mock_ca.return_value.return_value = mock_agent_result
-        mock_btr.return_value = (MagicMock(), MagicMock())
         app = create_server_app(server_config, server_workspace, model=MagicMock())
         yield TestClient(app)
 
@@ -51,7 +100,7 @@ def client(server_config, server_workspace, mock_agent_result):
 @pytest.fixture
 def integration_client(server_config, server_workspace, mock_agent_result):
     with (
-        patch("blueclaw.server.create_agent") as mock_ca,
+        patch("blueclaw.runner.create_agent") as mock_ca,
         patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
     ):
         mock_ca.return_value.return_value = mock_agent_result
@@ -223,7 +272,7 @@ class TestErrorPaths:
 
     def test_workspace_error_returns_500(self, client):
         with patch(
-            "blueclaw.server.create_agent",
+            "blueclaw.runner.create_agent",
             side_effect=WorkspaceError("boom"),
         ):
             r = client.post("/message", json={"message": "hi"})
@@ -232,7 +281,7 @@ class TestErrorPaths:
 
     def test_runtime_error_returns_500(self, client):
         with patch(
-            "blueclaw.server.create_agent",
+            "blueclaw.runner.create_agent",
             side_effect=RuntimeError("boom"),
         ):
             r = client.post("/message", json={"message": "hi"})
@@ -331,8 +380,12 @@ class TestStreaming:
         agent = MagicMock()
         agent.stream_async = fake_stream
         with (
-            patch("blueclaw.server.create_agent", return_value=agent),
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -359,8 +412,12 @@ class TestStreaming:
         agent = MagicMock()
         agent.stream_async = fake_stream
         with (
-            patch("blueclaw.server.create_agent", return_value=agent),
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -384,7 +441,7 @@ class TestStreaming:
         agent = MagicMock()
         agent.stream_async = fake_stream
         with (
-            patch("blueclaw.server.create_agent", return_value=agent),
+            patch("blueclaw.runner.create_agent", return_value=agent),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             app = create_server_app(server_config, server_workspace, model=MagicMock())
@@ -398,7 +455,7 @@ class TestStreaming:
     def test_stream_missing_auth_returns_401(self, server_config, server_workspace):
         with (
             patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}),
-            patch("blueclaw.server.create_agent"),
+            patch("blueclaw.runner.create_agent"),
         ):
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             r = TestClient(app).post("/message/stream", json={"message": "hi"})
@@ -413,8 +470,12 @@ class TestStreaming:
         agent = MagicMock()
         agent.stream_async = fake_stream
         with (
-            patch("blueclaw.server.create_agent", return_value=agent),
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}),
@@ -438,8 +499,12 @@ class TestStreaming:
         agent = MagicMock()
         agent.stream_async = boom_stream
         with (
-            patch("blueclaw.server.create_agent", return_value=agent),
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             app = create_server_app(server_config, server_workspace, model=MagicMock())
@@ -450,7 +515,7 @@ class TestStreaming:
 
     def test_stream_invalid_body_returns_400(self, server_config, server_workspace):
         with (
-            patch("blueclaw.server.create_agent"),
+            patch("blueclaw.runner.create_agent"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             app = create_server_app(server_config, server_workspace, model=MagicMock())
@@ -492,12 +557,12 @@ class TestConcurrencyCap:
 
         async def run() -> int:
             with (
-                patch("blueclaw.server.create_agent", return_value=agent),
+                patch("blueclaw.runner.create_agent", return_value=agent),
                 patch(
-                    "blueclaw.server.build_trace_and_record",
-                    return_value=(MagicMock(), MagicMock()),
+                    "blueclaw.runner.build_trace_and_record",
+                    side_effect=_fake_build_trace_and_record,
                 ),
-                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch("blueclaw.runner.cleanup_mcp_clients"),
                 patch.object(server_workspace, "write_trace"),
                 patch.object(server_workspace, "append_history"),
                 patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -563,12 +628,14 @@ class TestConcurrencyCap:
 
         async def run() -> int:
             with (
-                patch("blueclaw.server.create_agent", return_value=agent),
+                # Both endpoints now resolve via blueclaw.runner — single
+                # patch layer covers /message and /message/stream.
+                patch("blueclaw.runner.create_agent", return_value=agent),
                 patch(
-                    "blueclaw.server.build_trace_and_record",
-                    return_value=(MagicMock(), MagicMock()),
+                    "blueclaw.runner.build_trace_and_record",
+                    side_effect=_fake_build_trace_and_record,
                 ),
-                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch("blueclaw.runner.cleanup_mcp_clients"),
                 patch.object(server_workspace, "write_trace"),
                 patch.object(server_workspace, "append_history"),
                 patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -688,16 +755,18 @@ class TestStatefulMessage:
         self, server_config, server_workspace, mock_agent_result
     ):
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
             patch("blueclaw.server.FileSessionManager") as mock_fsm,
         ):
             mock_ca.return_value.return_value = mock_agent_result
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 r = tc.post("/message", json={"message": "hi", "conversation_id": "c1"})
@@ -714,16 +783,18 @@ class TestStatefulMessage:
         self, server_config, server_workspace, mock_agent_result
     ):
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
             patch("blueclaw.server.FileSessionManager") as mock_fsm,
         ):
             mock_ca.return_value.return_value = mock_agent_result
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 r = tc.post("/message", json={"message": "hi"})
@@ -736,16 +807,18 @@ class TestStatefulMessage:
         self, server_config, server_workspace, mock_agent_result
     ):
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ) as mock_btr,
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
             patch("blueclaw.server.FileSessionManager"),
         ):
             mock_ca.return_value.return_value = mock_agent_result
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 tc.post("/message", json={"message": "hi", "conversation_id": "cX"})
@@ -770,12 +843,12 @@ class TestStatefulConcurrency:
 
         async def run():
             with (
-                patch("blueclaw.server.create_agent", return_value=agent),
+                patch("blueclaw.runner.create_agent", return_value=agent),
                 patch(
-                    "blueclaw.server.build_trace_and_record",
-                    return_value=(MagicMock(), MagicMock()),
+                    "blueclaw.runner.build_trace_and_record",
+                    side_effect=_fake_build_trace_and_record,
                 ),
-                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch("blueclaw.runner.cleanup_mcp_clients"),
                 patch.object(server_workspace, "write_trace"),
                 patch.object(server_workspace, "append_history"),
                 patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -821,12 +894,12 @@ class TestStatefulConcurrency:
 
         async def run():
             with (
-                patch("blueclaw.server.create_agent", return_value=agent),
+                patch("blueclaw.runner.create_agent", return_value=agent),
                 patch(
-                    "blueclaw.server.build_trace_and_record",
-                    return_value=(MagicMock(), MagicMock()),
+                    "blueclaw.runner.build_trace_and_record",
+                    side_effect=_fake_build_trace_and_record,
                 ),
-                patch("blueclaw.server.cleanup_mcp_clients"),
+                patch("blueclaw.runner.cleanup_mcp_clients"),
                 patch.object(server_workspace, "write_trace"),
                 patch.object(server_workspace, "append_history"),
                 patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -915,15 +988,17 @@ class TestUpload:
     ):
         files = {"file": ("a.txt", b"hi", "text/plain")}
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}),
         ):
             mock_ca.return_value.return_value = mock_agent_result
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
 
@@ -956,15 +1031,17 @@ class TestMessageAttachments:
             return mock_agent_result
 
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             mock_ca.return_value = fake_agent_callable
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
 
@@ -1035,15 +1112,17 @@ class TestMessageAttachments:
         )
 
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             mock_ca.return_value = fake_agent_callable
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
 
@@ -1088,15 +1167,17 @@ class TestMessageAttachments:
 
         pdf_bytes = b"%PDF-1.4\n%minimal\n"
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
             mock_ca.return_value = fake_agent_callable
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
 
@@ -1132,9 +1213,12 @@ class TestStatefulStream:
         self, server_config, server_workspace, mock_agent_result
     ):
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ) as mock_btr,
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -1148,7 +1232,6 @@ class TestStatefulStream:
 
             agent.stream_async = fake_stream
             mock_ca.return_value = agent
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 r = tc.post(
@@ -1164,9 +1247,12 @@ class TestStatefulStream:
         self, server_config, server_workspace, mock_agent_result
     ):
         with (
-            patch("blueclaw.server.create_agent") as mock_ca,
-            patch("blueclaw.server.build_trace_and_record") as mock_btr,
-            patch("blueclaw.server.cleanup_mcp_clients"),
+            patch("blueclaw.runner.create_agent") as mock_ca,
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients"),
             patch.object(server_workspace, "write_trace"),
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
@@ -1180,8 +1266,71 @@ class TestStatefulStream:
 
             agent.stream_async = fake_stream
             mock_ca.return_value = agent
-            mock_btr.return_value = (MagicMock(), MagicMock())
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 tc.post("/message/stream", json={"message": "hi"})
             mock_fsm.assert_not_called()
+
+
+# --- Streaming workspace-error cleanup regression ---
+
+
+class TestStreamingWorkspaceErrorCleanup:
+    """Regression: when workspace.write_trace fails mid-stream, the SSE
+    error event must emit AND MCP cleanup must run (via runner_session.__exit__).
+    Closes the BridgeRouter-class bug structurally for HTTP streaming."""
+
+    def test_workspace_error_during_stream_emits_error_and_cleans_up(
+        self, server_config, server_workspace, mock_agent_result
+    ):
+        from blueclaw import runner as runner_mod
+
+        async def fake_stream(_msg):
+            yield {"data": "Hello"}
+            yield {"result": mock_agent_result}
+
+        agent = MagicMock()
+        agent.stream_async = fake_stream
+
+        write_trace_called: list = []
+
+        def boom(trace):
+            write_trace_called.append(trace)
+            raise WorkspaceError("disk full (simulated)")
+
+        cleanup_calls: list = []
+        original_cleanup = runner_mod.cleanup_mcp_clients
+
+        def spy_cleanup(observer):
+            cleanup_calls.append(observer)
+            return original_cleanup(observer)
+
+        with (
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch(
+                "blueclaw.runner.build_trace_and_record",
+                side_effect=_fake_build_trace_and_record,
+            ),
+            patch("blueclaw.runner.cleanup_mcp_clients", side_effect=spy_cleanup),
+            patch.object(server_workspace, "write_trace", side_effect=boom),
+            patch.object(server_workspace, "append_history"),
+            patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
+        ):
+            app = create_server_app(server_config, server_workspace, model=MagicMock())
+            r = TestClient(app).post("/message/stream", json={"message": "hi"})
+
+        body = r.text
+
+        # Assertion 1: SSE error event emitted with workspace error message.
+        assert "event: error" in body
+        assert "workspace error" in body
+        assert "disk full" in body
+
+        # Assertion 2: cleanup_mcp_clients ran exactly once (via __exit__).
+        assert (
+            len(cleanup_calls) == 1
+        ), f"Expected exactly one cleanup call, got {len(cleanup_calls)}"
+
+        # Assertion 3: write_trace was actually invoked (sanity check that
+        # the test reached the persistence step, not failed earlier).
+        assert len(write_trace_called) == 1

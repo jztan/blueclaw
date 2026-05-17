@@ -295,7 +295,7 @@ class RunTrace(BaseModel):
     status: str  # "success" | "error"
     context_masked_chars: int | None = None
     context_strategy: str | None = None
-    source: str = "terminal"  # "terminal" | "api"
+    source: str = "terminal"  # "terminal" | "api" | "eval" | "telegram"
     conversation_id: str | None = None
 
     def to_json(self) -> str:

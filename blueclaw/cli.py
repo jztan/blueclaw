@@ -595,6 +595,9 @@ def run(
 
     from datetime import datetime, timezone
 
+    # CLI clock measures user-perceived turn time (includes runner setup/teardown);
+    # the trace's start_time/end_time measures agent invocation only. For
+    # latency debugging, use the trace clock. Divergence is ~ms.
     start_time = datetime.now(timezone.utc)
     outcome = run_turn(
         config,
@@ -609,6 +612,9 @@ def run(
     elapsed = (end_time - start_time).total_seconds()
 
     if outcome.error is not None:
+        # On agent error, skip BackgroundContextUpdater: agent.messages may be in
+        # an inconsistent state (mid-tool-call, partial response). Promoting from
+        # that state risks corrupting CONTEXT.md with partial-turn artifacts.
         console.print(f"[red]agent error:[/red] {outcome.error}")
         raise typer.Exit(1)
 

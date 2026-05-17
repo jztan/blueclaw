@@ -1,12 +1,27 @@
 # Behavioral regression spec for the 2026-05-16 dinner-planning eval.
 #
-# NOTE: True multi-turn fixtures require harness extension
-# (TestCase needs a `turns: list[str]` field). The tests below
-# are single-turn proxies that embed prior conversation context
-# in the `goal` string. Passing all five does NOT guarantee the
-# turn-1 → turn-3 degradation pattern from the 2026-05-16 eval
-# is fixed; it only shows the individual symptoms are absent on
-# single-turn proxies. Treat green as necessary, not sufficient.
+# SCOPE REDUCTION (2026-05-17): The original spec used single-turn
+# proxies that embedded fabricated prior turns ("Earlier in this
+# conversation you said X..."). Triage of the first eval run found
+# that honesty-trained models (Sonnet 4.6 confirmed) REFUSE the
+# premise — they check their own message history, find nothing,
+# and decline to fabricate continuity. The new prompt rules A and B
+# (added in this same change) make that refusal stronger, not weaker.
+# Single-turn proxies of multi-turn behavior are structurally
+# incompatible with honesty training, not just imprecise.
+#
+# Tests 2 and 4 have been rewritten to use INSTRUCTION framing
+# rather than fabricated continuity. They now measure "complex
+# single-turn handling" — a weaker target than the original
+# "trajectory preservation" they were intended for. Specifically:
+#   - Rule D (api-channel constraint carry-forward) is NO LONGER
+#     covered by any automated test in this file. It requires real
+#     multi-turn fixtures (`turns: list[str]` on TestCase) to test
+#     properly. Tracked as follow-up.
+#   - Rule C (correction acknowledgment) is also weakened —
+#     Test 4 now measures "uses the corrected fact" rather than
+#     "acknowledges the correction in the first sentence."
+# Rules A, B, E remain meaningfully tested.
 #
 # Run with:
 #   blueclaw test tests/eval/multi_turn_constraints.yaml
@@ -35,14 +50,12 @@ tests:
     runs: 5
     threshold: 0.6
 
-  # Test 2 — Constraint preservation (catches Turn 3 menu-shrink:
-  # 3 courses → 1 main + side).
+  # Test 2 — Complex single-turn handling: produces a 3-course
+  # structure when asked for a multi-constraint menu. (Rewritten
+  # from a fabricated-continuity proxy; see header.)
   - goal: |
-      Earlier in this conversation, the user asked you to plan a
-      3-course vegetarian dinner for 6 people with a peanut allergy,
-      7pm start. You proposed a 3-course menu.
-      Now the user says: "Switch to vegan and add a 4-year-old."
-      Respond.
+      Plan a 3-course vegan dinner for 6 adults plus a 4-year-old,
+      peanut-free, 7pm start.
     output_regex: "(?is).*(starter|appetizer|first course).*main.*dessert"
     forbidden_output_regex: "(?i)(main with side|skipping the (starter|appetizer)|just (a |the )?main)"
     runs: 5
@@ -59,13 +72,14 @@ tests:
     runs: 5
     threshold: 0.6
 
-  # Test 4 — Correction acknowledgment (catches absorbed correction
-  # about halloumi cooking method).
+  # Test 4 — Uses the corrected fact rather than the incorrect one.
+  # (Rewritten from a fabricated-continuity / "Earlier you said..."
+  # proxy; see header. Originally targeted Rule C acknowledgment.)
   - goal: |
-      Earlier you said halloumi roasts at 400°F for 25 minutes.
-      Actually halloumi is pan-seared, 2-3 minutes per side. Now
-      suggest a vegetarian main using it.
-    output_regex: "(?i)^.{0,200}(you're right|good catch|thanks for the correction|you're correct|noted|my mistake|apologies)"
+      Halloumi is pan-seared 2-3 minutes per side, not oven-roasted.
+      Suggest a vegetarian main using it.
+    output_regex: "(?i)(pan.?sear|saut[eé]|griddle|skillet)"
+    forbidden_output_regex: "(?i)(roast|400.?°|oven.bake)"
     runs: 5
     threshold: 0.8
 

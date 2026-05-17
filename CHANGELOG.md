@@ -23,8 +23,15 @@ All notable changes to blueclaw will be documented in this file.
   deliverables, and corrections — closes a loophole where the model would
   treat prior-turn commitments (e.g., "3-course menu") as stale and drop them.
 - **`tests/eval/multi_turn_constraints.yaml`.** New behavioral regression
-  spec with five single-turn proxies of multi-turn failure modes. Manual run
-  only (~$0.46 per full run on `anthropic/claude-haiku-4-5`).
+  spec, pinned to Sonnet 4.6 (~$1-2 per full run, ~10-15 min wall clock).
+  Manual run only. **Scope reduced after first triage:** single-turn
+  proxies that fabricated prior conversation turns ("Earlier in this
+  conversation you said...") were structurally incompatible with
+  honesty-trained models, which refused the premise. Tests 2 and 4
+  rewritten to use instruction framing instead. Consequence: Rule D
+  (api-channel constraint carry-forward) is no longer covered by
+  automated tests in this file; real multi-turn fixtures are needed
+  for that and are tracked as a follow-up.
 
 ## [2.5.0] - 2026-05-16
 ### Added

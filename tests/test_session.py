@@ -1493,3 +1493,48 @@ def test_build_trace_and_record_conversation_id_defaults_to_none(sample_config):
     )
     assert trace.conversation_id is None
     assert record.conversation_id is None
+
+
+def test_run_chat_loop_writes_capture_artifacts(tmp_path, monkeypatch):
+    """Terminal adapter must compute and pass a non-None capture_path.
+
+    Uses scripted=True for determinism. The capture wiring is in the
+    chat-loop body, not branched on `scripted` — both modes share the
+    same finalize() call site — so the assertion holds for production too.
+    """
+    import io
+    import re
+
+    from rich.console import Console
+
+    from blueclaw import session as session_mod
+    from blueclaw.models import SessionConfig
+    from blueclaw.workspace import Workspace
+    from tests.helpers.runner_stubs import install_stub_runner
+
+    workspace = Workspace(tmp_path)
+    config = SessionConfig()
+    install_stub_runner(monkeypatch)
+
+    prompts = iter(["hi"])
+
+    class _StubPromptSession:
+        def prompt(self, _label):
+            try:
+                return next(prompts)
+            except StopIteration:
+                raise EOFError
+
+    monkeypatch.setattr(session_mod, "PromptSession", _StubPromptSession)
+
+    console = Console(file=io.StringIO())
+    session_mod.run_chat_loop(workspace, console, config, model=None, scripted=True)
+
+    turns_root = tmp_path / ".blueclaw" / "turns"
+    assert turns_root.exists(), "turns/ dir must be created"
+    sessions = list(turns_root.iterdir())
+    assert len(sessions) == 1, f"expected one session dir, got {sessions}"
+    turn_dir = sessions[0] / "turn-001"
+    assert (turn_dir / "response.txt").exists()
+    assert (turn_dir / "messages.json").exists()
+    assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{4}", sessions[0].name), sessions[0].name

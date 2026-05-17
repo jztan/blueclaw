@@ -647,7 +647,19 @@ def run_chat_loop(
     finalize (or finalize_error on adapter-caught exception). The
     context manager's __exit__ runs MCP cleanup once at loop end.
     """
-    from blueclaw.runner import finalize, finalize_error, runner_session
+    import secrets
+
+    from blueclaw.runner import (
+        finalize,
+        finalize_error,
+        next_capture_path,
+        runner_session,
+    )
+
+    session_id = (
+        f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        f"-{secrets.token_hex(2)}"
+    )
 
     exit_commands = {
         "exit",
@@ -726,16 +738,17 @@ def run_chat_loop(
                 try:
                     result = ctx.agent(agent_input)
                     end_time = datetime.now(timezone.utc)
+                    capture_path = next_capture_path(workspace.root, session_id)
                     outcome = finalize(
                         ctx,
                         result,
                         goal=stripped,
                         source="terminal",
-                        conversation_id=None,
+                        conversation_id=session_id,
                         start_time=start_time,
                         end_time=end_time,
                         config=config,
-                        capture_path=None,
+                        capture_path=capture_path,
                     )
                     total_tool_calls += len(outcome.record.tools)
                     elapsed = (end_time - start_time).total_seconds()
@@ -759,19 +772,17 @@ def run_chat_loop(
                 except Exception as exc:
                     end_time = datetime.now(timezone.utc)
                     console.print(f"[red]agent error:[/red] {exc}")
-                    # finalize_error is called for forward-compatibility with
-                    # future terminal capture. With capture_path=None it is
-                    # currently a no-op (returns a RunOutcome we discard).
+                    capture_path = next_capture_path(workspace.root, session_id)
                     finalize_error(
                         ctx,
                         exc,
                         goal=stripped,
                         source="terminal",
-                        conversation_id=None,
+                        conversation_id=session_id,
                         start_time=start_time,
                         end_time=end_time,
                         config=config,
-                        capture_path=None,
+                        capture_path=capture_path,
                     )
                     turn_count -= 1
                     continue

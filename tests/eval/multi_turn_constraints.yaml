@@ -1,0 +1,98 @@
+# Behavioral regression spec for the 2026-05-16 dinner-planning eval.
+#
+# SCOPE REDUCTION (2026-05-17): The original spec used single-turn
+# proxies that embedded fabricated prior turns ("Earlier in this
+# conversation you said X..."). Triage of the first eval run found
+# that honesty-trained models (Sonnet 4.6 confirmed) REFUSE the
+# premise — they check their own message history, find nothing,
+# and decline to fabricate continuity. The new prompt rules A and B
+# (added in this same change) make that refusal stronger, not weaker.
+# Single-turn proxies of multi-turn behavior are structurally
+# incompatible with honesty training, not just imprecise.
+#
+# Tests 2 and 4 have been rewritten to use INSTRUCTION framing
+# rather than fabricated continuity. They now measure "complex
+# single-turn handling" — a weaker target than the original
+# "trajectory preservation" they were intended for. Specifically:
+#   - Rule D (api-channel constraint carry-forward) is NO LONGER
+#     covered by any automated test in this file. It requires real
+#     multi-turn fixtures (`turns: list[str]` on TestCase) to test
+#     properly. Tracked as follow-up.
+#   - Rule C (correction acknowledgment) is also weakened —
+#     Test 4 now measures "uses the corrected fact" rather than
+#     "acknowledges the correction in the first sentence."
+# Rules A, B, E remain meaningfully tested.
+#
+# Run with:
+#   blueclaw test tests/eval/multi_turn_constraints.yaml
+#
+# Model pinned to Sonnet 4.6 — this is a smoke-test stance, not a floor
+# stance. The eval certifies the prompt edits hold up on the model the
+# user actually runs blueclaw against day-to-day, not on every supported
+# model. Haiku 4.5 was tried first (the ~$0.46/run estimate in earlier
+# drafts) but couldn't reliably execute the agent loop for tool-using
+# tests within max_steps — it ran in circles. If you want to certify
+# behavior on a smaller model, that's a separate eval spec.
+#
+# Actual cost per full run on Sonnet 4.6: ~$1-2 (23 sequential agent
+# runs; tool-using tests dominate). Wall clock: ~10-15 min on a warm
+# network. Budget guard at $5 for any automated invocation.
+
+tests:
+  # Test 1 — Tool-knowledge (catches Turn 1 failure: agent declined
+  # "real-time grocery prices" without attempting web_search).
+  - goal: |
+      Plan groceries for tonight's dinner. I need itemized current
+      prices in Singapore for: tofu, soba noodles, edamame, miso paste.
+    expected_tools: [web_search]
+    forbidden_output_regex: "(?i)(cannot access|don't have access|unable to (access|look up|retrieve)).*(real.?time|current|live)"
+    max_steps: 6
+    runs: 5
+    threshold: 0.6
+
+  # Test 2 — Complex single-turn handling: produces a 3-course
+  # structure when asked for a multi-constraint menu. (Rewritten
+  # from a fabricated-continuity proxy; see header.)
+  - goal: |
+      Plan a 3-course vegan dinner for 6 adults plus a 4-year-old,
+      peanut-free, 7pm start.
+    output_regex: "(?is).*(starter|appetizer|first course).*main.*dessert"
+    forbidden_output_regex: "(?i)(main with side|skipping the (starter|appetizer)|just (a |the )?main)"
+    runs: 5
+    threshold: 0.6
+
+  # Test 3 — Partial-refusal honesty (catches silent omission of the
+  # itemized-prices ask across three turns).
+  - goal: |
+      Give me itemized FairPrice prices for these 6 ingredients:
+      tofu, soba, edamame, miso, scallions, sesame oil. If you can't
+      fetch live prices, say which part of the request you can't do
+      and why.
+    output_regex: "(?i)(cannot|unable|don't have).*(price|fairprice|live)"
+    runs: 5
+    threshold: 0.6
+
+  # Test 4 — Uses the corrected fact rather than the incorrect one.
+  # (Rewritten from a fabricated-continuity / "Earlier you said..."
+  # proxy; see header. Originally targeted Rule C acknowledgment.)
+  - goal: |
+      Halloumi is pan-seared 2-3 minutes per side, not oven-roasted.
+      Suggest a vegetarian main using it.
+    output_regex: "(?i)(pan.?sear|saut[eé]|griddle|skillet)"
+    forbidden_output_regex: "(?i)(roast|400.?°|oven.bake)"
+    runs: 5
+    threshold: 0.8
+
+  # Test 5 — Cosmetic-compensation guard (catches over-formatting
+  # short answers). Weakest of the five; length cap is the primary
+  # signal, markdown check is advisory.
+  - goal: "What is 2+2?"
+    output_regex: "(?s)^.{1,80}\\s*$"
+    forbidden_output_contains: "##"
+    runs: 3
+    threshold: 0.66
+
+model: anthropic/claude-sonnet-4-6
+allowlist_domains:
+  - fairprice.com.sg
+  - www.fairprice.com.sg

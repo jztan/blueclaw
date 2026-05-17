@@ -134,6 +134,15 @@ class TestValidateSpec:
         warnings = validate_spec(spec)
         assert any("invalid output_regex" in w for w in warnings)
 
+    def test_validate_spec_invalid_forbidden_regex(self):
+        from blueclaw.testing import validate_spec
+
+        spec = TestSpec(
+            tests=[TestCase(goal="test", forbidden_output_regex="[invalid")]
+        )
+        warnings = validate_spec(spec)
+        assert any("invalid forbidden_output_regex" in w for w in warnings)
+
     def test_validate_spec_negative_duration(self):
         from blueclaw.testing import validate_spec
 
@@ -427,6 +436,29 @@ class TestCheckAssertions:
         case = TestCase(goal="test", output_regex=r"Hello")
         failures = _check_assertions(case, [], "hello world", 1, 0.01)
         assert any("Output does not match regex" in f for f in failures)
+
+    # --- forbidden_output_regex ---
+
+    def test_forbidden_output_regex_pass(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"(?i)error \d+")
+        failures = _check_assertions(case, [], "everything worked fine", 1, 0.01)
+        assert failures == []
+
+    def test_forbidden_output_regex_fail(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"(?i)error \d+")
+        failures = _check_assertions(case, [], "got Error 42", 1, 0.01)
+        assert any("Output matches forbidden regex" in f for f in failures)
+
+    def test_forbidden_output_regex_invalid(self):
+        from blueclaw.testing import _check_assertions
+
+        case = TestCase(goal="test", forbidden_output_regex=r"[invalid")
+        failures = _check_assertions(case, [], "text", 1, 0.01)
+        assert any("Invalid forbidden regex" in f for f in failures)
 
     # --- tool_order ---
 

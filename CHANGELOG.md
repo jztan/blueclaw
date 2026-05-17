@@ -2,6 +2,37 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+### Added
+- **`forbidden_output_regex` test-case assertion.** New optional field on
+  `TestCase` in test-spec YAMLs. Mirrors `output_regex` but inverts the
+  semantics — fails the test if the regex matches the response. Lets eval
+  specs assert on reworded refusal phrasings and other anti-patterns that a
+  single `forbidden_output_contains` substring would miss.
+- **Behavioral system-prompt rules (tool-knowledge, partial-refusal,
+  correction acknowledgment, cosmetic-compensation).** Four new rules in the
+  shared `**Rules:**` block of `build_system_prompt` (both terminal and api
+  channels) targeting failure modes surfaced by an external eval: declining
+  requests without attempting available tools, silently dropping parts of a
+  request, ignoring user corrections, and reaching for formatting to mask
+  thin substance.
+- **api-channel "constraint carry-forward" rule.** Replaces the previous
+  "Answer ONLY what the user just asked" instruction in the api/Telegram
+  tone block. Preserves the original anti-recap intent while explicitly
+  requiring the model to carry forward earlier turns' constraints,
+  deliverables, and corrections — closes a loophole where the model would
+  treat prior-turn commitments (e.g., "3-course menu") as stale and drop them.
+- **`tests/eval/multi_turn_constraints.yaml`.** New behavioral regression
+  spec, pinned to Sonnet 4.6 (~$1-2 per full run, ~10-15 min wall clock).
+  Manual run only. **Scope reduced after first triage:** single-turn
+  proxies that fabricated prior conversation turns ("Earlier in this
+  conversation you said...") were structurally incompatible with
+  honesty-trained models, which refused the premise. Tests 2 and 4
+  rewritten to use instruction framing instead. Consequence: Rule D
+  (api-channel constraint carry-forward) is no longer covered by
+  automated tests in this file; real multi-turn fixtures are needed
+  for that and are tracked as a follow-up.
+
 ## [2.5.0] - 2026-05-16
 ### Added
 - **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to

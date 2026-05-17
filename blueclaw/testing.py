@@ -61,6 +61,11 @@ def validate_spec(spec: TestSpec) -> list[str]:
                 re.compile(case.output_regex)
             except re.error as e:
                 warnings.append(f"Test {i + 1}: invalid output_regex: {e}")
+        if case.forbidden_output_regex is not None:
+            try:
+                re.compile(case.forbidden_output_regex)
+            except re.error as e:
+                warnings.append(f"Test {i + 1}: invalid forbidden_output_regex: {e}")
         if case.max_duration_s is not None and case.max_duration_s <= 0:
             warnings.append(f"Test {i + 1}: max_duration_s must be > 0")
     if spec.model and "/" not in spec.model:
@@ -186,6 +191,18 @@ def _check_assertions(
                 failures.append(f"Output does not match regex: '{case.output_regex}'")
         except re.error as e:
             failures.append(f"Invalid regex: {case.output_regex}: {e}")
+
+    if case.forbidden_output_regex is not None:
+        try:
+            if re.search(case.forbidden_output_regex, response_text):
+                failures.append(
+                    f"Output matches forbidden regex:"
+                    f" '{case.forbidden_output_regex}'"
+                )
+        except re.error as e:
+            failures.append(
+                f"Invalid forbidden regex: {case.forbidden_output_regex}: {e}"
+            )
 
     if case.tool_order:
         it = iter(tools_called)

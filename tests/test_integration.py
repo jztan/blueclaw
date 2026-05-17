@@ -8,11 +8,9 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from blueclaw.cli import app
-from blueclaw.models import SessionConfig
 from blueclaw.observer import ObserverHooks, truncate_tool_result
 from blueclaw.session import (
     load_config,
-    print_run_summary,
 )
 from blueclaw.workspace import Workspace, WorkspaceError
 
@@ -83,19 +81,22 @@ class TestInitThenRun:
         # Direct pipeline test
         ws = Workspace(tmp_path / "ws")
         observer = ObserverHooks(console=Console(file=StringIO()))
-        config = SessionConfig(tools=[])
 
         agent = MagicMock()
         agent.return_value = _make_mock_agent_result()
 
-        print_run_summary(
-            result=agent("test prompt"),
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
+        record = RunRecord(
+            ts=datetime.now(timezone.utc),
             goal="test prompt",
-            observer=observer,
-            workspace=ws,
-            config=config,
-            console=Console(file=StringIO()),
+            tools=list(observer.tools_called),
+            tokens=150,
+            cost=None,
         )
+        ws.append_history(record)
 
         records = ws.read_history()
         assert len(records) == 1
@@ -121,21 +122,21 @@ class TestSessionContinuity:
 
 class TestHistoryAccumulation:
     def test_history_accumulates(self, tmp_path):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
         ws = Workspace(tmp_path)
-        observer = ObserverHooks(console=Console(file=StringIO()))
-        config = SessionConfig(tools=[])
 
         for i in range(3):
-            observer.tools_called = [f"tool_{i}"]
-            result = _make_mock_agent_result()
-            print_run_summary(
-                result=result,
+            record = RunRecord(
+                ts=datetime.now(timezone.utc),
                 goal=f"run {i}",
-                observer=observer,
-                workspace=ws,
-                config=config,
-                console=Console(file=StringIO()),
+                tools=[f"tool_{i}"],
+                tokens=150,
+                cost=None,
             )
+            ws.append_history(record)
 
         records = ws.read_history()
         assert len(records) == 3
@@ -191,17 +192,20 @@ class TestObserverSessionHistoryPipeline:
 
         assert len(observer.tools_called) == 2
 
-        # Session writes record
-        result = _make_mock_agent_result()
-        config = SessionConfig(tools=[])
-        print_run_summary(
-            result=result,
+        # Pipeline: build record from observer + persist
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord
+
+        record = RunRecord(
+            ts=datetime.now(timezone.utc),
             goal="pipeline test",
-            observer=observer,
-            workspace=ws,
-            config=config,
-            console=console,
+            tools=list(observer.tools_called),
+            tokens=150,
+            cost=None,
         )
+        ws.append_history(record)
+        observer.reset()
 
         records = ws.read_history()
         assert len(records) == 1

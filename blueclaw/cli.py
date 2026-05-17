@@ -450,10 +450,8 @@ def render_welcome_banner(
 
 def run_session(model_override: str | None = None) -> None:
     """Set up and run an interactive session."""
-    from blueclaw.observer import ObserverHooks
     from blueclaw.session import (
         build_model,
-        create_agent,
         load_config,
         run_chat_loop,
     )
@@ -462,13 +460,11 @@ def run_session(model_override: str | None = None) -> None:
     config = load_config(config_path, model_override=model_override)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
-    observer = ObserverHooks(console=console)
     model = build_model(config)
 
     render_welcome_banner(config, workspace, console)
 
-    agent = create_agent(config, workspace, observer, model=model, console=console)
-    run_chat_loop(agent, workspace, observer, console, config, model=model)
+    run_chat_loop(workspace, console, config, model)
 
 
 def _version_callback(value: bool) -> None:
@@ -564,12 +560,10 @@ def run(
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override"),
 ) -> None:
     """Run a single prompt and exit."""
-    from blueclaw.observer import ObserverHooks
+    from blueclaw.runner import run_turn
     from blueclaw.session import (
         BackgroundContextUpdater,
         build_model,
-        cleanup_mcp_clients,
-        create_agent,
         load_config,
         print_run_summary,
     )
@@ -578,60 +572,57 @@ def run(
     config = load_config(config_path, model_override=model)
     workspace = Workspace(config.workspace_path)
     workspace.purge_old_traces(config.trace_retention_days)
-    observer = ObserverHooks(console=console)
     model_instance = build_model(config)
 
     console.print(f"blueclaw run \u00b7 {config.model_id}", style="dim")
 
-    agent = create_agent(
+    from blueclaw.uploads import (
+        UploadError,
+        build_agent_input,
+        parse_at_attachments,
+    )
+
+    cleaned_message, attachments, failed = parse_at_attachments(prompt)
+    for att in attachments:
+        console.print(f"[dim]attached:[/dim] {att.path} ({att.mime_type})")
+    for token, reason in failed:
+        console.print(f"[yellow]could not attach[/yellow] {token}: {reason}")
+    try:
+        agent_input = build_agent_input(attachments, cleaned_message)
+    except UploadError as exc:
+        console.print(f"[yellow]could not attach:[/yellow] {exc}")
+        raise typer.Exit(1)
+
+    from datetime import datetime, timezone
+
+    start_time = datetime.now(timezone.utc)
+    outcome = run_turn(
         config,
         workspace,
-        observer,
-        model=model_instance,
+        model_instance,
+        agent_input,
+        goal=prompt,
+        source="terminal",
         scripted=True,
-        console=console,
     )
+    end_time = datetime.now(timezone.utc)
+    elapsed = (end_time - start_time).total_seconds()
+
+    if outcome.error is not None:
+        console.print(f"[red]agent error:[/red] {outcome.error}")
+        raise typer.Exit(1)
+
+    # Strands streams the response via callback — don't reprint
+
+    print_run_summary(outcome, console=console, elapsed=elapsed)
+    if outcome.trace is not None:
+        workspace.write_trace(outcome.trace)
+    if outcome.record is not None:
+        workspace.append_history(outcome.record)
+
     updater = BackgroundContextUpdater(model_instance, workspace)
-    try:
-        import time as _time
-        from blueclaw.uploads import (
-            UploadError,
-            build_agent_input,
-            parse_at_attachments,
-        )
-
-        cleaned_message, attachments, failed = parse_at_attachments(prompt)
-        for att in attachments:
-            console.print(f"[dim]attached:[/dim] {att.path} ({att.mime_type})")
-        for token, reason in failed:
-            console.print(f"[yellow]could not attach[/yellow] {token}: {reason}")
-        try:
-            agent_input = build_agent_input(attachments, cleaned_message)
-        except UploadError as exc:
-            console.print(f"[yellow]could not attach:[/yellow] {exc}")
-            raise typer.Exit(1)
-
-        start = _time.time()
-        result = agent(agent_input)
-        elapsed = _time.time() - start
-
-        # Strands streams the response via callback — don't reprint
-
-        print_run_summary(
-            result=result,
-            goal=prompt,
-            observer=observer,
-            workspace=workspace,
-            config=config,
-            console=console,
-            elapsed=elapsed,
-            start_time=start,
-        )
-
-        updater.trigger(agent)
-    finally:
-        cleanup_mcp_clients(observer)
-        updater.wait()
+    updater.trigger(outcome.agent)
+    updater.wait()
 
 
 def _ensure_gitignore_entries(project_root: Path) -> None:

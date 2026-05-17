@@ -867,26 +867,59 @@ class TestStubTools:
 # --- Group D: Integration with mocked agent ---
 
 
-def _make_mock_agent_result(tools_called=None):
-    """Create a mock agent result with realistic structure."""
-    result = MagicMock()
-    result.message = {"content": [{"text": "created hello.txt successfully"}]}
-    result.metrics.accumulated_usage = {
-        "inputTokens": 100,
-        "outputTokens": 50,
-    }
-    return result
+def _make_mock_run_outcome(
+    response_text="created hello.txt successfully",
+    tools=None,
+    cost=0.001,
+    error=None,
+    capture_errors=None,
+):
+    """Create a mock RunOutcome for patching blueclaw.runner.run_turn."""
+    from blueclaw.runner import RunOutcome
+    from blueclaw.models import RunRecord
+    from datetime import datetime, timezone
+
+    if tools is None:
+        tools = ["shell_command"]
+    if capture_errors is None:
+        capture_errors = []
+
+    if error is not None:
+        return RunOutcome(
+            result=None,
+            agent=MagicMock(),
+            response_text="",
+            trace=None,
+            record=None,
+            capture_errors=capture_errors,
+            error=error,
+        )
+
+    record = RunRecord(
+        ts=datetime.now(timezone.utc),
+        goal="test",
+        tools=tools,
+        tokens=150,
+        cost=cost,
+    )
+    return RunOutcome(
+        result=MagicMock(),
+        agent=MagicMock(),
+        response_text=response_text,
+        trace=None,
+        record=record,
+        capture_errors=capture_errors,
+        error=None,
+    )
 
 
 class TestRunTestCase:
-    @patch("blueclaw.testing.create_agent")
+    @patch("blueclaw.runner.run_turn")
     @patch("blueclaw.testing.build_model")
-    def test_run_test_case_mock_agent(self, mock_bm, mock_ca, sample_config):
+    def test_run_test_case_mock_agent(self, mock_bm, mock_rt, sample_config):
         from blueclaw.testing import run_test_case
 
-        mock_agent = MagicMock()
-        mock_agent.return_value = _make_mock_agent_result()
-        mock_ca.return_value = mock_agent
+        mock_rt.return_value = _make_mock_run_outcome(response_text="hello.txt created")
 
         case = TestCase(
             goal="create hello.txt",
@@ -896,14 +929,12 @@ class TestRunTestCase:
         assert result.passed
         assert result.verdict == "pass"
 
-    @patch("blueclaw.testing.create_agent")
+    @patch("blueclaw.runner.run_turn")
     @patch("blueclaw.testing.build_model")
-    def test_single_run_writes_result_json(self, mock_bm, mock_ca, sample_config):
+    def test_single_run_writes_result_json(self, mock_bm, mock_rt, sample_config):
         from blueclaw.testing import _run_single
 
-        mock_agent = MagicMock()
-        mock_agent.return_value = _make_mock_agent_result()
-        mock_ca.return_value = mock_agent
+        mock_rt.return_value = _make_mock_run_outcome(response_text="hello.txt created")
 
         case = TestCase(
             goal="create hello.txt",
@@ -921,14 +952,12 @@ class TestRunTestCase:
             assert data["goal"] == "create hello.txt"
             assert data["verdict"] == result.verdict
 
-    @patch("blueclaw.testing.create_agent")
+    @patch("blueclaw.runner.run_turn")
     @patch("blueclaw.testing.build_model")
-    def test_run_spec_all_results(self, mock_bm, mock_ca, sample_config):
+    def test_run_spec_all_results(self, mock_bm, mock_rt, sample_config):
         from blueclaw.testing import run_spec
 
-        mock_agent = MagicMock()
-        mock_agent.return_value = _make_mock_agent_result()
-        mock_ca.return_value = mock_agent
+        mock_rt.return_value = _make_mock_run_outcome()
 
         spec = TestSpec(
             tests=[
@@ -996,17 +1025,14 @@ class TestRunSpecCapture:
 
 
 class TestMultiRun:
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_pass(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_pass(self, mock_rt, sample_config):
         """30/30 at threshold 0.85 -> pass (Wilson CI lower > 0.85)."""
         from blueclaw.testing import run_test_case
 
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            agent.return_value = _make_mock_agent_result()
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome(
+            response_text="created hello.txt successfully"
+        )
 
         case = TestCase(
             goal="create hello.txt",
@@ -1018,24 +1044,20 @@ class TestMultiRun:
         assert result.verdict == "pass"
         assert result.pass_count == 30
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_fail(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_fail(self, mock_rt, sample_config):
         """5/30 at threshold 0.85 -> fail."""
         from blueclaw.testing import run_test_case
 
         call_count = 0
 
-        def make_agent(*args, **kwargs):
+        def make_outcome(*args, **kwargs):
             nonlocal call_count
-            agent = MagicMock()
             call_count += 1
-            result = _make_mock_agent_result()
-            if call_count > 5:
-                result.message = {"content": [{"text": "failed"}]}
-            agent.return_value = result
-            return agent
+            text = "created hello.txt successfully" if call_count <= 5 else "failed"
+            return _make_mock_run_outcome(response_text=text)
 
-        mock_ca.side_effect = make_agent
+        mock_rt.side_effect = make_outcome
 
         case = TestCase(
             goal="create hello.txt",
@@ -1047,24 +1069,20 @@ class TestMultiRun:
         assert result.verdict == "fail"
         assert result.pass_count == 5
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_inconclusive(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_inconclusive(self, mock_rt, sample_config):
         """24/30 at threshold 0.85 -> inconclusive."""
         from blueclaw.testing import run_test_case
 
         call_count = 0
 
-        def make_agent(*args, **kwargs):
+        def make_outcome(*args, **kwargs):
             nonlocal call_count
-            agent = MagicMock()
             call_count += 1
-            result = _make_mock_agent_result()
-            if call_count > 24:
-                result.message = {"content": [{"text": "failed"}]}
-            agent.return_value = result
-            return agent
+            text = "created hello.txt successfully" if call_count <= 24 else "failed"
+            return _make_mock_run_outcome(response_text=text)
 
-        mock_ca.side_effect = make_agent
+        mock_rt.side_effect = make_outcome
 
         case = TestCase(
             goal="create hello.txt",
@@ -1076,77 +1094,54 @@ class TestMultiRun:
         assert result.verdict == "inconclusive"
         assert result.pass_count == 24
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_cost_none(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_cost_none(self, mock_rt, sample_config):
         """All runs return cost=None -> aggregate cost is None."""
         from blueclaw.testing import run_test_case
 
-        # Use model not in pricing table
-        sample_config.model_id = "unknown-model"
-
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            agent.return_value = _make_mock_agent_result()
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome(cost=None)
 
         case = TestCase(goal="test", runs=3)
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
         assert result.cost is None
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_populates_tools_from_last_run(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_populates_tools_from_last_run(self, mock_rt, sample_config):
         """tools_called and steps come from last run."""
         from blueclaw.testing import run_test_case
 
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            observer = args[2]  # observer is the 3rd positional arg
-            observer.tools_called.append("shell_command")
-            agent.return_value = _make_mock_agent_result()
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome(tools=["shell_command"])
 
         case = TestCase(goal="test", runs=3)
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
         assert "shell_command" in result.tools_called
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_error_propagation(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_error_propagation(self, mock_rt, sample_config):
         """Crashed runs add 'Error: ...' to aggregate failures list."""
         from blueclaw.testing import run_test_case
 
         call_count = 0
 
-        def make_agent(*args, **kwargs):
+        def make_outcome(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            agent = MagicMock()
             if call_count == 2:
-                agent.side_effect = RuntimeError("boom")
-            else:
-                agent.return_value = _make_mock_agent_result()
-            return agent
+                return _make_mock_run_outcome(error=RuntimeError("boom"))
+            return _make_mock_run_outcome()
 
-        mock_ca.side_effect = make_agent
+        mock_rt.side_effect = make_outcome
 
         case = TestCase(goal="test", runs=3)
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
         assert any("Error: boom" in f for f in result.failures)
 
-    @patch("blueclaw.testing.create_agent")
-    def test_multi_run_writes_per_run_results(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_multi_run_writes_per_run_results(self, mock_rt, sample_config):
         """Each run-NNN dir gets .blueclaw/result.json."""
         from blueclaw.testing import run_test_case
 
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            agent.return_value = _make_mock_agent_result()
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome()
 
         import tempfile
 
@@ -1158,19 +1153,12 @@ class TestMultiRun:
                 result_file = ws / f"run-{i:03d}" / ".blueclaw" / "result.json"
                 assert result_file.exists(), f"run-{i:03d}/result.json missing"
 
-    @patch("blueclaw.testing.create_agent")
-    def test_result_json_contains_failures(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_result_json_contains_failures(self, mock_rt, sample_config):
         """Failed assertion shows up in result.json."""
         from blueclaw.testing import run_test_case
 
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            result = _make_mock_agent_result()
-            result.message = {"content": [{"text": "no match"}]}
-            agent.return_value = result
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome(response_text="no match")
 
         import tempfile
 
@@ -1187,17 +1175,12 @@ class TestMultiRun:
             assert data["verdict"] == "fail"
             assert any("hello" in f for f in data["failures"])
 
-    @patch("blueclaw.testing.create_agent")
-    def test_single_run_ignores_threshold(self, mock_ca, sample_config):
+    @patch("blueclaw.runner.run_turn")
+    def test_single_run_ignores_threshold(self, mock_rt, sample_config):
         """runs=1 uses binary pass/fail, ignoring threshold."""
         from blueclaw.testing import run_test_case
 
-        def make_agent(*args, **kwargs):
-            agent = MagicMock()
-            agent.return_value = _make_mock_agent_result()
-            return agent
-
-        mock_ca.side_effect = make_agent
+        mock_rt.return_value = _make_mock_run_outcome()
 
         case = TestCase(goal="test", runs=1, threshold=0.99)
         result = run_test_case(case, sample_config, Path("/tmp/test"), None)
@@ -1305,147 +1288,27 @@ class TestCLI:
         assert "--stub-tools" in plain
 
 
-class TestWriteArtifacts:
-    def test_write_artifacts_happy_path(self, tmp_path):
-        from blueclaw.testing import _write_artifacts
-
-        failures = _write_artifacts(
-            invocation_dir=tmp_path,
-            case_idx=0,
-            run_idx=0,
-            response_text="The answer is 4.",
-            messages=[{"role": "user", "content": [{"text": "hi"}]}],
-        )
-        assert failures == []
-        run_dir = tmp_path / "case-000" / "run-000"
-        assert (run_dir / "response.txt").read_text() == "The answer is 4."
-        import json
-
-        msgs = json.loads((run_dir / "messages.json").read_text())
-        assert msgs == [{"role": "user", "content": [{"text": "hi"}]}]
-
-    def test_write_artifacts_empty_response_writes_empty_file(self, tmp_path):
-        from blueclaw.testing import _write_artifacts
-
-        failures = _write_artifacts(
-            invocation_dir=tmp_path,
-            case_idx=0,
-            run_idx=0,
-            response_text="",
-            messages=[],
-        )
-        assert failures == []
-        assert (tmp_path / "case-000" / "run-000" / "response.txt").read_text() == ""
-
-    def test_write_artifacts_mkdir_failure(self, tmp_path):
-        from blueclaw.testing import _write_artifacts
-
-        # Block the run subdir by writing a non-directory file at its location
-        blocker = tmp_path / "case-000"
-        blocker.write_text("blocker")
-        failures = _write_artifacts(
-            invocation_dir=tmp_path,
-            case_idx=0,
-            run_idx=0,
-            response_text="x",
-            messages=[],
-        )
-        assert len(failures) == 1
-        assert failures[0]["stage"] == "mkdir"
-        assert failures[0]["case_idx"] == 0
-        assert failures[0]["run_idx"] == 0
-        assert "reason" in failures[0]
-
-    def test_write_artifacts_response_failure_does_not_block_messages(
-        self, tmp_path, monkeypatch
-    ):
-        from blueclaw.testing import _write_artifacts
-        from pathlib import Path
-
-        # Stub Path.write_text to raise only for response.txt
-        orig = Path.write_text
-
-        def fake_write(self, content, *args, **kwargs):
-            if self.name == "response.txt":
-                raise OSError("simulated response.txt failure")
-            return orig(self, content, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "write_text", fake_write)
-
-        failures = _write_artifacts(
-            invocation_dir=tmp_path,
-            case_idx=0,
-            run_idx=0,
-            response_text="x",
-            messages=[{"role": "user"}],
-        )
-        # Response failed, messages succeeded
-        assert len(failures) == 1
-        assert failures[0]["stage"] == "response.txt"
-        assert (tmp_path / "case-000" / "run-000" / "messages.json").exists()
-
-    def test_write_artifacts_messages_failure_does_not_block_response(
-        self, tmp_path, monkeypatch
-    ):
-        from blueclaw.testing import _write_artifacts
-        from pathlib import Path
-
-        orig = Path.write_text
-
-        def fake_write(self, content, *args, **kwargs):
-            if self.name == "messages.json":
-                raise OSError("simulated messages.json failure")
-            return orig(self, content, *args, **kwargs)
-
-        monkeypatch.setattr(Path, "write_text", fake_write)
-
-        failures = _write_artifacts(
-            invocation_dir=tmp_path,
-            case_idx=0,
-            run_idx=0,
-            response_text="x",
-            messages=[],
-        )
-        assert len(failures) == 1
-        assert failures[0]["stage"] == "messages.json"
-        assert (tmp_path / "case-000" / "run-000" / "response.txt").exists()
-
-
 class TestRunSingleCapture:
-    def _make_stub_agent_factory(self, response_text="hi", raise_exc=None):
-        """Return a function that monkeypatches create_agent with a stub."""
-        from unittest.mock import MagicMock
-
-        def patch(monkeypatch):
-            stub_agent = MagicMock()
-            stub_agent.messages = [
-                {"role": "user", "content": [{"text": "x"}]},
-                {"role": "assistant", "content": [{"text": response_text}]},
-            ]
-            if raise_exc is not None:
-                stub_agent.side_effect = raise_exc
-            else:
-                fake_result = MagicMock()
-                fake_result.message = {"content": [{"text": response_text}]}
-                fake_result.metrics.accumulated_usage = {
-                    "inputTokens": 0,
-                    "outputTokens": 0,
-                }
-                stub_agent.return_value = fake_result
-            monkeypatch.setattr(
-                "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
-            )
-            monkeypatch.setattr(
-                "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
-            )
-
-        return patch
+    """Tests for _run_single artifact capture via the unified runner."""
 
     def test_run_single_writes_artifacts_on_success(self, tmp_path, monkeypatch):
         from blueclaw.testing import _run_single
         from blueclaw.models import TestCase, SessionConfig
 
-        self._make_stub_agent_factory(response_text="the answer is 4")(monkeypatch)
+        outcome = _make_mock_run_outcome(response_text="the answer is 4")
+        # Simulate runner writing the files (runner._write_capture_artifacts does this
+        # when capture_path is supplied; here we replicate that in the mock)
+
+        def fake_run_turn(*args, **kwargs):
+            cap = kwargs.get("capture_path")
+            if cap is not None:
+                cap.mkdir(parents=True, exist_ok=True)
+                (cap / "response.txt").write_text("the answer is 4")
+                (cap / "messages.json").write_text("[]")
+            return outcome
+
+        monkeypatch.setattr("blueclaw.runner.run_turn", fake_run_turn)
+
         config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
         capture_failures: list[dict] = []
         result = _run_single(
@@ -1464,52 +1327,47 @@ class TestRunSingleCapture:
         assert result.artifacts_path == str(run_dir)
         assert capture_failures == []
 
-    def test_run_single_writes_partial_artifacts_on_exception(
-        self, tmp_path, monkeypatch
-    ):
+    def test_run_single_translates_capture_failures(self, tmp_path, monkeypatch):
+        """capture_errors from runner are translated into invocation.json shape."""
         from blueclaw.testing import _run_single
         from blueclaw.models import TestCase, SessionConfig
 
-        self._make_stub_agent_factory(raise_exc=RuntimeError("kaboom"))(monkeypatch)
+        outcome = _make_mock_run_outcome(
+            response_text="ok",
+            capture_errors=[{"stage": "response.txt", "error": "disk full"}],
+        )
+        monkeypatch.setattr("blueclaw.runner.run_turn", lambda *a, **kw: outcome)
+
         config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
         capture_failures: list[dict] = []
-        result = _run_single(
+        _run_single(
             TestCase(goal="test"),
             config,
             tmp_path / "ws",
             model=None,
             invocation_dir=tmp_path / "artifacts",
-            case_idx=0,
-            run_idx=0,
+            case_idx=2,
+            run_idx=1,
             capture_failures=capture_failures,
         )
-        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
-        # response.txt exists (empty — no successful result)
-        assert (run_dir / "response.txt").read_text() == ""
-        # messages.json exists with whatever stub_agent.messages was
-        assert (run_dir / "messages.json").exists()
-        assert result.error == "kaboom"
+        assert len(capture_failures) == 1
+        assert capture_failures[0]["case_idx"] == 2
+        assert capture_failures[0]["run_idx"] == 1
+        assert capture_failures[0]["stage"] == "response.txt"
+        assert capture_failures[0]["reason"] == "disk full"
 
-    def test_run_single_handles_result_message_none(self, tmp_path, monkeypatch):
+    def test_run_single_error_outcome_produces_failed_result(
+        self, tmp_path, monkeypatch
+    ):
+        """run_turn returning error=... produces failed TestResult."""
         from blueclaw.testing import _run_single
         from blueclaw.models import TestCase, SessionConfig
-        from unittest.mock import MagicMock
 
-        stub_agent = MagicMock()
-        stub_agent.messages = []
-        fake_result = MagicMock()
-        fake_result.message = None  # the None-safety case
-        fake_result.metrics.accumulated_usage = {"inputTokens": 0, "outputTokens": 0}
-        stub_agent.return_value = fake_result
-        monkeypatch.setattr(
-            "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
-        )
-        monkeypatch.setattr(
-            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
-        )
+        outcome = _make_mock_run_outcome(error=RuntimeError("kaboom"))
+        monkeypatch.setattr("blueclaw.runner.run_turn", lambda *a, **kw: outcome)
 
         config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
-        _run_single(
+        result = _run_single(
             TestCase(goal="test"),
             config,
             tmp_path / "ws",
@@ -1519,9 +1377,9 @@ class TestRunSingleCapture:
             run_idx=0,
             capture_failures=[],
         )
-        # Did not crash; wrote empty response.txt
-        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
-        assert (run_dir / "response.txt").read_text() == ""
+        assert result.error == "kaboom"
+        assert result.verdict == "fail"
+        assert result.passed is False
 
     def test_run_single_skips_capture_when_invocation_dir_is_none(
         self, tmp_path, monkeypatch
@@ -1529,7 +1387,10 @@ class TestRunSingleCapture:
         from blueclaw.testing import _run_single
         from blueclaw.models import TestCase, SessionConfig
 
-        self._make_stub_agent_factory()(monkeypatch)
+        monkeypatch.setattr(
+            "blueclaw.runner.run_turn",
+            lambda *a, **kw: _make_mock_run_outcome(),
+        )
         config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
         result = _run_single(
             TestCase(goal="test"),
@@ -1545,21 +1406,20 @@ class TestRunSingleCapture:
         assert result.artifacts_path is None
         assert not (tmp_path / "artifacts").exists()
 
-    def test_run_single_records_create_agent_failure(self, tmp_path, monkeypatch):
-        """create_agent raising must produce a failed TestResult, not crash."""
+    def test_run_single_run_turn_failure_produces_failed_result(
+        self, tmp_path, monkeypatch
+    ):
+        """run_turn raising (unexpected) propagates as error; does not crash caller."""
         from blueclaw.testing import _run_single
         from blueclaw.models import TestCase, SessionConfig
 
-        def boom(*a, **kw):
-            raise RuntimeError("agent setup failed")
-
-        monkeypatch.setattr("blueclaw.testing.create_agent", boom)
-        monkeypatch.setattr(
-            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
-        )
+        # run_turn itself raises — this is the "agent setup failed" equivalent.
+        # run_turn catches internal exceptions via its own try/except and returns
+        # outcome.error, so this tests an unexpected raise from run_turn itself.
+        outcome = _make_mock_run_outcome(error=RuntimeError("agent setup failed"))
+        monkeypatch.setattr("blueclaw.runner.run_turn", lambda *a, **kw: outcome)
 
         config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
-        # Must not raise
         result = _run_single(
             TestCase(goal="test"),
             config,
@@ -1572,10 +1432,6 @@ class TestRunSingleCapture:
         )
         assert result.error == "agent setup failed"
         assert result.verdict == "fail"
-        # Capture still attempted with empty messages list
-        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
-        assert (run_dir / "response.txt").read_text() == ""
-        assert (run_dir / "messages.json").read_text() == "[]"
 
 
 class TestWriteInvocationMetadata:

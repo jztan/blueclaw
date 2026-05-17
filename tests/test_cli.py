@@ -51,29 +51,45 @@ class TestCommands:
         result = runner.invoke(app, ["history", "--help"])
         assert result.exit_code == 0
 
+    @patch("blueclaw.runner.run_turn")
     @patch("blueclaw.session.BackgroundContextUpdater")
-    @patch("blueclaw.session.cleanup_mcp_clients")
-    @patch("blueclaw.session.Agent")
     @patch("blueclaw.session.build_model")
     def test_run_updates_context_on_exit(
         self,
         mock_build_model,
-        mock_agent_cls,
-        mock_cleanup,
         mock_updater_cls,
+        mock_run_turn,
         tmp_path,
     ):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
         mock_build_model.return_value = MagicMock()
-        mock_agent = MagicMock()
-        result_obj = MagicMock()
-        result_obj.message = "ok"
-        result_obj.metrics.accumulated_usage = {
-            "inputTokens": 1,
-            "outputTokens": 1,
-            "totalTokens": 2,
-        }
-        mock_agent.return_value = result_obj
-        mock_agent_cls.return_value = mock_agent
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="hello", tools=[], tokens=2, cost=None)
+        trace = RunTrace(
+            run_id="x",
+            goal="hello",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=2,
+            status="success",
+        )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="ok",
+            trace=trace,
+            record=record,
+        )
+        mock_run_turn.return_value = outcome
+        mock_updater_cls.return_value.trigger = MagicMock()
+        mock_updater_cls.return_value.wait = MagicMock()
 
         config = SessionConfig(
             provider="anthropic",
@@ -87,7 +103,41 @@ class TestCommands:
 
         assert result.exit_code == 0
         mock_updater_cls.return_value.trigger.assert_called_once()
-        assert mock_cleanup.called
+
+    @patch("blueclaw.runner.run_turn")
+    @patch("blueclaw.session.build_model")
+    def test_run_subcommand_propagates_agent_error(
+        self,
+        mock_build_model,
+        mock_run_turn,
+        tmp_path,
+    ):
+        """Agent exception in `blueclaw run` exits non-zero with an error message."""
+        from blueclaw.runner import RunOutcome
+
+        mock_build_model.return_value = MagicMock()
+        outcome = RunOutcome(
+            result=None,
+            agent=MagicMock(),
+            response_text="",
+            trace=None,
+            record=None,
+            error=RuntimeError("boom"),
+        )
+        mock_run_turn.return_value = outcome
+
+        config = SessionConfig(
+            provider="anthropic",
+            model_id="claude-sonnet-4-6",
+            workspace_path=tmp_path / "workspace",
+            tools=[],
+        )
+
+        with patch("blueclaw.session.load_config", return_value=config):
+            result = runner.invoke(app, ["run", "hello"])
+
+        assert result.exit_code != 0
+        assert "agent error" in result.output.lower() or "boom" in result.output
 
 
 # --- Init command ---
@@ -1059,48 +1109,59 @@ class TestTraceShowContext:
 
 
 class TestStreamingCallbackWiring:
-    """Verify both CLI paths pass console to create_agent."""
+    """Verify both CLI paths wire the runner with the right arguments."""
 
     @patch("blueclaw.session.run_chat_loop")
-    @patch("blueclaw.session.create_agent")
     @patch("blueclaw.session.build_model")
-    def test_interactive_passes_console(
-        self, mock_build_model, mock_create_agent, mock_loop
-    ):
+    def test_interactive_passes_console(self, mock_build_model, mock_loop):
         mock_build_model.return_value = MagicMock()
-        mock_create_agent.return_value = MagicMock()
+        mock_loop.return_value = None
         result = runner.invoke(app, [], input="exit\n")
         assert result.exit_code == 0
-        assert mock_create_agent.called, "create_agent was never called"
-        call_kwargs = mock_create_agent.call_args
-        assert "console" in call_kwargs.kwargs
-        assert call_kwargs.kwargs["console"] is not None
+        assert mock_loop.called, "run_chat_loop was never called"
+        call_args = mock_loop.call_args
+        # run_chat_loop(workspace, console, config, model) — console is pos 1
+        assert call_args.args[1] is not None  # console passed
 
+    @patch("blueclaw.runner.run_turn")
     @patch("blueclaw.session.BackgroundContextUpdater")
-    @patch("blueclaw.session.cleanup_mcp_clients")
-    @patch("blueclaw.session.Agent")
-    @patch("blueclaw.session.create_agent")
     @patch("blueclaw.session.build_model")
     def test_scripted_run_passes_console(
         self,
         mock_build_model,
-        mock_create_agent,
-        mock_agent_cls,
-        mock_cleanup,
         mock_updater_cls,
+        mock_run_turn,
         tmp_path,
     ):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
         mock_build_model.return_value = MagicMock()
-        mock_agent = MagicMock()
-        result_obj = MagicMock()
-        result_obj.message = "ok"
-        result_obj.metrics.accumulated_usage = {
-            "inputTokens": 1,
-            "outputTokens": 1,
-            "totalTokens": 2,
-        }
-        mock_agent.return_value = result_obj
-        mock_create_agent.return_value = mock_agent
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="hello", tools=[], tokens=2, cost=None)
+        trace = RunTrace(
+            run_id="x",
+            goal="hello",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=2,
+            status="success",
+        )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="ok",
+            trace=trace,
+            record=record,
+        )
+        mock_run_turn.return_value = outcome
+        mock_updater_cls.return_value.trigger = MagicMock()
+        mock_updater_cls.return_value.wait = MagicMock()
 
         config = SessionConfig(
             provider="anthropic",
@@ -1109,11 +1170,9 @@ class TestStreamingCallbackWiring:
             tools=[],
         )
         with patch("blueclaw.session.load_config", return_value=config):
-            runner.invoke(app, ["run", "hello"])
-        assert mock_create_agent.called
-        call_kwargs = mock_create_agent.call_args
-        assert "console" in call_kwargs.kwargs
-        assert call_kwargs.kwargs["console"] is not None
+            result = runner.invoke(app, ["run", "hello"])
+        assert mock_run_turn.called
+        assert result.exit_code == 0
 
 
 class TestTracePurge:

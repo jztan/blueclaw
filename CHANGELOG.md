@@ -45,6 +45,17 @@ All notable changes to blueclaw will be documented in this file.
   automated tests in this file; real multi-turn fixtures are needed
   for that and are tracked as a follow-up.
 
+### Changed
+- Unified agent invocation orchestration into `blueclaw/runner.py`. Eval (`testing._run_single`) and terminal (`session.run_chat_loop`) now construct, invoke, and tear down Strands agents via the runner instead of duplicating the observer + `create_agent` + `build_trace_and_record` + `cleanup_mcp_clients` block. The `run` subcommand (`blueclaw run "..."`) also routes through the runner via `run_turn`. `RunOutcome` is the single exit type; capture artifacts (`response.txt` + `messages.json`) are written by the runner when an adapter supplies a `capture_path`. HTTP and Telegram migrations are tracked separately.
+
+### Added
+- `blueclaw/runner.py` exposes `runner_session` (context manager), `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__` runs `cleanup_mcp_clients` unconditionally — adapters can no longer forget it.
+- `tests/test_no_direct_create_agent.py` durability guard: any module outside `blueclaw/runner.py` / `blueclaw/session.py` matching `\bcreate_agent\b` fails the test. Remaining out-of-scope importers (`server.py`, `bridges/core.py`) are allowlisted pending their own migrations.
+
+### Fixed
+- `runner_session.__exit__` enforces `cleanup_mcp_clients` for any adapter that uses the runner, closing a class of bug structurally. The `BridgeRouter.handle_message` (Telegram) cleanup miss was the proof case that motivated this branch — adapters that build agents outside the runner can silently skip MCP teardown. The Telegram migration (separate branch) realizes the fix for that specific call site by adopting the runner; this branch ships the structural enforcement and the eval + terminal migrations that prove it.
+- `blueclaw run "..."` now exits non-zero with an error message when the agent raises (previously regressed to silent exit 0 during the terminal migration; restored before merge).
+
 ## [2.5.0] - 2026-05-16
 ### Added
 - **Telegram bridge.** New `blueclaw telegram` subcommand exposes blueclaw to

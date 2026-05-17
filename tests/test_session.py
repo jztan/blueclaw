@@ -526,25 +526,78 @@ class TestCreateAgent:
 
 
 class TestChatLoop:
-    @patch("blueclaw.session.write_turn_checkpoint")
-    @patch("blueclaw.session.update_context_on_exit")
-    @patch("blueclaw.session.PromptSession")
-    def test_chat_loop_sends_input_to_agent(
-        self, mock_prompt_cls, mock_ctx_update, mock_checkpoint, tmp_path
-    ):
-        ws = Workspace(tmp_path)
-        agent = MagicMock()
-        result = MagicMock()
-        result.message = "response"
-        result.metrics.accumulated_usage = {
+    """Tests for run_chat_loop — uses runner_session internally."""
+
+    def _make_runner_ctx(self, result_message="response", tools_called=None):
+        """Build a mock RunnerCtx and matching RunOutcome for injection."""
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
+        observer = MagicMock()
+        observer.tools_called = tools_called or []
+        observer.conversation_manager = None
+
+        mock_agent = MagicMock()
+        mock_result = MagicMock()
+        mock_result.message = result_message
+        mock_result.metrics.accumulated_usage = {
             "inputTokens": 10,
             "outputTokens": 5,
             "totalTokens": 15,
         }
-        result.stop_reason = "end_turn"
-        agent.return_value = result
-        observer = MagicMock()
-        observer.tools_called = []
+        mock_agent.return_value = mock_result
+
+        ctx = MagicMock()
+        ctx.agent = mock_agent
+        ctx.observer = observer
+
+        now = datetime.now(timezone.utc)
+        record = RunRecord(
+            ts=now,
+            goal="test",
+            tools=tools_called or [],
+            tokens=15,
+            cost=None,
+        )
+        trace = RunTrace(
+            run_id="20260101-000000-aa00",
+            goal="test",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=15,
+            status="success",
+        )
+        outcome = RunOutcome(
+            result=mock_result,
+            agent=mock_agent,
+            response_text=result_message,
+            trace=trace,
+            record=record,
+        )
+        return ctx, mock_agent, outcome
+
+    @patch("blueclaw.runner.runner_session")
+    @patch("blueclaw.runner.finalize")
+    @patch("blueclaw.session.write_turn_checkpoint")
+    @patch("blueclaw.session.PromptSession")
+    def test_chat_loop_sends_input_to_agent(
+        self,
+        mock_prompt_cls,
+        mock_checkpoint,
+        mock_finalize,
+        mock_runner_session,
+        tmp_path,
+    ):
+        ws = Workspace(tmp_path)
+        ctx, mock_agent, outcome = self._make_runner_ctx()
+        mock_runner_session.return_value.__enter__ = MagicMock(return_value=ctx)
+        mock_runner_session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_finalize.return_value = outcome
         console = Console(file=StringIO())
         cfg = SessionConfig()
 
@@ -552,17 +605,19 @@ class TestChatLoop:
         mock_session.prompt.side_effect = ["hello", "exit"]
         mock_prompt_cls.return_value = mock_session
 
-        run_chat_loop(agent, ws, observer, console, cfg)
-        agent.assert_called_once_with("hello")
+        run_chat_loop(ws, console, cfg)
+        mock_agent.assert_called_once_with("hello")
         mock_checkpoint.assert_called_once()
 
-    @patch("blueclaw.session.update_context_on_exit")
+    @patch("blueclaw.runner.runner_session")
     @patch("blueclaw.session.PromptSession")
-    def test_chat_loop_exit_commands(self, mock_prompt_cls, mock_ctx_update, tmp_path):
+    def test_chat_loop_exit_commands(
+        self, mock_prompt_cls, mock_runner_session, tmp_path
+    ):
         ws = Workspace(tmp_path)
-        agent = MagicMock()
-        observer = MagicMock()
-        observer.tools_called = []
+        ctx, mock_agent, _ = self._make_runner_ctx()
+        mock_runner_session.return_value.__enter__ = MagicMock(return_value=ctx)
+        mock_runner_session.return_value.__exit__ = MagicMock(return_value=False)
         console = Console(file=StringIO())
         cfg = SessionConfig()
 
@@ -570,19 +625,19 @@ class TestChatLoop:
             mock_session = MagicMock()
             mock_session.prompt.side_effect = [cmd]
             mock_prompt_cls.return_value = mock_session
-            run_chat_loop(agent, ws, observer, console, cfg)
-            agent.assert_not_called()
-            agent.reset_mock()
+            run_chat_loop(ws, console, cfg)
+            mock_agent.assert_not_called()
+            mock_agent.reset_mock()
 
-    @patch("blueclaw.session.update_context_on_exit")
+    @patch("blueclaw.runner.runner_session")
     @patch("blueclaw.session.PromptSession")
     def test_chat_loop_empty_input_skipped(
-        self, mock_prompt_cls, mock_ctx_update, tmp_path
+        self, mock_prompt_cls, mock_runner_session, tmp_path
     ):
         ws = Workspace(tmp_path)
-        agent = MagicMock()
-        observer = MagicMock()
-        observer.tools_called = []
+        ctx, mock_agent, _ = self._make_runner_ctx()
+        mock_runner_session.return_value.__enter__ = MagicMock(return_value=ctx)
+        mock_runner_session.return_value.__exit__ = MagicMock(return_value=False)
         console = Console(file=StringIO())
         cfg = SessionConfig()
 
@@ -590,15 +645,18 @@ class TestChatLoop:
         mock_session.prompt.side_effect = ["", "   ", "exit"]
         mock_prompt_cls.return_value = mock_session
 
-        run_chat_loop(agent, ws, observer, console, cfg)
-        agent.assert_not_called()
+        run_chat_loop(ws, console, cfg)
+        mock_agent.assert_not_called()
 
+    @patch("blueclaw.runner.runner_session")
     @patch("blueclaw.session.PromptSession")
-    def test_chat_loop_keyboard_interrupt(self, mock_prompt_cls, tmp_path):
+    def test_chat_loop_keyboard_interrupt(
+        self, mock_prompt_cls, mock_runner_session, tmp_path
+    ):
         ws = Workspace(tmp_path)
-        agent = MagicMock()
-        observer = MagicMock()
-        observer.tools_called = []
+        ctx, _, _ = self._make_runner_ctx()
+        mock_runner_session.return_value.__enter__ = MagicMock(return_value=ctx)
+        mock_runner_session.return_value.__exit__ = MagicMock(return_value=False)
         console = Console(file=StringIO())
         cfg = SessionConfig()
 
@@ -607,14 +665,15 @@ class TestChatLoop:
         mock_prompt_cls.return_value = mock_session
 
         # Should not raise
-        run_chat_loop(agent, ws, observer, console, cfg)
+        run_chat_loop(ws, console, cfg)
 
+    @patch("blueclaw.runner.runner_session")
     @patch("blueclaw.session.PromptSession")
-    def test_chat_loop_eof(self, mock_prompt_cls, tmp_path):
+    def test_chat_loop_eof(self, mock_prompt_cls, mock_runner_session, tmp_path):
         ws = Workspace(tmp_path)
-        agent = MagicMock()
-        observer = MagicMock()
-        observer.tools_called = []
+        ctx, _, _ = self._make_runner_ctx()
+        mock_runner_session.return_value.__enter__ = MagicMock(return_value=ctx)
+        mock_runner_session.return_value.__exit__ = MagicMock(return_value=False)
         console = Console(file=StringIO())
         cfg = SessionConfig()
 
@@ -623,139 +682,252 @@ class TestChatLoop:
         mock_prompt_cls.return_value = mock_session
 
         # Should not raise
-        run_chat_loop(agent, ws, observer, console, cfg)
+        run_chat_loop(ws, console, cfg)
 
 
 # --- Run summary ---
 
 
 class TestRunSummary:
-    def test_run_summary_format(self, tmp_path):
-        ws = Workspace(tmp_path)
-        observer = MagicMock()
-        observer.tools_called = ["web_search", "http_request"]
-        console = Console(file=StringIO())
-        cfg = SessionConfig()
+    """Tests for print_run_summary — only prints, no I/O."""
 
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 100,
-            "outputTokens": 50,
-            "totalTokens": 150,
-        }
+    def _make_outcome(self, tools=None, tokens=150, cost=None):
+        """Build a minimal RunOutcome for print_run_summary tests."""
+        from datetime import datetime, timezone
 
-        print_run_summary(
-            result=result,
-            goal="test query",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
+        now = datetime.now(timezone.utc)
+        record = RunRecord(
+            ts=now,
+            goal="test",
+            tools=tools or [],
+            tokens=tokens,
+            cost=cost,
         )
+        trace = RunTrace(
+            run_id="20260101-000000-aa00",
+            goal="test",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=tokens,
+            status="success",
+        )
+        return RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
+
+    def test_run_summary_format(self):
+        outcome = self._make_outcome(tools=["web_search", "http_request"], tokens=150)
+        console = Console(file=StringIO())
+        print_run_summary(outcome, console=console, elapsed=0.0)
         output = console.file.getvalue()
         assert "150" in output  # tokens
         assert "2" in output or "steps" in output.lower()
 
-    def test_run_summary_no_cost(self, tmp_path):
-        ws = Workspace(tmp_path)
-        observer = MagicMock()
-        observer.tools_called = []
+    def test_run_summary_no_cost(self):
+        outcome = self._make_outcome(tokens=150, cost=None)
         console = Console(file=StringIO())
-        cfg = SessionConfig(provider="ollama", model_id="llama3")
-
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 100,
-            "outputTokens": 50,
-            "totalTokens": 150,
-        }
-
-        print_run_summary(
-            result=result,
-            goal="test",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
-        )
+        print_run_summary(outcome, console=console, elapsed=0.0)
         output = console.file.getvalue()
         assert "$" not in output
 
-    def test_run_summary_records_to_history(self, tmp_path):
-        ws = Workspace(tmp_path)
-        observer = MagicMock()
-        observer.tools_called = ["t1"]
+    def test_run_summary_with_cost(self):
+        outcome = self._make_outcome(tokens=150, cost=0.0042)
         console = Console(file=StringIO())
-        cfg = SessionConfig()
+        print_run_summary(outcome, console=console, elapsed=0.0)
+        output = console.file.getvalue()
+        assert "$" in output
+        assert "0042" in output
 
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 100,
-            "outputTokens": 50,
-            "totalTokens": 150,
-        }
+    def test_run_summary_with_elapsed(self):
+        outcome = self._make_outcome(tokens=10)
+        console = Console(file=StringIO())
+        print_run_summary(outcome, console=console, elapsed=2.5)
+        output = console.file.getvalue()
+        assert "2.5s" in output
 
-        print_run_summary(
-            result=result,
-            goal="history test",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
+    def test_run_summary_none_record_is_noop(self):
+        """finalize_error path: outcome.record is None — nothing printed."""
+        from blueclaw.runner import RunOutcome
+
+        outcome = RunOutcome(
+            result=None,
+            agent=MagicMock(),
+            response_text="",
+            trace=None,
+            record=None,
+            error=RuntimeError("boom"),
         )
+        console = Console(file=StringIO())
+        print_run_summary(outcome, console=console, elapsed=0.0)
+        output = console.file.getvalue()
+        # Only a bare newline or nothing — no summary line
+        assert "Done" not in output
+
+    def test_run_summary_records_to_history(self, tmp_path):
+        """History is written by run_chat_loop; this test verifies the loop
+        calls workspace.append_history after a successful turn."""
+        ws = Workspace(tmp_path)
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="history test", tools=[], tokens=15, cost=None)
+        trace = RunTrace(
+            run_id="x",
+            goal="history test",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=15,
+            status="success",
+        )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
+
+        ctx = MagicMock()
+        ctx.agent.return_value = MagicMock()
+        ctx.observer.conversation_manager = None
+
+        with (
+            patch("blueclaw.runner.runner_session") as mock_rs,
+            patch("blueclaw.runner.finalize", return_value=outcome),
+            patch("blueclaw.session.PromptSession") as mock_ps,
+            patch("blueclaw.session.write_turn_checkpoint"),
+        ):
+            mock_rs.return_value.__enter__ = MagicMock(return_value=ctx)
+            mock_rs.return_value.__exit__ = MagicMock(return_value=False)
+            mock_session = MagicMock()
+            mock_session.prompt.side_effect = ["history test", "exit"]
+            mock_ps.return_value = mock_session
+            console = Console(file=StringIO())
+            run_chat_loop(ws, console, SessionConfig())
+
         records = ws.read_history()
         assert len(records) == 1
         assert records[0].goal == "history test"
 
     def test_run_summary_resets_observer(self, tmp_path):
+        """Observer is reset by run_chat_loop after each turn."""
         ws = Workspace(tmp_path)
-        observer = MagicMock()
-        observer.tools_called = ["t1"]
-        console = Console(file=StringIO())
-        cfg = SessionConfig()
+        from datetime import datetime, timezone
 
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 10,
-            "outputTokens": 5,
-            "totalTokens": 15,
-        }
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
 
-        print_run_summary(
-            result=result,
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="test", tools=[], tokens=15, cost=None)
+        trace = RunTrace(
+            run_id="x",
             goal="test",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=15,
+            status="success",
         )
-        observer.reset.assert_called_once()
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
+
+        ctx = MagicMock()
+        ctx.agent.return_value = MagicMock()
+        mock_cm = None
+        ctx.observer.conversation_manager = mock_cm
+
+        with (
+            patch("blueclaw.runner.runner_session") as mock_rs,
+            patch("blueclaw.runner.finalize", return_value=outcome),
+            patch("blueclaw.session.PromptSession") as mock_ps,
+            patch("blueclaw.session.write_turn_checkpoint"),
+        ):
+            mock_rs.return_value.__enter__ = MagicMock(return_value=ctx)
+            mock_rs.return_value.__exit__ = MagicMock(return_value=False)
+            mock_session = MagicMock()
+            mock_session.prompt.side_effect = ["hello", "exit"]
+            mock_ps.return_value = mock_session
+            console = Console(file=StringIO())
+            run_chat_loop(ws, console, SessionConfig())
+
+        ctx.observer.reset.assert_called_once()
 
     def test_run_summary_captures_context_metrics(self, tmp_path):
+        """context_masked_chars on trace comes from build_trace_and_record in runner."""
         ws = Workspace(tmp_path)
+        # This test now verifies that write_trace is called with the outcome.trace —
+        # the trace itself is built by the runner, not by print_run_summary.
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
+
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="test", tools=["t1"], tokens=150, cost=None)
+        trace = RunTrace(
+            run_id="x",
+            goal="test",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=150,
+            status="success",
+            context_masked_chars=5000,
+            context_strategy="mask",
+        )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
+
+        ctx = MagicMock()
+        ctx.agent.return_value = MagicMock()
         mock_cm = MagicMock()
         mock_cm.masked_chars = 5000
-        observer = MagicMock()
-        observer.tools_called = ["t1"]
-        observer.conversation_manager = mock_cm
-        console = Console(file=StringIO())
-        cfg = SessionConfig()
+        ctx.observer.conversation_manager = mock_cm
 
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 100,
-            "outputTokens": 50,
-            "totalTokens": 150,
-        }
+        with (
+            patch("blueclaw.runner.runner_session") as mock_rs,
+            patch("blueclaw.runner.finalize", return_value=outcome),
+            patch("blueclaw.session.PromptSession") as mock_ps,
+            patch("blueclaw.session.write_turn_checkpoint"),
+        ):
+            mock_rs.return_value.__enter__ = MagicMock(return_value=ctx)
+            mock_rs.return_value.__exit__ = MagicMock(return_value=False)
+            mock_session = MagicMock()
+            mock_session.prompt.side_effect = ["query", "exit"]
+            mock_ps.return_value = mock_session
+            console = Console(file=StringIO())
+            run_chat_loop(ws, console, SessionConfig())
 
-        print_run_summary(
-            result=result,
-            goal="test",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
-        )
         traces = ws.list_traces()
         assert len(traces) == 1
         assert traces[0].context_masked_chars == 5000
@@ -763,28 +935,52 @@ class TestRunSummary:
         mock_cm.reset_metrics.assert_called_once()
 
     def test_run_summary_no_context_metrics_without_cm(self, tmp_path):
+        """When observer has no conversation_manager, trace context fields are None."""
         ws = Workspace(tmp_path)
-        observer = MagicMock(spec=["tools_called", "trace_steps", "reset"])
-        observer.tools_called = []
-        observer.trace_steps = []
-        console = Console(file=StringIO())
-        cfg = SessionConfig()
+        from datetime import datetime, timezone
 
-        result = MagicMock()
-        result.metrics.accumulated_usage = {
-            "inputTokens": 10,
-            "outputTokens": 5,
-            "totalTokens": 15,
-        }
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
 
-        print_run_summary(
-            result=result,
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="test", tools=[], tokens=15, cost=None)
+        trace = RunTrace(
+            run_id="x",
             goal="test",
-            observer=observer,
-            workspace=ws,
-            config=cfg,
-            console=console,
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=15,
+            status="success",
         )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
+
+        ctx = MagicMock()
+        ctx.agent.return_value = MagicMock()
+        ctx.observer.conversation_manager = None
+
+        with (
+            patch("blueclaw.runner.runner_session") as mock_rs,
+            patch("blueclaw.runner.finalize", return_value=outcome),
+            patch("blueclaw.session.PromptSession") as mock_ps,
+            patch("blueclaw.session.write_turn_checkpoint"),
+        ):
+            mock_rs.return_value.__enter__ = MagicMock(return_value=ctx)
+            mock_rs.return_value.__exit__ = MagicMock(return_value=False)
+            mock_session = MagicMock()
+            mock_session.prompt.side_effect = ["query", "exit"]
+            mock_ps.return_value = mock_session
+            console = Console(file=StringIO())
+            run_chat_loop(ws, console, SessionConfig())
+
         traces = ws.list_traces()
         assert traces[0].context_masked_chars is None
 
@@ -1128,30 +1324,39 @@ class TestBuildTraceAndRecord:
         )
         assert trace.start_time.tzinfo is not None
 
-    def test_print_run_summary_still_works(
-        self, mock_agent_result, sample_observer, sample_config, sample_workspace
-    ):
-        from io import StringIO
-        from unittest.mock import patch
+    def test_print_run_summary_still_works(self):
+        """print_run_summary prints the summary line from a RunOutcome."""
+        from datetime import datetime, timezone
 
-        from rich.console import Console
+        from blueclaw.models import RunRecord, RunTrace
+        from blueclaw.runner import RunOutcome
 
+        now = datetime.now(timezone.utc)
+        record = RunRecord(ts=now, goal="test goal", tools=[], tokens=15, cost=None)
+        trace = RunTrace(
+            run_id="x",
+            goal="test goal",
+            source="terminal",
+            start_time=now,
+            end_time=now,
+            model_id="claude-sonnet-4-6",
+            steps=[],
+            total_tokens=15,
+            status="success",
+        )
+        outcome = RunOutcome(
+            result=MagicMock(),
+            agent=MagicMock(),
+            response_text="",
+            trace=trace,
+            record=record,
+        )
         console = Console(file=StringIO())
-        with (
-            patch.object(sample_workspace, "write_trace"),
-            patch.object(sample_workspace, "append_history") as mock_append,
-        ):
-            print_run_summary(
-                result=mock_agent_result,
-                goal="test goal",
-                observer=sample_observer,
-                workspace=sample_workspace,
-                config=sample_config,
-                console=console,
-                elapsed=1.0,
-            )
-            mock_append.assert_called_once()
-        assert sample_observer.tools_called == []
+        print_run_summary(outcome, console=console, elapsed=1.0)
+        output = console.file.getvalue()
+        assert "Done" in output
+        assert "15" in output  # tokens
+        assert "1.0s" in output  # elapsed
 
 
 # --- create_agent callback_handler / session_manager ---

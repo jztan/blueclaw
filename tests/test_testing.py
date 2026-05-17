@@ -1346,3 +1346,138 @@ class TestWriteArtifacts:
         assert len(failures) == 1
         assert failures[0]["stage"] == "messages.json"
         assert (tmp_path / "case-000" / "run-000" / "response.txt").exists()
+
+
+class TestRunSingleCapture:
+    def _make_stub_agent_factory(self, response_text="hi", raise_exc=None):
+        """Return a function that monkeypatches create_agent with a stub."""
+        from unittest.mock import MagicMock
+
+        def patch(monkeypatch):
+            stub_agent = MagicMock()
+            stub_agent.messages = [
+                {"role": "user", "content": [{"text": "x"}]},
+                {"role": "assistant", "content": [{"text": response_text}]},
+            ]
+            if raise_exc is not None:
+                stub_agent.side_effect = raise_exc
+            else:
+                fake_result = MagicMock()
+                fake_result.message = {"content": [{"text": response_text}]}
+                fake_result.metrics.accumulated_usage = {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                }
+                stub_agent.return_value = fake_result
+            monkeypatch.setattr(
+                "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
+            )
+            monkeypatch.setattr(
+                "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+            )
+
+        return patch
+
+    def test_run_single_writes_artifacts_on_success(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory(response_text="the answer is 4")(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        capture_failures: list[dict] = []
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=capture_failures,
+        )
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == "the answer is 4"
+        assert (run_dir / "messages.json").exists()
+        assert result.artifacts_path == str(run_dir)
+        assert capture_failures == []
+
+    def test_run_single_writes_partial_artifacts_on_exception(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory(raise_exc=RuntimeError("kaboom"))(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        capture_failures: list[dict] = []
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=capture_failures,
+        )
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        # response.txt exists (empty — no successful result)
+        assert (run_dir / "response.txt").read_text() == ""
+        # messages.json exists with whatever stub_agent.messages was
+        assert (run_dir / "messages.json").exists()
+        assert result.error == "kaboom"
+
+    def test_run_single_handles_result_message_none(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+        from unittest.mock import MagicMock
+
+        stub_agent = MagicMock()
+        stub_agent.messages = []
+        fake_result = MagicMock()
+        fake_result.message = None  # the None-safety case
+        fake_result.metrics.accumulated_usage = {"inputTokens": 0, "outputTokens": 0}
+        stub_agent.return_value = fake_result
+        monkeypatch.setattr(
+            "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
+        )
+        monkeypatch.setattr(
+            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+        )
+
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        # Did not crash; wrote empty response.txt
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == ""
+
+    def test_run_single_skips_capture_when_invocation_dir_is_none(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory()(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=None,
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        # No artifacts written; artifacts_path is None
+        assert result.artifacts_path is None
+        assert not (tmp_path / "artifacts").exists()

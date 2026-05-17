@@ -350,12 +350,26 @@ def _run_single(
     config,
     workspace_path: Path,
     model,
+    invocation_dir: Path | None = None,
+    case_idx: int = 0,
+    run_idx: int = 0,
+    capture_failures: list[dict] | None = None,
 ) -> TestResult:
-    """Execute a single agent run for a test case."""
+    """Execute a single agent run for a test case.
+
+    If invocation_dir is provided, writes response.txt + messages.json to
+    invocation_dir/case-<NNN>/run-<NNN>/. Any capture failures are appended
+    to capture_failures (which the caller owns).
+    """
+    if capture_failures is None:
+        capture_failures = []
     workspace = Workspace(workspace_path)
     quiet_console = Console(file=StringIO())
     observer = ObserverHooks(console=quiet_console, quiet=True)
     start = time.time()
+    result = None
+    agent = None
+    error_str: str | None = None
     try:
         agent = create_agent(
             config,
@@ -365,54 +379,82 @@ def _run_single(
             scripted=True,
             console=quiet_console,
         )
-        result = agent(case.goal)
+        try:
+            result = agent(case.goal)
+        except Exception as e:
+            error_str = str(e)
         elapsed = time.time() - start
 
-        usage = result.metrics.accumulated_usage
-        input_tokens = usage.get("inputTokens", 0)
-        output_tokens = usage.get("outputTokens", 0)
-        cache_read_tokens = usage.get("cacheReadInputTokens", 0)
-        cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
-        cost = calculate_cost(
-            config.model_id,
-            input_tokens,
-            output_tokens,
-            cache_read_tokens,
-            cache_write_tokens,
-        )
-        step_count = len(observer.tools_called)
-        tools_called = list(observer.tools_called)
-        response_text = extract_text(getattr(result, "message", result))
+        if result is not None:
+            usage = result.metrics.accumulated_usage
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+            cache_read_tokens = usage.get("cacheReadInputTokens", 0)
+            cache_write_tokens = usage.get("cacheWriteInputTokens", 0)
+            cost = calculate_cost(
+                config.model_id,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            )
+            step_count = len(observer.tools_called)
+            tools_called = list(observer.tools_called)
+            response_text = (
+                extract_text(result.message)
+                if getattr(result, "message", None) is not None
+                else ""
+            )
 
-        failures = _check_assertions(
-            case,
-            tools_called,
-            response_text,
-            step_count,
-            cost,
-            duration_s=elapsed,
-            workspace_root=workspace.root,
-        )
-        passed = len(failures) == 0
+            failures = _check_assertions(
+                case,
+                tools_called,
+                response_text,
+                step_count,
+                cost,
+                duration_s=elapsed,
+                workspace_root=workspace.root,
+            )
+            passed = len(failures) == 0
+            verdict = "pass" if passed else "fail"
+        else:
+            # Agent exception path — no result available
+            response_text = ""
+            tools_called = []
+            step_count = 0
+            cost = None
+            failures = []
+            passed = False
+            verdict = "fail"
+
+        # Capture artifacts before constructing TestResult (need artifacts_path)
+        artifacts_path: str | None = None
+        if invocation_dir is not None:
+            cap_errs = _write_artifacts(
+                invocation_dir,
+                case_idx,
+                run_idx,
+                response_text,
+                list(getattr(agent, "messages", [])),
+            )
+            capture_failures.extend(cap_errs)
+            # Always record the intended path even if some files failed to write;
+            # the existence of capture_failures entries flags partial captures.
+            artifacts_path = str(
+                invocation_dir / f"case-{case_idx:03d}" / f"run-{run_idx:03d}"
+            )
+
         test_result = TestResult(
             goal=case.goal,
             passed=passed,
-            verdict="pass" if passed else "fail",
+            verdict=verdict,
             failures=failures,
             tools_called=tools_called,
             steps=step_count,
             cost=cost,
             duration_s=elapsed,
-        )
-        _write_run_result(workspace_path, test_result)
-        return test_result
-    except Exception as e:
-        test_result = TestResult(
-            goal=case.goal,
-            passed=False,
-            verdict="fail",
-            error=str(e),
-            duration_s=time.time() - start,
+            error=error_str,
+            artifacts_path=artifacts_path,
         )
         _write_run_result(workspace_path, test_result)
         return test_result

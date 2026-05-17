@@ -40,6 +40,19 @@ def sample_test_spec(tmp_path):
 # --- Group A: Pure functions ---
 
 
+class TestTestResultModel:
+    def test_test_result_has_artifacts_path_field(self):
+        from blueclaw.models import TestResult
+
+        # Default is None (back-compat with existing call sites)
+        r = TestResult(goal="x", passed=True)
+        assert r.artifacts_path is None
+
+        # Can be set to a string path
+        r2 = TestResult(goal="x", passed=False, artifacts_path="/tmp/foo/run-000")
+        assert r2.artifacts_path == "/tmp/foo/run-000"
+
+
 class TestLoadSpec:
     def test_load_spec_valid(self, sample_test_spec):
         from blueclaw.testing import load_spec

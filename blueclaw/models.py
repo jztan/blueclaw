@@ -390,6 +390,7 @@ class TestResult(BaseModel):
     total_runs: int | None = None
     ci_lower: float | None = None
     ci_upper: float | None = None
+    artifacts_path: str | None = None
 
 
 class TestSpec(BaseModel):

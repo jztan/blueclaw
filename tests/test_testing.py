@@ -11,6 +11,70 @@ import pytest
 
 from blueclaw.models import TestCase, TestResult, TestSpec
 
+
+class TestArtifactsRoot:
+    def test_artifacts_root_uses_function_param_first(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "from-env"))
+        explicit = tmp_path / "from-param"
+        result = _artifacts_root(artifacts_root=explicit)
+        assert result is not None
+        # The result is the *invocation* dir under the root, not the root itself
+        assert result.parent == explicit
+        assert result.exists()
+
+    def test_artifacts_root_falls_back_to_env_var(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        env_root = tmp_path / "from-env"
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(env_root))
+        result = _artifacts_root(artifacts_root=None)
+        assert result is not None
+        assert result.parent == env_root
+        assert result.exists()
+
+    def test_artifacts_root_default_when_unset(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        monkeypatch.delenv("BLUECLAW_ARTIFACTS_ROOT", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))  # redirect ~
+        result = _artifacts_root(artifacts_root=None)
+        assert result is not None
+        # Default is ~/blueclaw/test-runs/<invocation-ts>/
+        assert "blueclaw" in str(result) and "test-runs" in str(result)
+        assert result.exists()
+
+    def test_artifacts_root_timestamp_format(self, tmp_path):
+        from blueclaw.testing import _artifacts_root
+        import re
+
+        result = _artifacts_root(artifacts_root=tmp_path)
+        # Format: YYYYMMDDTHHMMSSfffZ-<4hex>
+        name = result.name
+        assert re.match(r"^\d{8}T\d{6}\d{3}Z-[0-9a-f]{4}$", name), name
+
+    def test_artifacts_root_two_calls_produce_different_paths(self, tmp_path):
+        from blueclaw.testing import _artifacts_root
+
+        a = _artifacts_root(artifacts_root=tmp_path)
+        b = _artifacts_root(artifacts_root=tmp_path)
+        assert a != b  # 4-hex suffix disarms ms-collisions
+
+    def test_artifacts_root_returns_none_on_mkdir_failure(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        from blueclaw.testing import _artifacts_root
+
+        # Point at a path under a non-directory file — mkdir will fail
+        not_a_dir = tmp_path / "blocker"
+        not_a_dir.write_text("not a directory")
+        result = _artifacts_root(artifacts_root=not_a_dir / "below")
+        assert result is None
+        captured = capsys.readouterr()
+        assert "artifact capture disabled" in captured.err.lower()
+
+
 # --- Fixtures ---
 
 

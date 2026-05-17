@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
+import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from io import StringIO
 from math import sqrt
 from pathlib import Path
@@ -25,6 +28,39 @@ from blueclaw.session import (
 )
 from blueclaw.workspace import Workspace
 from strands import Agent, tool
+
+
+def _artifacts_root(artifacts_root: Path | None = None) -> Path | None:
+    """Resolve the artifacts root and create the per-invocation directory.
+
+    Precedence: function param > BLUECLAW_ARTIFACTS_ROOT env > ~/blueclaw/test-runs/.
+    Returns the path to the per-invocation directory (already created), or
+    None if creation failed. On failure, prints one stderr warning.
+    """
+    if artifacts_root is not None:
+        root = Path(artifacts_root)
+    elif os.environ.get("BLUECLAW_ARTIFACTS_ROOT"):
+        root = Path(os.environ["BLUECLAW_ARTIFACTS_ROOT"])
+    else:
+        root = Path.home() / "blueclaw" / "test-runs"
+
+    now = datetime.now(timezone.utc)
+    ts = (
+        now.strftime("%Y%m%dT%H%M%S")
+        + f"{now.microsecond // 1000:03d}Z-{secrets.token_hex(2)}"
+    )
+    invocation_dir = root / ts
+    try:
+        invocation_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(
+            f"blueclaw test: artifact capture disabled — "
+            f"could not create {invocation_dir}: {e}",
+            file=sys.stderr,
+        )
+        return None
+    return invocation_dir
+
 
 # --- Spec loading & validation ---
 

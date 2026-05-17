@@ -5,8 +5,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from blueclaw.runner import RunOutcome, _write_capture_artifacts
+import pytest
+
+from blueclaw.models import SessionConfig
+from blueclaw.runner import RunOutcome, _write_capture_artifacts, runner_session
+from blueclaw.workspace import Workspace
 
 
 def test_runoutcome_defaults_match_spec():
@@ -74,3 +79,60 @@ def test_write_capture_artifacts_messages_serialization_fallback(tmp_path: Path)
     assert errs == []
     text = (tmp_path / "leaf" / "messages.json").read_text()
     assert "WEIRD" in text
+
+
+# ---------------------------------------------------------------------------
+# runner_session tests (Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _fake_agent_factory():
+    """Return a stand-in for strands.Agent — callable, has messages/state."""
+    agent = MagicMock(name="fake_agent")
+    agent.messages = []
+    agent.state = MagicMock()
+    return agent
+
+
+@pytest.fixture
+def fake_session(tmp_path: Path):
+    """Minimal config + workspace fixture for runner tests."""
+    workspace = Workspace(tmp_path / "ws")
+    config = SessionConfig(provider="anthropic", model_id="claude-test")
+    return config, workspace
+
+
+def test_runner_session_yields_ctx_with_observer_and_agent(fake_session):
+    config, workspace = fake_session
+    fake_agent = _fake_agent_factory()
+    with patch("blueclaw.runner.create_agent", return_value=fake_agent) as mk:
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            assert ctx.agent is fake_agent
+            assert ctx.observer is not None
+        mk.assert_called_once()
+
+
+def test_runner_session_cleanup_runs_on_normal_exit(fake_session):
+    config, workspace = fake_session
+    with (
+        patch("blueclaw.runner.create_agent", return_value=_fake_agent_factory()),
+        patch("blueclaw.runner.cleanup_mcp_clients") as mk_cleanup,
+    ):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            pass
+        mk_cleanup.assert_called_once_with(ctx.observer)
+
+
+def test_runner_session_cleanup_runs_on_exception(fake_session):
+    """Central architectural claim: cleanup happens even if adapter raises."""
+    config, workspace = fake_session
+    with (
+        patch("blueclaw.runner.create_agent", return_value=_fake_agent_factory()),
+        patch("blueclaw.runner.cleanup_mcp_clients") as mk_cleanup,
+    ):
+        captured_ctx = {}
+        with pytest.raises(RuntimeError, match="adapter blew up"):
+            with runner_session(config, workspace, model=MagicMock()) as ctx:
+                captured_ctx["ctx"] = ctx
+                raise RuntimeError("adapter blew up")
+        mk_cleanup.assert_called_once_with(captured_ctx["ctx"].observer)

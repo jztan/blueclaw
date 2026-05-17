@@ -14,12 +14,18 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-from blueclaw.models import RunRecord, RunTrace
+from rich.console import Console
+
+from blueclaw.models import RunRecord, RunTrace, SessionConfig
 from blueclaw.observer import ObserverHooks
+from blueclaw.session import cleanup_mcp_clients, create_agent
+from blueclaw.workspace import Workspace
 
 
 def _write_capture_artifacts(
@@ -108,3 +114,53 @@ class RunOutcome:
     record: RunRecord | None
     capture_errors: list[dict] = field(default_factory=list)
     error: Exception | None = None
+
+
+_UNSET = object()
+
+
+@contextmanager
+def runner_session(
+    config: SessionConfig,
+    workspace: Workspace,
+    model,
+    *,
+    session_manager=None,
+    channel: str = "terminal",
+    callback_handler=_UNSET,
+    scripted: bool = True,
+    observer_console: Console | None = None,
+    observer_quiet: bool = True,
+) -> Iterator[RunnerCtx]:
+    """The only sanctioned way to construct an agent in BlueClaw.
+
+    Yields a RunnerCtx holding a fresh ObserverHooks and an Agent.
+    On exit runs cleanup_mcp_clients unconditionally — no adapter can
+    forget this. See module docstring for the historical bug.
+
+    observer_console / observer_quiet let terminal pass its real Rich
+    console (quiet=False so tool calls print inline). All other adapters
+    use the default StringIO + quiet=True.
+    """
+    if observer_console is None:
+        observer_console = Console(file=StringIO())
+    observer = ObserverHooks(console=observer_console, quiet=observer_quiet)
+
+    create_agent_kwargs = dict(
+        config=config,
+        workspace=workspace,
+        observer=observer,
+        model=model,
+        scripted=scripted,
+        session_manager=session_manager,
+        channel=channel,
+    )
+    if callback_handler is not _UNSET:
+        create_agent_kwargs["callback_handler"] = callback_handler
+
+    agent = create_agent(**create_agent_kwargs)
+    ctx = RunnerCtx(observer=observer, agent=agent)
+    try:
+        yield ctx
+    finally:
+        cleanup_mcp_clients(observer)

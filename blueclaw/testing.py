@@ -270,6 +270,81 @@ def _write_run_result(workspace_path: Path, result: TestResult) -> None:
         pass  # Best-effort; don't fail the test over a diagnostic write
 
 
+def _write_artifacts(
+    invocation_dir: Path,
+    case_idx: int,
+    run_idx: int,
+    response_text: str,
+    messages: list,
+) -> list[dict]:
+    """Write response.txt + messages.json for one run.
+
+    Returns a list of capture-failure records (empty on success). Each record:
+        {"case_idx": int, "run_idx": int, "stage": str, "reason": str}
+    where stage is one of "mkdir" | "response.txt" | "messages.json".
+    """
+    import json
+
+    failures: list[dict] = []
+    run_dir = invocation_dir / f"case-{case_idx:03d}" / f"run-{run_idx:03d}"
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        failures.append(
+            {
+                "case_idx": case_idx,
+                "run_idx": run_idx,
+                "stage": "mkdir",
+                "reason": f"{type(e).__name__}: {e}",
+            }
+        )
+        print(
+            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
+            f"mkdir: {e}",
+            file=sys.stderr,
+        )
+        return failures
+
+    # Attempt both files independently so one failure does not block the other.
+    try:
+        (run_dir / "response.txt").write_text(response_text)
+    except OSError as e:
+        failures.append(
+            {
+                "case_idx": case_idx,
+                "run_idx": run_idx,
+                "stage": "response.txt",
+                "reason": f"{type(e).__name__}: {e}",
+            }
+        )
+        print(
+            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
+            f"response.txt: {e}",
+            file=sys.stderr,
+        )
+
+    try:
+        (run_dir / "messages.json").write_text(
+            json.dumps(messages, indent=2, default=str)
+        )
+    except OSError as e:
+        failures.append(
+            {
+                "case_idx": case_idx,
+                "run_idx": run_idx,
+                "stage": "messages.json",
+                "reason": f"{type(e).__name__}: {e}",
+            }
+        )
+        print(
+            f"blueclaw test: capture failure case-{case_idx:03d}/run-{run_idx:03d}: "
+            f"messages.json: {e}",
+            file=sys.stderr,
+        )
+
+    return failures
+
+
 def _run_single(
     case: TestCase,
     config,

@@ -1240,3 +1240,109 @@ class TestCLI:
         assert result.exit_code == 0
         plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "--stub-tools" in plain
+
+
+class TestWriteArtifacts:
+    def test_write_artifacts_happy_path(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="The answer is 4.",
+            messages=[{"role": "user", "content": [{"text": "hi"}]}],
+        )
+        assert failures == []
+        run_dir = tmp_path / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == "The answer is 4."
+        import json
+
+        msgs = json.loads((run_dir / "messages.json").read_text())
+        assert msgs == [{"role": "user", "content": [{"text": "hi"}]}]
+
+    def test_write_artifacts_empty_response_writes_empty_file(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="",
+            messages=[],
+        )
+        assert failures == []
+        assert (tmp_path / "case-000" / "run-000" / "response.txt").read_text() == ""
+
+    def test_write_artifacts_mkdir_failure(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        # Block the run subdir by writing a non-directory file at its location
+        blocker = tmp_path / "case-000"
+        blocker.write_text("blocker")
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[],
+        )
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "mkdir"
+        assert failures[0]["case_idx"] == 0
+        assert failures[0]["run_idx"] == 0
+        assert "reason" in failures[0]
+
+    def test_write_artifacts_response_failure_does_not_block_messages(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_artifacts
+        from pathlib import Path
+
+        # Stub Path.write_text to raise only for response.txt
+        orig = Path.write_text
+
+        def fake_write(self, content, *args, **kwargs):
+            if self.name == "response.txt":
+                raise OSError("simulated response.txt failure")
+            return orig(self, content, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", fake_write)
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[{"role": "user"}],
+        )
+        # Response failed, messages succeeded
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "response.txt"
+        assert (tmp_path / "case-000" / "run-000" / "messages.json").exists()
+
+    def test_write_artifacts_messages_failure_does_not_block_response(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_artifacts
+        from pathlib import Path
+
+        orig = Path.write_text
+
+        def fake_write(self, content, *args, **kwargs):
+            if self.name == "messages.json":
+                raise OSError("simulated messages.json failure")
+            return orig(self, content, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", fake_write)
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[],
+        )
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "messages.json"
+        assert (tmp_path / "case-000" / "run-000" / "response.txt").exists()

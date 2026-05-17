@@ -10,7 +10,18 @@
 #
 # Run with:
 #   blueclaw test tests/eval/multi_turn_constraints.yaml
-# Estimated cost per full run: ~$0.46 (anthropic/claude-haiku-4-5).
+#
+# Model pinned to Sonnet 4.6 — this is a smoke-test stance, not a floor
+# stance. The eval certifies the prompt edits hold up on the model the
+# user actually runs blueclaw against day-to-day, not on every supported
+# model. Haiku 4.5 was tried first (the ~$0.46/run estimate in earlier
+# drafts) but couldn't reliably execute the agent loop for tool-using
+# tests within max_steps — it ran in circles. If you want to certify
+# behavior on a smaller model, that's a separate eval spec.
+#
+# Actual cost per full run on Sonnet 4.6: ~$1-2 (23 sequential agent
+# runs; tool-using tests dominate). Wall clock: ~10-15 min on a warm
+# network. Budget guard at $5 for any automated invocation.
 
 tests:
   # Test 1 — Tool-knowledge (catches Turn 1 failure: agent declined
@@ -67,7 +78,7 @@ tests:
     runs: 3
     threshold: 0.66
 
-model: anthropic/claude-haiku-4-5-20251001
+model: anthropic/claude-sonnet-4-6
 allowlist_domains:
   - fairprice.com.sg
   - www.fairprice.com.sg

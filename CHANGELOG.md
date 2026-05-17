@@ -4,6 +4,18 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **Eval response capture.** `blueclaw test` now persists the final assistant
+  response text (`response.txt`) and the full `agent.messages` structure
+  (`messages.json`) per run to `~/blueclaw/test-runs/<invocation-ts>/case-<N>/run-<N>/`,
+  plus an `invocation.json` summarizing the eval (model, blueclaw version,
+  argv, summary counts, capture failures). Decoupled from `--keep-workspace`:
+  artifacts persist regardless of workspace cleanup. The TAP formatter
+  appends an `artifacts:` breadcrumb to failure records so triage paths are
+  inline, and a final `Artifacts: <path>` line goes to stderr on completion.
+  Capture is best-effort — write failures log to stderr and are recorded in
+  `invocation.json:capture_failures` but never fail the eval. Override the
+  default root via `BLUECLAW_ARTIFACTS_ROOT` env var or
+  `run_spec(..., artifacts_root=)`.
 - **`forbidden_output_regex` test-case assertion.** New optional field on
   `TestCase` in test-spec YAMLs. Mirrors `output_regex` but inverts the
   semantics — fails the test if the regex matches the response. Lets eval

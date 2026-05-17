@@ -11,6 +11,70 @@ import pytest
 
 from blueclaw.models import TestCase, TestResult, TestSpec
 
+
+class TestArtifactsRoot:
+    def test_artifacts_root_uses_function_param_first(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "from-env"))
+        explicit = tmp_path / "from-param"
+        result = _artifacts_root(artifacts_root=explicit)
+        assert result is not None
+        # The result is the *invocation* dir under the root, not the root itself
+        assert result.parent == explicit
+        assert result.exists()
+
+    def test_artifacts_root_falls_back_to_env_var(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        env_root = tmp_path / "from-env"
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(env_root))
+        result = _artifacts_root(artifacts_root=None)
+        assert result is not None
+        assert result.parent == env_root
+        assert result.exists()
+
+    def test_artifacts_root_default_when_unset(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _artifacts_root
+
+        monkeypatch.delenv("BLUECLAW_ARTIFACTS_ROOT", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))  # redirect ~
+        result = _artifacts_root(artifacts_root=None)
+        assert result is not None
+        # Default is ~/blueclaw/test-runs/<invocation-ts>/
+        assert "blueclaw" in str(result) and "test-runs" in str(result)
+        assert result.exists()
+
+    def test_artifacts_root_timestamp_format(self, tmp_path):
+        from blueclaw.testing import _artifacts_root
+        import re
+
+        result = _artifacts_root(artifacts_root=tmp_path)
+        # Format: YYYYMMDDTHHMMSSfffZ-<4hex>
+        name = result.name
+        assert re.match(r"^\d{8}T\d{6}\d{3}Z-[0-9a-f]{4}$", name), name
+
+    def test_artifacts_root_two_calls_produce_different_paths(self, tmp_path):
+        from blueclaw.testing import _artifacts_root
+
+        a = _artifacts_root(artifacts_root=tmp_path)
+        b = _artifacts_root(artifacts_root=tmp_path)
+        assert a != b  # 4-hex suffix disarms ms-collisions
+
+    def test_artifacts_root_returns_none_on_mkdir_failure(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        from blueclaw.testing import _artifacts_root
+
+        # Point at a path under a non-directory file — mkdir will fail
+        not_a_dir = tmp_path / "blocker"
+        not_a_dir.write_text("not a directory")
+        result = _artifacts_root(artifacts_root=not_a_dir / "below")
+        assert result is None
+        captured = capsys.readouterr()
+        assert "artifact capture disabled" in captured.err.lower()
+
+
 # --- Fixtures ---
 
 
@@ -38,6 +102,19 @@ def sample_test_spec(tmp_path):
 
 
 # --- Group A: Pure functions ---
+
+
+class TestTestResultModel:
+    def test_test_result_has_artifacts_path_field(self):
+        from blueclaw.models import TestResult
+
+        # Default is None (back-compat with existing call sites)
+        r = TestResult(goal="x", passed=True)
+        assert r.artifacts_path is None
+
+        # Can be set to a string path
+        r2 = TestResult(goal="x", passed=False, artifacts_path="/tmp/foo/run-000")
+        assert r2.artifacts_path == "/tmp/foo/run-000"
 
 
 class TestLoadSpec:
@@ -860,8 +937,62 @@ class TestRunTestCase:
                 TestCase(goal="test 3"),
             ]
         )
-        results = run_spec(spec, sample_config, Path("/tmp/test"))
+        results, _invocation_dir = run_spec(spec, sample_config, Path("/tmp/test"))
         assert len(results) == 3
+
+
+class TestRunSpecCapture:
+    def test_run_spec_creates_invocation_dir_and_threads_through(
+        self, tmp_path, monkeypatch
+    ):
+        """run_spec creates invocation dir via _artifacts_root and threads it down."""
+        from blueclaw.testing import run_spec
+        from blueclaw.models import TestCase, TestSpec, SessionConfig
+        from unittest.mock import MagicMock
+
+        # Stub everything below run_spec so no real model is called
+        def fake_run_test_case(case, config, ws, model, **kwargs):
+            inv = kwargs.get("invocation_dir")
+            case_idx = kwargs.get("case_idx")
+            # Simulate what _run_single would do: write artifacts
+            if inv is not None:
+                run_dir = inv / f"case-{case_idx:03d}" / "run-000"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                (run_dir / "response.txt").write_text("stub response")
+                (run_dir / "messages.json").write_text("[]")
+            from blueclaw.models import TestResult
+
+            return TestResult(
+                goal=case.goal,
+                passed=True,
+                artifacts_path=(
+                    str(inv / f"case-{case_idx:03d}" / "run-000") if inv else None
+                ),
+            )
+
+        monkeypatch.setattr("blueclaw.testing.run_test_case", fake_run_test_case)
+        monkeypatch.setattr("blueclaw.testing.build_model", lambda config: MagicMock())
+
+        spec = TestSpec(
+            tests=[TestCase(goal="a"), TestCase(goal="b")],
+            model="anthropic/claude-haiku-4-5",
+        )
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+
+        # Use BLUECLAW_ARTIFACTS_ROOT env var as the test seam
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+        results, invocation_dir = run_spec(spec, config, tmp_path / "workspace")
+
+        assert len(results) == 2
+        # Each case's artifacts ended up under the invocation dir
+        artifacts_root = tmp_path / "artifacts"
+        invocation_dirs = list(artifacts_root.iterdir())
+        assert len(invocation_dirs) == 1
+        inv = invocation_dirs[0]
+        assert (inv / "case-000" / "run-000" / "response.txt").exists()
+        assert (inv / "case-001" / "run-000" / "response.txt").exists()
+        # Returned invocation_dir matches
+        assert invocation_dir == inv
 
 
 class TestMultiRun:
@@ -1107,7 +1238,10 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [TestResult(goal="test", passed=True, verdict="pass")]
+        mock_rs.return_value = (
+            [TestResult(goal="test", passed=True, verdict="pass")],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 0
@@ -1119,14 +1253,17 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [
-            TestResult(
-                goal="test",
-                passed=False,
-                verdict="fail",
-                failures=["bad"],
-            )
-        ]
+        mock_rs.return_value = (
+            [
+                TestResult(
+                    goal="test",
+                    passed=False,
+                    verdict="fail",
+                    failures=["bad"],
+                )
+            ],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 1
@@ -1138,15 +1275,18 @@ class TestCLI:
 
         from blueclaw.cli import app
 
-        mock_rs.return_value = [
-            TestResult(
-                goal="test",
-                passed=False,
-                verdict="inconclusive",
-                pass_count=24,
-                total_runs=30,
-            )
-        ]
+        mock_rs.return_value = (
+            [
+                TestResult(
+                    goal="test",
+                    passed=False,
+                    verdict="inconclusive",
+                    pass_count=24,
+                    total_runs=30,
+                )
+            ],
+            None,
+        )
         runner = CliRunner()
         result = runner.invoke(app, ["test", str(sample_test_spec)])
         assert result.exit_code == 0
@@ -1163,3 +1303,396 @@ class TestCLI:
         assert result.exit_code == 0
         plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "--stub-tools" in plain
+
+
+class TestWriteArtifacts:
+    def test_write_artifacts_happy_path(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="The answer is 4.",
+            messages=[{"role": "user", "content": [{"text": "hi"}]}],
+        )
+        assert failures == []
+        run_dir = tmp_path / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == "The answer is 4."
+        import json
+
+        msgs = json.loads((run_dir / "messages.json").read_text())
+        assert msgs == [{"role": "user", "content": [{"text": "hi"}]}]
+
+    def test_write_artifacts_empty_response_writes_empty_file(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="",
+            messages=[],
+        )
+        assert failures == []
+        assert (tmp_path / "case-000" / "run-000" / "response.txt").read_text() == ""
+
+    def test_write_artifacts_mkdir_failure(self, tmp_path):
+        from blueclaw.testing import _write_artifacts
+
+        # Block the run subdir by writing a non-directory file at its location
+        blocker = tmp_path / "case-000"
+        blocker.write_text("blocker")
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[],
+        )
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "mkdir"
+        assert failures[0]["case_idx"] == 0
+        assert failures[0]["run_idx"] == 0
+        assert "reason" in failures[0]
+
+    def test_write_artifacts_response_failure_does_not_block_messages(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_artifacts
+        from pathlib import Path
+
+        # Stub Path.write_text to raise only for response.txt
+        orig = Path.write_text
+
+        def fake_write(self, content, *args, **kwargs):
+            if self.name == "response.txt":
+                raise OSError("simulated response.txt failure")
+            return orig(self, content, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", fake_write)
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[{"role": "user"}],
+        )
+        # Response failed, messages succeeded
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "response.txt"
+        assert (tmp_path / "case-000" / "run-000" / "messages.json").exists()
+
+    def test_write_artifacts_messages_failure_does_not_block_response(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_artifacts
+        from pathlib import Path
+
+        orig = Path.write_text
+
+        def fake_write(self, content, *args, **kwargs):
+            if self.name == "messages.json":
+                raise OSError("simulated messages.json failure")
+            return orig(self, content, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", fake_write)
+
+        failures = _write_artifacts(
+            invocation_dir=tmp_path,
+            case_idx=0,
+            run_idx=0,
+            response_text="x",
+            messages=[],
+        )
+        assert len(failures) == 1
+        assert failures[0]["stage"] == "messages.json"
+        assert (tmp_path / "case-000" / "run-000" / "response.txt").exists()
+
+
+class TestRunSingleCapture:
+    def _make_stub_agent_factory(self, response_text="hi", raise_exc=None):
+        """Return a function that monkeypatches create_agent with a stub."""
+        from unittest.mock import MagicMock
+
+        def patch(monkeypatch):
+            stub_agent = MagicMock()
+            stub_agent.messages = [
+                {"role": "user", "content": [{"text": "x"}]},
+                {"role": "assistant", "content": [{"text": response_text}]},
+            ]
+            if raise_exc is not None:
+                stub_agent.side_effect = raise_exc
+            else:
+                fake_result = MagicMock()
+                fake_result.message = {"content": [{"text": response_text}]}
+                fake_result.metrics.accumulated_usage = {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                }
+                stub_agent.return_value = fake_result
+            monkeypatch.setattr(
+                "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
+            )
+            monkeypatch.setattr(
+                "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+            )
+
+        return patch
+
+    def test_run_single_writes_artifacts_on_success(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory(response_text="the answer is 4")(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        capture_failures: list[dict] = []
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=capture_failures,
+        )
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == "the answer is 4"
+        assert (run_dir / "messages.json").exists()
+        assert result.artifacts_path == str(run_dir)
+        assert capture_failures == []
+
+    def test_run_single_writes_partial_artifacts_on_exception(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory(raise_exc=RuntimeError("kaboom"))(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        capture_failures: list[dict] = []
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=capture_failures,
+        )
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        # response.txt exists (empty — no successful result)
+        assert (run_dir / "response.txt").read_text() == ""
+        # messages.json exists with whatever stub_agent.messages was
+        assert (run_dir / "messages.json").exists()
+        assert result.error == "kaboom"
+
+    def test_run_single_handles_result_message_none(self, tmp_path, monkeypatch):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+        from unittest.mock import MagicMock
+
+        stub_agent = MagicMock()
+        stub_agent.messages = []
+        fake_result = MagicMock()
+        fake_result.message = None  # the None-safety case
+        fake_result.metrics.accumulated_usage = {"inputTokens": 0, "outputTokens": 0}
+        stub_agent.return_value = fake_result
+        monkeypatch.setattr(
+            "blueclaw.testing.create_agent", lambda *a, **kw: stub_agent
+        )
+        monkeypatch.setattr(
+            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+        )
+
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        # Did not crash; wrote empty response.txt
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == ""
+
+    def test_run_single_skips_capture_when_invocation_dir_is_none(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        self._make_stub_agent_factory()(monkeypatch)
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=None,
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        # No artifacts written; artifacts_path is None
+        assert result.artifacts_path is None
+        assert not (tmp_path / "artifacts").exists()
+
+    def test_run_single_records_create_agent_failure(self, tmp_path, monkeypatch):
+        """create_agent raising must produce a failed TestResult, not crash."""
+        from blueclaw.testing import _run_single
+        from blueclaw.models import TestCase, SessionConfig
+
+        def boom(*a, **kw):
+            raise RuntimeError("agent setup failed")
+
+        monkeypatch.setattr("blueclaw.testing.create_agent", boom)
+        monkeypatch.setattr(
+            "blueclaw.testing.cleanup_mcp_clients", lambda *a, **kw: None
+        )
+
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        # Must not raise
+        result = _run_single(
+            TestCase(goal="test"),
+            config,
+            tmp_path / "ws",
+            model=None,
+            invocation_dir=tmp_path / "artifacts",
+            case_idx=0,
+            run_idx=0,
+            capture_failures=[],
+        )
+        assert result.error == "agent setup failed"
+        assert result.verdict == "fail"
+        # Capture still attempted with empty messages list
+        run_dir = tmp_path / "artifacts" / "case-000" / "run-000"
+        assert (run_dir / "response.txt").read_text() == ""
+        assert (run_dir / "messages.json").read_text() == "[]"
+
+
+class TestWriteInvocationMetadata:
+    def test_write_invocation_metadata_writes_required_fields(
+        self, tmp_path, monkeypatch
+    ):
+        from blueclaw.testing import _write_invocation_metadata
+        from blueclaw.models import TestSpec, TestCase, TestResult, SessionConfig
+        import json
+        import sys
+
+        # Fake argv
+        monkeypatch.setattr(sys, "argv", ["blueclaw", "test", "spec.yaml"])
+
+        spec = TestSpec(
+            tests=[TestCase(goal="a"), TestCase(goal="b")],
+            model="anthropic/claude-haiku-4-5",
+        )
+        # spec_path is not on TestSpec; pass via attribute (set in run_spec)
+        spec._spec_path = "tests/eval/multi_turn_constraints.yaml"
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        results = [
+            TestResult(goal="a", passed=True, verdict="pass", cost=0.05),
+            TestResult(goal="b", passed=False, verdict="fail", cost=0.07),
+        ]
+        # Invocation dir simulates an _artifacts_root result
+        inv_dir = tmp_path / "20260517T143005123Z-a7f3"
+        inv_dir.mkdir()
+
+        _write_invocation_metadata(inv_dir, spec, config, results, capture_failures=[])
+
+        meta_path = inv_dir / "invocation.json"
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta["timestamp"] == "20260517T143005123Z-a7f3"
+        assert meta["timestamp_format"].startswith("UTC compact:")
+        assert meta["model"] == "claude-haiku-4-5"
+        assert meta["argv"] == ["blueclaw", "test", "spec.yaml"]
+        assert meta["summary"] == {"pass": 1, "fail": 1, "inconclusive": 0}
+        assert meta["total_cost_usd"] == pytest.approx(0.12)  # 0.05 + 0.07
+        assert "blueclaw_version" in meta
+        assert meta["capture_failures"] == []
+
+    def test_write_invocation_metadata_records_capture_failures(self, tmp_path):
+        from blueclaw.testing import _write_invocation_metadata
+        from blueclaw.models import TestSpec, TestCase, TestResult, SessionConfig
+        import json
+
+        spec = TestSpec(tests=[TestCase(goal="x")])
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+        results = [TestResult(goal="x", passed=True)]
+        cap_failures = [
+            {
+                "case_idx": 0,
+                "run_idx": 1,
+                "stage": "messages.json",
+                "reason": "OSError: disk full",
+            }
+        ]
+        inv_dir = tmp_path / "20260517T143005123Z-a7f3"
+        inv_dir.mkdir()
+
+        _write_invocation_metadata(inv_dir, spec, config, results, cap_failures)
+
+        meta = json.loads((inv_dir / "invocation.json").read_text())
+        assert meta["capture_failures"] == cap_failures
+
+
+class TestTapBreadcrumb:
+    def test_tap_failure_includes_artifacts_path(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=False,
+                verdict="fail",
+                failures=["something failed"],
+                artifacts_path="/tmp/inv-abc/case-000/run-000",
+            )
+        ]
+        out = format_tap(results)
+        assert "  artifacts: /tmp/inv-abc/case-000/run-000" in out
+        # Sibling key in the existing YAML block — still has the closing ...
+        assert "  ..." in out
+        # Did not modify failures: structure
+        assert "  failures:" in out
+        assert '    - "something failed"' in out
+
+    def test_tap_pass_does_not_include_artifacts(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=True,
+                verdict="pass",
+                artifacts_path="/tmp/inv-abc/case-000/run-000",
+            )
+        ]
+        out = format_tap(results)
+        assert "artifacts:" not in out  # PASS lines don't get the breadcrumb
+
+    def test_tap_failure_without_artifacts_path_omits_breadcrumb(self):
+        from blueclaw.testing import format_tap
+        from blueclaw.models import TestResult
+
+        results = [
+            TestResult(
+                goal="a goal",
+                passed=False,
+                verdict="fail",
+                failures=["x"],
+                artifacts_path=None,
+            )
+        ]
+        out = format_tap(results)
+        assert "artifacts:" not in out

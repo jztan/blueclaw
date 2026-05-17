@@ -470,10 +470,24 @@ def run_test_case(
     config,
     workspace_dir: Path,
     model,
+    invocation_dir: Path | None = None,
+    case_idx: int = 0,
+    capture_failures: list[dict] | None = None,
 ) -> TestResult:
     """Run a test case (single or multi-run with Wilson CI)."""
+    if capture_failures is None:
+        capture_failures = []
     if case.runs <= 1:
-        return _run_single(case, config, workspace_dir, model)
+        return _run_single(
+            case,
+            config,
+            workspace_dir,
+            model,
+            invocation_dir=invocation_dir,
+            case_idx=case_idx,
+            run_idx=0,
+            capture_failures=capture_failures,
+        )
 
     pass_count = 0
     all_failures: list[str] = []
@@ -481,7 +495,16 @@ def run_test_case(
     total_duration = 0.0
     last_result: TestResult | None = None
     for r in range(case.runs):
-        result = _run_single(case, config, Path(workspace_dir) / f"run-{r:03d}", model)
+        result = _run_single(
+            case,
+            config,
+            Path(workspace_dir) / f"run-{r:03d}",
+            model,
+            invocation_dir=invocation_dir,
+            case_idx=case_idx,
+            run_idx=r,
+            capture_failures=capture_failures,
+        )
         last_result = result
         if result.passed:
             pass_count += 1
@@ -514,22 +537,67 @@ def run_test_case(
         duration_s=total_duration,
         tools_called=last_result.tools_called if last_result else [],
         steps=last_result.steps if last_result else 0,
+        # For multi-run, surface the parent case-NNN/ dir so triage points
+        # at the whole case, not the last individual run.
+        artifacts_path=(
+            str(invocation_dir / f"case-{case_idx:03d}")
+            if invocation_dir is not None
+            else None
+        ),
     )
 
 
-def run_spec(spec: TestSpec, config, workspace_dir: Path) -> list[TestResult]:
-    """Run all test cases in a spec."""
+def _write_invocation_metadata(
+    invocation_dir: Path,
+    spec: TestSpec,
+    config,
+    results: list[TestResult],
+    capture_failures: list[dict],
+) -> None:
+    """Stub — implemented in Task 6."""
+    pass
+
+
+def run_spec(
+    spec: TestSpec,
+    config,
+    workspace_dir: Path,
+    artifacts_root: Path | None = None,
+) -> tuple[list[TestResult], Path | None]:
+    """Run all test cases in a spec.
+
+    Returns (results, invocation_dir). invocation_dir is None if artifact
+    capture was disabled (creation failed). If capture succeeds, writes
+    invocation.json after all runs complete. Capture failures are
+    best-effort and do not fail the run.
+    """
     progress = Console(stderr=True)
     model = build_model(config)
+    invocation_dir = _artifacts_root(artifacts_root=artifacts_root)
+    capture_failures: list[dict] = []
     results = []
     for i, case in enumerate(spec.tests):
         label = case.goal[:40] + ("..." if len(case.goal) > 40 else "")
         progress.print(f"Test {i + 1}/{len(spec.tests)}: {label}", end="")
         ws = Path(workspace_dir) / f"case-{i:03d}"
-        result = run_test_case(case, config, ws, model)
+        result = run_test_case(
+            case,
+            config,
+            ws,
+            model,
+            invocation_dir=invocation_dir,
+            case_idx=i,
+            capture_failures=capture_failures,
+        )
         results.append(result)
         progress.print(f" ...{result.verdict.upper()}")
-    return results
+
+    if invocation_dir is not None:
+        _write_invocation_metadata(
+            invocation_dir, spec, config, results, capture_failures
+        )
+
+    return results, invocation_dir
 
 
 # --- Output formatters ---

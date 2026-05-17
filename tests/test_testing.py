@@ -937,8 +937,62 @@ class TestRunTestCase:
                 TestCase(goal="test 3"),
             ]
         )
-        results = run_spec(spec, sample_config, Path("/tmp/test"))
+        results, _invocation_dir = run_spec(spec, sample_config, Path("/tmp/test"))
         assert len(results) == 3
+
+
+class TestRunSpecCapture:
+    def test_run_spec_creates_invocation_dir_and_threads_through(
+        self, tmp_path, monkeypatch
+    ):
+        """run_spec creates invocation dir via _artifacts_root and threads it down."""
+        from blueclaw.testing import run_spec
+        from blueclaw.models import TestCase, TestSpec, SessionConfig
+        from unittest.mock import MagicMock
+
+        # Stub everything below run_spec so no real model is called
+        def fake_run_test_case(case, config, ws, model, **kwargs):
+            inv = kwargs.get("invocation_dir")
+            case_idx = kwargs.get("case_idx")
+            # Simulate what _run_single would do: write artifacts
+            if inv is not None:
+                run_dir = inv / f"case-{case_idx:03d}" / "run-000"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                (run_dir / "response.txt").write_text("stub response")
+                (run_dir / "messages.json").write_text("[]")
+            from blueclaw.models import TestResult
+
+            return TestResult(
+                goal=case.goal,
+                passed=True,
+                artifacts_path=(
+                    str(inv / f"case-{case_idx:03d}" / "run-000") if inv else None
+                ),
+            )
+
+        monkeypatch.setattr("blueclaw.testing.run_test_case", fake_run_test_case)
+        monkeypatch.setattr("blueclaw.testing.build_model", lambda config: MagicMock())
+
+        spec = TestSpec(
+            tests=[TestCase(goal="a"), TestCase(goal="b")],
+            model="anthropic/claude-haiku-4-5",
+        )
+        config = SessionConfig(provider="anthropic", model_id="claude-haiku-4-5")
+
+        # Use BLUECLAW_ARTIFACTS_ROOT env var as the test seam
+        monkeypatch.setenv("BLUECLAW_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+        results, invocation_dir = run_spec(spec, config, tmp_path / "workspace")
+
+        assert len(results) == 2
+        # Each case's artifacts ended up under the invocation dir
+        artifacts_root = tmp_path / "artifacts"
+        invocation_dirs = list(artifacts_root.iterdir())
+        assert len(invocation_dirs) == 1
+        inv = invocation_dirs[0]
+        assert (inv / "case-000" / "run-000" / "response.txt").exists()
+        assert (inv / "case-001" / "run-000" / "response.txt").exists()
+        # Returned invocation_dir matches
+        assert invocation_dir == inv
 
 
 class TestMultiRun:

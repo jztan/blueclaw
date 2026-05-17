@@ -41,7 +41,12 @@ from blueclaw.session import (
     BackgroundContextUpdater,
     extract_text,
 )
-from blueclaw.runner import finalize, runner_session
+from blueclaw.runner import (
+    finalize,
+    next_capture_path,
+    runner_session,
+    validate_session_id,
+)
 from blueclaw.workspace import Workspace, WorkspaceError
 from strands.session.file_session_manager import FileSessionManager
 
@@ -113,7 +118,17 @@ async def _parse_request(
         return None, JSONResponse({"error": "payload too large"}, status_code=413)
     try:
         req = MessageRequest(**json.loads(body))
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+    except ValidationError as exc:
+        # Pydantic echoes the rejected input_value in str(exc). For
+        # conversation_id failures that's a path-traversal leak, so collapse
+        # to a generic message instead of forwarding the validation detail.
+        for err in exc.errors():
+            if "conversation_id" in err.get("loc", ()):
+                return None, JSONResponse(
+                    {"error": "invalid conversation_id"}, status_code=400
+                )
+        return None, JSONResponse({"error": str(exc)}, status_code=400)
+    except (json.JSONDecodeError, TypeError) as exc:
         return None, JSONResponse({"error": str(exc)}, status_code=400)
     return req, None
 
@@ -211,6 +226,14 @@ def create_server_app(
             return err
         try:
             cid = req.conversation_id
+            if cid is not None:
+                try:
+                    validate_session_id(cid)
+                except ValueError as exc:
+                    logger.info("rejected conversation_id: %s", exc)
+                    return JSONResponse(
+                        {"error": "invalid conversation_id"}, status_code=400
+                    )
             records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
             if err_resp is not None:
                 return err_resp
@@ -241,6 +264,9 @@ def create_server_app(
                         callback_handler=None,
                         scripted=True,
                     ) as ctx:
+                        capture_path = (
+                            next_capture_path(workspace.root, cid) if cid else None
+                        )
                         start_time = datetime.now(timezone.utc)
                         try:
                             result = await asyncio.wait_for(
@@ -261,7 +287,7 @@ def create_server_app(
                             start_time=start_time,
                             end_time=end_time,
                             config=config,
-                            capture_path=None,
+                            capture_path=capture_path,
                         )
                         if context_updater is not None:
                             try:
@@ -293,6 +319,14 @@ def create_server_app(
             return err
 
         cid = req.conversation_id
+        if cid is not None:
+            try:
+                validate_session_id(cid)
+            except ValueError as exc:
+                logger.info("rejected conversation_id (stream): %s", exc)
+                return JSONResponse(
+                    {"error": "invalid conversation_id"}, status_code=400
+                )
         records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
         if err_resp is not None:
             return err_resp
@@ -328,6 +362,9 @@ def create_server_app(
                             callback_handler=None,
                             scripted=True,
                         ) as ctx:
+                            capture_path = (
+                                next_capture_path(workspace.root, cid) if cid else None
+                            )
                             start_time = datetime.now(timezone.utc)
                             final_result: Any = None
                             try:
@@ -371,7 +408,7 @@ def create_server_app(
                                 start_time=start_time,
                                 end_time=end_time,
                                 config=config,
-                                capture_path=None,
+                                capture_path=capture_path,
                             )
                             if context_updater is not None:
                                 try:

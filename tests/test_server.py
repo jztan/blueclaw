@@ -1275,6 +1275,58 @@ class TestStatefulStream:
 # --- Streaming workspace-error cleanup regression ---
 
 
+def test_message_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
+    """POST /message writes turn artifacts under .blueclaw/turns/<cid>/turn-NNN/."""
+    from blueclaw.models import SessionConfig
+    from blueclaw.workspace import Workspace
+    from tests.helpers.runner_stubs import install_stub_runner
+
+    workspace = Workspace(tmp_path)
+    config = SessionConfig()
+    install_stub_runner(monkeypatch)
+    monkeypatch.setenv("BLUECLAW_API_KEY", "")
+
+    app = create_server_app(config=config, workspace=workspace, model=object())
+    client = TestClient(app)
+
+    resp = client.post(
+        "/message",
+        json={"message": "hi", "conversation_id": "my-chat"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    turn_dir = tmp_path / ".blueclaw" / "turns" / "my-chat" / "turn-001"
+    assert (turn_dir / "response.txt").exists()
+    assert (turn_dir / "messages.json").exists()
+
+
+def test_message_endpoint_rejects_path_traversal_cid(tmp_path, monkeypatch):
+    """Malicious conversation_id returns 400 with body that does not echo input."""
+    from blueclaw.models import SessionConfig
+    from blueclaw.workspace import Workspace
+
+    workspace = Workspace(tmp_path)
+    config = SessionConfig()
+    monkeypatch.setenv("BLUECLAW_API_KEY", "")
+
+    app = create_server_app(config=config, workspace=workspace, model=object())
+    client = TestClient(app)
+
+    malicious = "../etc/passwd"
+    resp = client.post(
+        "/message",
+        json={"message": "hi", "conversation_id": malicious},
+    )
+    # MessageRequest pydantic validator rejects this via regex before our
+    # server-side validate_session_id check ever runs. Either way the
+    # response must NOT echo the rejected value (the no-echo guarantee is
+    # the load-bearing assertion).
+    assert resp.status_code in (400, 422)
+    body = resp.text
+    assert malicious not in body
+    assert ".." not in body
+
+
 class TestStreamingWorkspaceErrorCleanup:
     """Regression: when workspace.write_trace fails mid-stream, the SSE
     error event must emit AND MCP cleanup must run (via runner_session.__exit__).

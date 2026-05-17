@@ -41,6 +41,29 @@ class TestValidateSessionId:
     def test_numeric_id_accepted(self):
         validate_session_id("487341290")
 
+    def test_newline_rejected(self):
+        with pytest.raises(ValueError, match="whitespace or control char"):
+            validate_session_id("a\nb")
+
+    def test_carriage_return_rejected(self):
+        with pytest.raises(ValueError, match="whitespace or control char"):
+            validate_session_id("a\rb")
+
+    def test_tab_rejected(self):
+        with pytest.raises(ValueError, match="whitespace or control char"):
+            validate_session_id("a\tb")
+
+    def test_space_rejected(self):
+        with pytest.raises(ValueError, match="whitespace or control char"):
+            validate_session_id("a b")
+
+    def test_overlong_rejected(self):
+        with pytest.raises(ValueError, match="exceeds max length"):
+            validate_session_id("a" * 129)
+
+    def test_max_length_accepted(self):
+        validate_session_id("a" * 128)  # exactly at cap, allowed
+
 
 class TestNextCapturePath:
     def test_empty_dir_returns_turn_001(self, tmp_path):
@@ -120,3 +143,14 @@ class TestNextCapturePath:
         with caplog.at_level(logging.DEBUG, logger="blueclaw.runner"):
             next_capture_path(tmp_path, "session-a")
         assert any("ignoring malformed entry" in r.message for r in caplog.records)
+
+    def test_non_canonical_suffix_ignored(self, tmp_path):
+        # `turn-+5` and `turn- 5` are not canonical and must not advance
+        # the counter — the scan only counts entries whose suffix passes
+        # str.isdigit() (rejects '+', '-', whitespace, empty).
+        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir.mkdir(parents=True)
+        (turns_dir / "turn-+5").mkdir()
+        (turns_dir / "turn- 5").mkdir()
+        result = next_capture_path(tmp_path, "session-a")
+        assert result == turns_dir / "turn-001"

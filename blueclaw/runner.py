@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 _FORBIDDEN_ID_CHARS = ("/", "\\", "\x00")
+_MAX_SESSION_ID_LEN = 128  # filesystem-safe upper bound; tightens HTTP attack surface
 
 
 def validate_session_id(session_id: str) -> None:
@@ -53,8 +54,18 @@ def validate_session_id(session_id: str) -> None:
     """
     if not session_id:
         raise ValueError("session_id must be non-empty")
+    if len(session_id) > _MAX_SESSION_ID_LEN:
+        raise ValueError(
+            f"session_id exceeds max length {_MAX_SESSION_ID_LEN}: "
+            f"got {len(session_id)} chars"
+        )
     if any(ch in session_id for ch in _FORBIDDEN_ID_CHARS):
         raise ValueError(f"session_id contains forbidden path char: {session_id!r}")
+    for ch in session_id:
+        if ch.isspace() or ord(ch) < 32:
+            raise ValueError(
+                f"session_id contains whitespace or control char: {session_id!r}"
+            )
     if session_id in (".", ".."):
         raise ValueError(f"session_id resolves to current/parent dir: {session_id!r}")
 
@@ -87,11 +98,11 @@ def next_capture_path(workspace_root: Path, session_id: str) -> Path:
     for p in turns_dir.iterdir():
         if not p.name.startswith("turn-"):
             continue
-        try:
-            existing.append(int(p.name.split("-", 1)[1]))
-        except (ValueError, IndexError):
+        suffix = p.name[len("turn-") :]
+        if not suffix.isdigit():
             logger.debug("turn-capture: ignoring malformed entry %s", p)
             continue
+        existing.append(int(suffix))
 
     next_n = max(existing, default=0) + 1
     return turns_dir / f"turn-{next_n:03d}"

@@ -17,7 +17,7 @@ import secrets
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterator
@@ -281,3 +281,64 @@ def runner_session(
         yield ctx
     finally:
         cleanup_mcp_clients(observer)
+
+
+def run_turn(
+    config: SessionConfig,
+    workspace: Workspace,
+    model,
+    agent_input,
+    *,
+    goal: str,
+    source: str,
+    conversation_id: str | None = None,
+    session_manager=None,
+    channel: str = "terminal",
+    callback_handler=_UNSET,
+    scripted: bool = True,
+    capture_path: Path | None = None,
+) -> RunOutcome:
+    """Convenience for non-streaming, per-request adapters.
+
+    Enters runner_session, invokes agent(agent_input), calls finalize
+    (or finalize_error if the agent raised), exits. The returned RunOutcome
+    carries a post-exit agent — agent.messages and agent.state are readable
+    but agent invocation will fail.
+    """
+    with runner_session(
+        config,
+        workspace,
+        model,
+        session_manager=session_manager,
+        channel=channel,
+        callback_handler=callback_handler,
+        scripted=scripted,
+    ) as ctx:
+        start_time = datetime.now(timezone.utc)
+        try:
+            result = ctx.agent(agent_input)
+            end_time = datetime.now(timezone.utc)
+            return finalize(
+                ctx,
+                result,
+                goal=goal,
+                source=source,
+                conversation_id=conversation_id,
+                start_time=start_time,
+                end_time=end_time,
+                config=config,
+                capture_path=capture_path,
+            )
+        except Exception as exc:
+            end_time = datetime.now(timezone.utc)
+            return finalize_error(
+                ctx,
+                exc,
+                goal=goal,
+                source=source,
+                conversation_id=conversation_id,
+                start_time=start_time,
+                end_time=end_time,
+                config=config,
+                capture_path=capture_path,
+            )

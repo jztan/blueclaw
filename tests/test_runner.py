@@ -281,3 +281,67 @@ def test_finalize_error_populates_error_and_skips_trace(fake_session, tmp_path: 
     assert json.loads((capture_path / "messages.json").read_text()) == [
         {"role": "user", "content": "boom"}
     ]
+
+
+# ---------------------------------------------------------------------------
+# run_turn() tests (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_run_turn_happy_path(fake_session):
+    config, workspace = fake_session
+    fake_agent = _fake_agent_factory()
+    fake_agent.return_value = _fake_result("done")
+    fake_agent.messages = [{"role": "user", "content": "hi"}]
+
+    with patch("blueclaw.runner.create_agent", return_value=fake_agent):
+        from blueclaw.runner import run_turn
+
+        outcome = run_turn(
+            config,
+            workspace,
+            model=MagicMock(),
+            agent_input="hi",
+            goal="hi",
+            source="eval",
+        )
+
+    assert outcome.response_text == "done"
+    assert outcome.error is None
+    assert outcome.trace is not None
+    fake_agent.assert_called_once_with("hi")
+
+
+def test_run_turn_catches_agent_exception_and_attempts_capture(
+    fake_session, tmp_path: Path
+):
+    config, workspace = fake_session
+    capture_path = tmp_path / "case-001" / "run-000"
+    fake_agent = _fake_agent_factory()
+    err = RuntimeError("agent died")
+    fake_agent.side_effect = err
+    fake_agent.messages = [{"role": "user", "content": "hi"}]
+
+    with (
+        patch("blueclaw.runner.create_agent", return_value=fake_agent),
+        patch("blueclaw.runner.cleanup_mcp_clients") as mk_cleanup,
+    ):
+        from blueclaw.runner import run_turn
+
+        outcome = run_turn(
+            config,
+            workspace,
+            model=MagicMock(),
+            agent_input="hi",
+            goal="hi",
+            source="eval",
+            capture_path=capture_path,
+        )
+
+    assert outcome.error is err
+    assert outcome.trace is None
+    assert outcome.record is None
+    # Capture still attempted.
+    assert (capture_path / "messages.json").exists()
+    # Cleanup still ran.
+    mk_cleanup.assert_called_once()

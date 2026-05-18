@@ -172,6 +172,99 @@ def test_overflow_drops_subscriber_and_emits_stream_dropped(tmp_path: Path) -> N
         assert ev["dropped_count"] == 1
 
 
+def test_bus_connects_to_live_broker(tmp_path: Path) -> None:
+    """When a LiveBroker is running, EventBus forwards events to it."""
+    import time
+
+    from blueclaw.events import EventBus
+    from blueclaw.live_broker import LiveBroker
+
+    sock_path = tmp_path / "live.sock"
+    lock_path = tmp_path / "live.lock"
+    broker = LiveBroker(sock_path=sock_path, lock_path=lock_path)
+    broker.start()
+    try:
+        # Wait for broker to come up
+        deadline = time.time() + 2.0
+        while not sock_path.exists() and time.time() < deadline:
+            time.sleep(0.01)
+        assert sock_path.exists()
+
+        q = broker.subscribe("cid-live")
+
+        bus = EventBus(
+            tmp_path / "events.jsonl",
+            cid="cid-live",
+            run_id="r1",
+            live_sock_path=sock_path,
+            live_lock_path=lock_path,
+        )
+        bus.emit({"type": "tool.before", "tool_name": "x"})
+        bus.close()
+
+        # Drain queue
+        received = []
+        deadline = time.time() + 1.0
+        while time.time() < deadline and len(received) < 3:
+            try:
+                received.append(q.get(timeout=0.1))
+            except Exception:
+                pass
+        types = [e["type"] for e in received]
+        # Should include the schema.version, the tool.before, and stream.end
+        assert "tool.before" in types
+        # Disk also wrote (independent of broker)
+        lines = (tmp_path / "events.jsonl").read_text().splitlines()
+        assert len(lines) >= 2  # schema.version + tool.before
+    finally:
+        broker.stop()
+
+
+def test_bus_works_without_broker(tmp_path: Path) -> None:
+    """No broker running → bus writes to disk only, no exception."""
+    bus = EventBus(
+        tmp_path / "events.jsonl",
+        cid="cid-x",
+        run_id="r1",
+        live_sock_path=tmp_path / "nonexistent.sock",
+        live_lock_path=tmp_path / "nonexistent.lock",
+    )
+    bus.emit({"type": "tool.before", "tool_name": "x"})
+    bus.close()
+    # No exception. Disk write succeeded.
+    lines = (tmp_path / "events.jsonl").read_text().splitlines()
+    assert len(lines) >= 2
+
+
+def test_bus_without_cid_skips_live_connection(tmp_path: Path) -> None:
+    """cid=None means we don't even attempt to connect."""
+    import time
+
+    from blueclaw.live_broker import LiveBroker
+
+    sock = tmp_path / "live.sock"
+    lock = tmp_path / "live.lock"
+    broker = LiveBroker(sock_path=sock, lock_path=lock)
+    broker.start()
+    try:
+        deadline = time.time() + 2.0
+        while not sock.exists() and time.time() < deadline:
+            time.sleep(0.01)
+
+        bus = EventBus(
+            tmp_path / "events.jsonl",
+            cid=None,
+            run_id=None,
+            live_sock_path=sock,
+            live_lock_path=lock,
+        )
+        # Connection attempted? Should be False.
+        assert bus._live_client is None
+        bus.close()
+    finally:
+        broker.stop()
+
+
 def test_no_recursive_drop_under_cascading_overflow(tmp_path: Path) -> None:
     """If multiple subscribers overflow during a single emit, dispatch must
     not recurse — stream.dropped notices fire after dispatch finishes."""

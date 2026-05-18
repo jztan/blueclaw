@@ -326,7 +326,7 @@ def _bus_targets(observer) -> list:
 
 
 @contextmanager
-def bus_for_turn(observer, capture_path: Path | None):
+def bus_for_turn(observer, capture_path: Path | None, *, cid: str | None = None):
     """Create an EventBus for a single turn and attach it to every bus-aware
     component reachable from the observer.
 
@@ -334,6 +334,9 @@ def bus_for_turn(observer, capture_path: Path | None):
     that case we yield None and every component's emit guard no-ops. This
     is the single chokepoint for per-turn bus lifecycle — adapters call
     this rather than constructing EventBus directly.
+
+    cid, when provided, is forwarded to EventBus so it can opportunistically
+    connect to a running LiveBroker and forward events in real time.
 
     Bus-aware components in Phase 1: ObserverHooks (event emit for tool /
     model / message hooks), ObservationMaskingManager (event emit for
@@ -349,7 +352,7 @@ def bus_for_turn(observer, capture_path: Path | None):
 
     capture_path.mkdir(parents=True, exist_ok=True)
     try:
-        bus = EventBus(capture_path / "events.jsonl")
+        bus = EventBus(capture_path / "events.jsonl", cid=cid)
     except OSError:
         # Disk-full or permission error: fall back to no-bus mode so the turn
         # still completes.  Observability is degraded but the agent is not broken.
@@ -451,7 +454,7 @@ def run_turn(
         callback_handler=callback_handler,
         scripted=scripted,
     ) as ctx:
-        with bus_for_turn(ctx.observer, capture_path):
+        with bus_for_turn(ctx.observer, capture_path, cid=conversation_id):
             start_time = datetime.now(timezone.utc)
             try:
                 result = ctx.agent(agent_input)

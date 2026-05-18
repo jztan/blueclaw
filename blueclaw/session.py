@@ -732,7 +732,7 @@ def run_chat_loop(
 
                 start_time = datetime.now(timezone.utc)
                 capture_path = next_capture_path(workspace.root, session_id)
-                with bus_for_turn(ctx.observer, capture_path):
+                with bus_for_turn(ctx.observer, capture_path, cid=session_id):
                     try:
                         try:
                             traces = workspace.list_traces(limit=50)

@@ -270,7 +270,7 @@ def create_server_app(
                             next_capture_path(workspace.root, cid) if cid else None
                         )
                         start_time = datetime.now(timezone.utc)
-                        with bus_for_turn(ctx.observer, capture_path):
+                        with bus_for_turn(ctx.observer, capture_path, cid=cid):
                             try:
                                 result = await asyncio.wait_for(
                                     asyncio.to_thread(ctx.agent, prompt),
@@ -374,7 +374,7 @@ def create_server_app(
                             )
                             start_time = datetime.now(timezone.utc)
                             final_result: Any = None
-                            with bus_for_turn(ctx.observer, capture_path):
+                            with bus_for_turn(ctx.observer, capture_path, cid=cid):
                                 try:
                                     async with asyncio.timeout(_TIMEOUT):
                                         async for event in ctx.agent.stream_async(

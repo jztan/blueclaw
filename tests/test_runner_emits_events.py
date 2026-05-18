@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from rich.console import Console
@@ -115,3 +118,135 @@ def test_run_turn_masking_manager_bus_is_attached(tmp_path: Path) -> None:
 
     assert observer.bus is None
     assert observer.conversation_manager.bus is None
+
+
+def test_run_turn_survives_unwritable_events_path(tmp_path: Path, monkeypatch) -> None:
+    """If events.jsonl can't be written (read-only file), the turn still completes."""
+    from blueclaw.models import SessionConfig
+    from blueclaw.runner import next_capture_path, run_turn
+    from blueclaw.workspace import Workspace
+    from blueclaw import runner as runner_mod
+    from blueclaw.observer import ObserverHooks
+
+    workspace = Workspace(tmp_path / "ws")
+    workspace.root.mkdir(parents=True, exist_ok=True)
+
+    cid = "cid-readonly"
+    capture_path = next_capture_path(workspace.root, cid)
+    capture_path.mkdir(parents=True, exist_ok=True)
+
+    events_file = capture_path / "events.jsonl"
+    events_file.touch()
+    os.chmod(events_file, stat.S_IRUSR)  # 0400 — readable but not writable
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            self.observer: ObserverHooks = kwargs["observer"]
+
+        def __call__(self, agent_input):
+            if self.observer.bus is not None:
+                self.observer.bus.emit({"type": "tool.before", "tool_name": "x"})
+            result = MagicMock()
+            result.message = {"role": "assistant", "content": [{"text": "ok"}]}
+            return result
+
+    monkeypatch.setattr(runner_mod, "create_agent", lambda **k: FakeAgent(**k))
+    monkeypatch.setattr(runner_mod, "cleanup_mcp_clients", lambda *a, **k: None)
+    monkeypatch.setattr(
+        runner_mod,
+        "build_trace_and_record",
+        lambda *a, **k: (
+            MagicMock(model_dump=lambda **_: {}),
+            MagicMock(model_dump=lambda **_: {}),
+        ),
+    )
+
+    config = SessionConfig(model_provider="anthropic", model_id="x")
+    # The turn must complete without raising even though writes fail.
+    run_turn(
+        config,
+        workspace,
+        MagicMock(),
+        agent_input="hi",
+        goal="hi",
+        source="terminal",
+        conversation_id=cid,
+        capture_path=capture_path,
+        workspace_root=workspace.root,
+    )
+    # Restore writability so pytest can clean up tmp_path.
+    os.chmod(events_file, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def test_tool_before_input_inherits_summarization(tmp_path: Path, monkeypatch) -> None:
+    """tool.before.input must be summarized the same way TraceStep.input_summary is.
+
+    Regression guard: if _summarize_input is changed to redact more aggressively
+    (e.g., sk-... strings), events.jsonl must inherit the change automatically.
+    """
+    from blueclaw.models import SessionConfig
+    from blueclaw.runner import next_capture_path, run_turn
+    from blueclaw.workspace import Workspace
+    from blueclaw import runner as runner_mod
+    from blueclaw.observer import ObserverHooks
+    from blueclaw import observer as observer_mod
+
+    workspace = Workspace(tmp_path / "ws")
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    cid = "cid-redact"
+    capture_path = next_capture_path(workspace.root, cid)
+
+    sentinel = "REDACTED-BY-SUMMARIZE-INPUT"
+    monkeypatch.setattr(
+        observer_mod, "_summarize_input", lambda inp: {"REDACTED": sentinel}
+    )
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            self.observer: ObserverHooks = kwargs["observer"]
+
+        def __call__(self, agent_input):
+            self.observer.before_tool(
+                SimpleNamespace(
+                    tool_use={
+                        "toolUseId": "u1",
+                        "name": "secret_tool",
+                        "input": {"api_key": "sk-LIVE-KEY-MUST-NOT-LEAK"},
+                    },
+                    cancel_tool=None,
+                    invocation_state={},
+                )
+            )
+            result = MagicMock()
+            result.message = {"role": "assistant", "content": [{"text": "ok"}]}
+            return result
+
+    monkeypatch.setattr(runner_mod, "create_agent", lambda **k: FakeAgent(**k))
+    monkeypatch.setattr(runner_mod, "cleanup_mcp_clients", lambda *a, **k: None)
+    monkeypatch.setattr(
+        runner_mod,
+        "build_trace_and_record",
+        lambda *a, **k: (
+            MagicMock(model_dump=lambda **_: {}),
+            MagicMock(model_dump=lambda **_: {}),
+        ),
+    )
+
+    config = SessionConfig(model_provider="anthropic", model_id="x")
+    run_turn(
+        config,
+        workspace,
+        MagicMock(),
+        agent_input="hi",
+        goal="hi",
+        source="terminal",
+        conversation_id=cid,
+        capture_path=capture_path,
+        workspace_root=workspace.root,
+    )
+
+    text = (capture_path / "events.jsonl").read_text(encoding="utf-8")
+    # The literal API key must not appear anywhere in events.jsonl.
+    assert "sk-LIVE-KEY-MUST-NOT-LEAK" not in text
+    # The sentinel from _summarize_input must — proving the redaction path is shared.
+    assert sentinel in text

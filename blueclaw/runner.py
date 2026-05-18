@@ -348,7 +348,13 @@ def bus_for_turn(observer, capture_path: Path | None):
     from blueclaw.events import EventBus
 
     capture_path.mkdir(parents=True, exist_ok=True)
-    bus = EventBus(capture_path / "events.jsonl")
+    try:
+        bus = EventBus(capture_path / "events.jsonl")
+    except OSError:
+        # Disk-full or permission error: fall back to no-bus mode so the turn
+        # still completes.  Observability is degraded but the agent is not broken.
+        yield None
+        return
 
     targets = _bus_targets(observer)
     prev_buses: list[tuple[Any, Any]] = [(t, getattr(t, "bus", None)) for t in targets]

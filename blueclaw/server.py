@@ -42,6 +42,7 @@ from blueclaw.session import (
     extract_text,
 )
 from blueclaw.runner import (
+    bus_for_turn,
     finalize,
     next_capture_path,
     runner_session,
@@ -269,28 +270,29 @@ def create_server_app(
                             next_capture_path(workspace.root, cid) if cid else None
                         )
                         start_time = datetime.now(timezone.utc)
-                        try:
-                            result = await asyncio.wait_for(
-                                asyncio.to_thread(ctx.agent, prompt),
-                                timeout=_TIMEOUT,
+                        with bus_for_turn(ctx.observer, capture_path):
+                            try:
+                                result = await asyncio.wait_for(
+                                    asyncio.to_thread(ctx.agent, prompt),
+                                    timeout=_TIMEOUT,
+                                )
+                            except asyncio.TimeoutError:
+                                return JSONResponse(
+                                    {"error": "agent timed out"}, status_code=504
+                                )
+                            end_time = datetime.now(timezone.utc)
+                            outcome = finalize(
+                                ctx,
+                                result,
+                                goal=req.message,
+                                source="api",
+                                conversation_id=cid,
+                                start_time=start_time,
+                                end_time=end_time,
+                                config=config,
+                                capture_path=capture_path,
+                                workspace_root=workspace.root,
                             )
-                        except asyncio.TimeoutError:
-                            return JSONResponse(
-                                {"error": "agent timed out"}, status_code=504
-                            )
-                        end_time = datetime.now(timezone.utc)
-                        outcome = finalize(
-                            ctx,
-                            result,
-                            goal=req.message,
-                            source="api",
-                            conversation_id=cid,
-                            start_time=start_time,
-                            end_time=end_time,
-                            config=config,
-                            capture_path=capture_path,
-                            workspace_root=workspace.root,
-                        )
                         if context_updater is not None:
                             try:
                                 context_updater.trigger(ctx.agent)
@@ -372,50 +374,53 @@ def create_server_app(
                             )
                             start_time = datetime.now(timezone.utc)
                             final_result: Any = None
-                            try:
-                                async with asyncio.timeout(_TIMEOUT):
-                                    async for event in ctx.agent.stream_async(prompt):
-                                        # stream_async is typed
-                                        # AsyncIterator[Any]; isinstance fence
-                                        # protects against future SDK changes.
-                                        chunk = (
-                                            event.get("data")
-                                            if isinstance(event, dict)
-                                            else None
-                                        )
-                                        if chunk:
-                                            yield _sse("delta", {"text": chunk})
-                                        if (
-                                            isinstance(event, dict)
-                                            and event.get("result") is not None
+                            with bus_for_turn(ctx.observer, capture_path):
+                                try:
+                                    async with asyncio.timeout(_TIMEOUT):
+                                        async for event in ctx.agent.stream_async(
+                                            prompt
                                         ):
-                                            final_result = event["result"]
-                            except asyncio.TimeoutError:
-                                yield _sse("error", {"error": "agent timed out"})
-                                return
+                                            # stream_async is typed
+                                            # AsyncIterator[Any]; isinstance fence
+                                            # protects against future SDK changes.
+                                            chunk = (
+                                                event.get("data")
+                                                if isinstance(event, dict)
+                                                else None
+                                            )
+                                            if chunk:
+                                                yield _sse("delta", {"text": chunk})
+                                            if (
+                                                isinstance(event, dict)
+                                                and event.get("result") is not None
+                                            ):
+                                                final_result = event["result"]
+                                except asyncio.TimeoutError:
+                                    yield _sse("error", {"error": "agent timed out"})
+                                    return
 
-                            if final_result is None:
-                                # Backlog item 7: surface this via finalize_error
-                                # + capture once a partial-record path exists.
-                                yield _sse(
-                                    "error",
-                                    {"error": "agent did not return a result"},
+                                if final_result is None:
+                                    # Backlog item 7: surface this via finalize_error
+                                    # + capture once a partial-record path exists.
+                                    yield _sse(
+                                        "error",
+                                        {"error": "agent did not return a result"},
+                                    )
+                                    return
+
+                                end_time = datetime.now(timezone.utc)
+                                outcome = finalize(
+                                    ctx,
+                                    final_result,
+                                    goal=req.message,
+                                    source="api",
+                                    conversation_id=cid,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    config=config,
+                                    capture_path=capture_path,
+                                    workspace_root=workspace.root,
                                 )
-                                return
-
-                            end_time = datetime.now(timezone.utc)
-                            outcome = finalize(
-                                ctx,
-                                final_result,
-                                goal=req.message,
-                                source="api",
-                                conversation_id=cid,
-                                start_time=start_time,
-                                end_time=end_time,
-                                config=config,
-                                capture_path=capture_path,
-                                workspace_root=workspace.root,
-                            )
                             if context_updater is not None:
                                 try:
                                     context_updater.trigger(ctx.agent)

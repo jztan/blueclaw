@@ -128,6 +128,10 @@ blueclaw trace ui --all-chats        # dashboard with workspace dropdown
 
 Browser-based dashboard with 4 views: trace list with search/filter, trace detail with interactive waterfall timeline, side-by-side trace comparison, and aggregate stats with charts. Light/dark theme, auto-refresh, zero external dependencies.
 
+### Per-turn captures in the trace list
+
+Rows that have an associated per-turn capture (terminal/HTTP/Telegram) render a "Captures" cell with an inline preview chip — the first line of `response.txt`, truncated to 200 chars. Click the chip to expand and reveal "view response" / "view messages" links that open the raw artifacts in a new tab (served by `/api/turns/<cid>/<n>/{response,messages}`). Rows whose capture directory has been pruned (operator deleted `.blueclaw/turns/<cid>/`) show a "captures pruned" badge in place of the chip. Pre-feature traces with no `capture_path` show an empty cell.
+
 ### Multi-workspace mode
 
 When `--all-chats` is used, the dashboard sidebar shows a `Workspace` dropdown listing the default workspace plus every Telegram chat directory under `~/blueclaw/chats/`, plus an `All workspaces` option. Selecting `All workspaces` adds a `Source` column to the trace list and a `By source` table to the stats view.

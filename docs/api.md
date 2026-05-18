@@ -134,6 +134,10 @@ When `conversation_id` is rejected (path-traversal characters, whitespace/contro
 
 Every API turn writes `response.txt` and `messages.json` to `<workspace>/.blueclaw/turns/<conversation_id>/turn-NNN/` (numbering is filesystem-derived per `conversation_id`). Requests without a `conversation_id` are not captured. Capture is best-effort: write failures log to stderr but never fail the request.
 
+The trace JSON stored alongside (`.blueclaw/traces/<run_id>.json`) carries a `capture_path` field pointing at the per-turn directory, so dashboards and external tools can link a trace to its raw artifacts.
+
+The captured artifacts are surfaced inline in `blueclaw trace ui` (preview chip + "view full" links per row) via dashboard-only routes `GET /api/turns/<cid>/<n>/{response,messages}`. **These routes are not part of the `blueclaw serve` HTTP API** — only the `blueclaw trace ui` dashboard exposes them. If you need to fetch captures programmatically over the gateway API, read the files directly from the workspace path above, or file a request for serve-side parity (tracked as backlog item #9).
+
 ## CORS
 
 Requests from `http://localhost:<any port>` and `http://127.0.0.1:<any port>` are allowed by default. Pass `--cors-origin` to add one additional origin.

@@ -49,6 +49,8 @@ All notable changes to blueclaw will be documented in this file.
 - Unified agent invocation orchestration into `blueclaw/runner.py`. Eval (`testing._run_single`) and terminal (`session.run_chat_loop`) now construct, invoke, and tear down Strands agents via the runner instead of duplicating the observer + `create_agent` + `build_trace_and_record` + `cleanup_mcp_clients` block. The `run` subcommand (`blueclaw run "..."`) also routes through the runner via `run_turn`. `RunOutcome` is the single exit type; capture artifacts (`response.txt` + `messages.json`) are written by the runner when an adapter supplies a `capture_path`. HTTP migration is tracked separately.
 - Telegram bridge (`BridgeRouter.handle_message` in `blueclaw/bridges/core.py`) migrated onto `runner.run_turn`. The ~40-line inline orchestration block (observer + `create_agent` + manual `asyncio.to_thread(agent, text)` + `build_trace_and_record` + `extract_text`) collapses to a single `run_turn` call. The bridge keeps allowlist gating, per-chat `ChatContext`/lock, `FileSessionManager` construction, and trace/history persistence; everything agent-mechanical (including the previously missing `cleanup_mcp_clients`) is now the runner's responsibility.
 - HTTP gateway (`handle_message` and `handle_message_stream` in `blueclaw/server.py`) migrated onto `runner_session` + `finalize`. Both endpoints use `runner_session` directly (not `run_turn`) so `context_updater.trigger(agent)` runs before `cleanup_mcp_clients` inside the same `with` block — structural enforcement of the trigger-must-precede-cleanup invariant. The streaming endpoint keeps `agent.stream_async` adapter-driven (the documented streaming carve-out) and hands the terminal `event["result"]` to `finalize`. `ALLOWLIST_PENDING_MIGRATION` is now empty — every adapter constructs agents through one sanctioned path.
+- Workspace layout: per-conversation directories now live under `.blueclaw/conversations/<cid>/` (containing `session_<cid>/`, `turns/`, and `uploads/`). Legacy `.blueclaw/sessions/`, `.blueclaw/turns/`, and `.blueclaw/uploads/` are auto-migrated on first workspace load; a `.blueclaw/.migrated-v1` sentinel marks completion. Operators with custom backup or retention scripts pointing at the legacy paths must update them.
+- If `.blueclaw/.migrated-v1` is absent after upgrading, the migration encountered a destination collision (legacy `<cid>/` exists *and* new `conversations/<cid>/` already had the same child). Look for `migration skipping` warnings on stderr; resolve by manually moving or removing the conflicting destination, then run any blueclaw command to retry. The migration is safe to re-run.
 
 ### Added
 - `blueclaw/runner.py` exposes `runner_session` (context manager), `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__` runs `cleanup_mcp_clients` unconditionally — adapters can no longer forget it.
@@ -56,8 +58,8 @@ All notable changes to blueclaw will be documented in this file.
 - `tests/test_server.py::TestStreamingWorkspaceErrorCleanup`: structural regression test asserting that when `workspace.write_trace` raises mid-stream, the SSE `error` event emits AND `cleanup_mcp_clients` runs via `runner_session.__exit__`. Defends the streaming carve-out's cleanup ordering.
 - Per-turn capture for terminal, HTTP, and Telegram adapters. Each turn's
   `response.txt` and `messages.json` are written to
-  `<workspace>/.blueclaw/turns/<id>/turn-NNN/`. `<id>` is the conversation
-  ID for HTTP, the chat ID for Telegram, and a per-process
+  `<workspace>/.blueclaw/conversations/<id>/turns/turn-NNN/`. `<id>` is the
+  conversation ID for HTTP, the chat ID for Telegram, and a per-process
   `YYYYMMDD-HHMMSS-xxxx` timestamp for terminal sessions.
 - `blueclaw.runner.next_capture_path` helper and pure
   `blueclaw.runner.validate_session_id` validator. IDs are rejected if

@@ -383,33 +383,33 @@ class Workspace:
         return traces
 
     def purge_old_sessions(self, retention_days: int, dry_run: bool = False) -> int:
-        """Delete session dirs older than retention_days. Also remove the
-        matching uploads/<cid> dir and any orphaned uploads/tmp-* dirs older
-        than the same TTL. Returns count of session dirs deleted."""
-        sessions_dir = self.root / ".blueclaw" / "sessions"
-        uploads_dir = self.root / ".blueclaw" / "uploads"
-        if not sessions_dir.exists() and not uploads_dir.exists():
+        """Delete conversation dirs whose Strands session state is older than
+        retention_days. Mtime is read from ``session_<cid>/session.json`` when
+        present (file mtimes are more reliable than directory mtimes on tmpfs/
+        overlay filesystems), falling back to the ``session_<cid>/`` directory
+        mtime otherwise. The conversation dir's own mtime is *not* used because
+        it churns whenever turns/ or uploads/ change. Returns count of
+        conversations deleted.
+        """
+        if retention_days <= 0:
+            return 0
+        conversations = self.root / ".blueclaw" / "conversations"
+        if not conversations.exists():
             return 0
         cutoff = datetime.now().timestamp() - retention_days * 86400
         count = 0
-        if sessions_dir.exists():
-            for session_dir in sessions_dir.iterdir():
-                if not session_dir.is_dir():
-                    continue
-                if session_dir.stat().st_mtime < cutoff:
-                    if not dry_run:
-                        shutil.rmtree(session_dir, ignore_errors=True)
-                        sibling = uploads_dir / session_dir.name
-                        if sibling.exists():
-                            shutil.rmtree(sibling, ignore_errors=True)
-                    count += 1
-        if uploads_dir.exists():
-            for upload_dir in uploads_dir.iterdir():
-                if not upload_dir.is_dir() or not upload_dir.name.startswith("tmp-"):
-                    continue
-                if upload_dir.stat().st_mtime < cutoff:
-                    if not dry_run:
-                        shutil.rmtree(upload_dir, ignore_errors=True)
+        for conv_dir in conversations.iterdir():
+            if not conv_dir.is_dir():
+                continue
+            session_subdir = conv_dir / f"session_{conv_dir.name}"
+            if not session_subdir.exists():
+                continue
+            session_file = session_subdir / "session.json"
+            probe = session_file if session_file.exists() else session_subdir
+            if probe.stat().st_mtime < cutoff:
+                if not dry_run:
+                    shutil.rmtree(conv_dir, ignore_errors=True)
+                count += 1
         return count
 
     def purge_old_traces(self, retention_days: int, dry_run: bool = False) -> int:

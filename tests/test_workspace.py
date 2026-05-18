@@ -497,78 +497,49 @@ class TestTracePurge:
 
 
 class TestPurgeOldSessions:
-    def _make_session_dir(self, ws: Workspace, name: str, mtime_days_ago: int) -> Path:
-        import os
-        import time
+    def test_purge_old_sessions_uses_session_subdir_mtime(self, tmp_path):
+        import os as _os
+        import time as _time
 
-        sessions_dir = ws.root / ".blueclaw" / "sessions"
-        sessions_dir.mkdir(parents=True, exist_ok=True)
-        d = sessions_dir / name
-        d.mkdir()
-        old_time = time.time() - mtime_days_ago * 86400
-        os.utime(d, (old_time, old_time))
-        return d
+        ws = Workspace(tmp_path)
+        cid = "conv1"
+        conv = ws.conversation_dir(cid)
+        sess = conv / f"session_{cid}"
+        sess.mkdir(parents=True)
+        # Backdate session.json (a file — more reliable than dir mtime across FSes;
+        # the purge logic prefers session.json mtime when present)
+        session_file = sess / "session.json"
+        session_file.write_text("{}")
+        uploads = conv / "uploads"
+        uploads.mkdir(parents=True)
+        (uploads / "fresh-file").write_bytes(b"x")
 
-    def test_purge_removes_old_session_dir(self, sample_workspace):
-        d = self._make_session_dir(sample_workspace, "sess-old", 40)
-        count = sample_workspace.purge_old_sessions(retention_days=30)
+        old = _time.time() - 100 * 86400
+        _os.utime(session_file, (old, old))
+        _os.utime(sess, (old, old))  # defensive: backdate the dir too
+
+        count = ws.purge_old_sessions(retention_days=30, dry_run=False)
         assert count == 1
-        assert not d.exists()
+        assert not conv.exists()
 
-    def test_purge_keeps_recent_session_dir(self, sample_workspace):
-        d = self._make_session_dir(sample_workspace, "sess-new", 5)
-        count = sample_workspace.purge_old_sessions(retention_days=30)
+    def test_purge_old_sessions_keeps_fresh_conversations(self, tmp_path):
+        ws = Workspace(tmp_path)
+        conv = ws.conversation_dir("active")
+        sess = conv / "session_active"
+        sess.mkdir(parents=True)
+        (sess / "session.json").write_text("{}")
+
+        count = ws.purge_old_sessions(retention_days=30, dry_run=False)
         assert count == 0
-        assert d.exists()
+        assert conv.exists()
 
-    def test_purge_sessions_dir_missing_is_noop(self, sample_workspace):
-        count = sample_workspace.purge_old_sessions(retention_days=30)
+    def test_purge_old_sessions_handles_missing_session_subdir(self, tmp_path):
+        ws = Workspace(tmp_path)
+        conv = ws.conversation_dir("no-session")
+        # No session_<cid>/ child — purge should ignore (no session state to age)
+        count = ws.purge_old_sessions(retention_days=30, dry_run=False)
         assert count == 0
-
-    def test_purge_dry_run_does_not_delete(self, sample_workspace):
-        d = self._make_session_dir(sample_workspace, "sess-old", 40)
-        count = sample_workspace.purge_old_sessions(retention_days=30, dry_run=True)
-        assert count == 1
-        assert d.exists()
-
-
-def test_purge_old_sessions_removes_matching_uploads(tmp_path):
-    """Deleting a session dir also deletes its uploads/<cid> sibling, plus
-    orphaned uploads/tmp-* dirs older than the TTL."""
-    import os
-    import time
-
-    from blueclaw.workspace import Workspace
-
-    ws = Workspace(tmp_path)
-    sessions = tmp_path / ".blueclaw" / "sessions"
-    uploads = tmp_path / ".blueclaw" / "uploads"
-    sessions.mkdir(parents=True, exist_ok=True)
-    uploads.mkdir(parents=True, exist_ok=True)
-
-    (sessions / "old-cid").mkdir()
-    (uploads / "old-cid").mkdir()
-    (uploads / "old-cid" / "file.txt").write_text("x")
-
-    (sessions / "new-cid").mkdir()
-    (uploads / "new-cid").mkdir()
-    (uploads / "new-cid" / "file.txt").write_text("y")
-
-    (uploads / "tmp-orphan").mkdir()
-    (uploads / "tmp-orphan" / "x.txt").write_text("z")
-
-    old_mtime = time.time() - 40 * 86400
-    os.utime(sessions / "old-cid", (old_mtime, old_mtime))
-    os.utime(uploads / "old-cid", (old_mtime, old_mtime))
-    os.utime(uploads / "tmp-orphan", (old_mtime, old_mtime))
-
-    deleted = ws.purge_old_sessions(retention_days=30)
-    assert deleted >= 1
-    assert not (sessions / "old-cid").exists()
-    assert not (uploads / "old-cid").exists()
-    assert not (uploads / "tmp-orphan").exists()
-    assert (sessions / "new-cid").exists()
-    assert (uploads / "new-cid").exists()
+        assert conv.exists()
 
 
 # --- resolve_workspaces ---

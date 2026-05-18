@@ -63,12 +63,31 @@ All notable changes to blueclaw will be documented in this file.
   `blueclaw.runner.validate_session_id` validator. IDs are rejected if
   they contain `/`, `\`, `\x00`, whitespace, control characters, are `.`
   or `..`, are empty, or exceed 128 characters.
+- Trace ↔ capture link: every `RunTrace` now records a `capture_path`
+  field (relative to `workspace.root`) pointing to the per-turn capture
+  directory. Pre-feature traces and runs without a captured turn store
+  `None`.
+- `GET /api/turns/<cid>/<n>/response` and `GET /api/turns/<cid>/<n>/messages`
+  routes serve captured artifacts. Honor `?workspace=<key>` for multi-
+  workspace dashboards. Return a 404 with the expected path + a hint
+  when the capture has been pruned.
+- `blueclaw trace ui` dashboard renders an inline preview chip (first
+  line of `response.txt`, truncated to 200 chars) per trace row with a
+  "view full" link. Rows whose captures have been pruned show a "captures
+  pruned" badge instead.
 
 ### Changed
 - Terminal sessions now carry a `conversation_id` (the timestamp-based
   per-process session ID) on trace and history records. Previously this
   was `None` for terminal-sourced runs; downstream tooling that grouped
   records by `conversation_id` should account for the new value.
+- `/api/traces` summaries now include `capture_path`, plus either
+  `capture_preview` (if the file exists) or `captures_pruned: true` (if
+  the directory was deleted). Both fields are absent when the trace has
+  no associated capture.
+- `runner.finalize` and `runner.finalize_error` accept a new optional
+  `workspace_root: Path | None` kwarg. When set together with
+  `capture_path`, the runner stores the relativized path on the trace.
 
 ### Security
 - HTTP `POST /message` and `POST /message/stream` now validate the

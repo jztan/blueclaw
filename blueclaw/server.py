@@ -194,9 +194,7 @@ def create_server_app(
 
     semaphore = asyncio.Semaphore(config.max_concurrent_runs)
     conv_locks = _LockRegistry()
-    sessions_dir = str(workspace.root / ".blueclaw" / "sessions")
-    uploads_root = workspace.root / ".blueclaw" / "uploads"
-    upload_store = UploadStore(uploads_root)
+    upload_store = UploadStore(workspace.root)
 
     # Per-turn CONTEXT.md updater. trigger() is no-op if a previous update is
     # still running, so concurrent turns across conversations can't race and
@@ -243,7 +241,10 @@ def create_server_app(
                 return JSONResponse({"error": str(exc)}, status_code=400)
             conv_lock = await conv_locks.get(cid) if cid else None
             session_manager = (
-                FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+                FileSessionManager(
+                    session_id=cid,
+                    storage_dir=str(workspace.conversation_dir(cid)),
+                )
                 if cid
                 else None
             )
@@ -337,7 +338,10 @@ def create_server_app(
             return JSONResponse({"error": str(exc)}, status_code=400)
         conv_lock = await conv_locks.get(cid) if cid else None
         session_manager = (
-            FileSessionManager(session_id=cid, storage_dir=sessions_dir)
+            FileSessionManager(
+                session_id=cid,
+                storage_dir=str(workspace.conversation_dir(cid)),
+            )
             if cid
             else None
         )

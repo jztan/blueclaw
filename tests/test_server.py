@@ -774,7 +774,7 @@ class TestStatefulMessage:
             mock_fsm.assert_called_once()
             kwargs = mock_fsm.call_args.kwargs
             assert kwargs["session_id"] == "c1"
-            expected_dir = str(server_workspace.root / ".blueclaw" / "sessions")
+            expected_dir = str(server_workspace.conversation_dir("c1"))
             assert kwargs["storage_dir"] == expected_dir
             ca_kwargs = mock_ca.call_args.kwargs
             assert ca_kwargs.get("session_manager") is mock_fsm.return_value
@@ -946,7 +946,12 @@ class TestUpload:
         assert body["conversation_id"] == "c-test"
         assert body["file_id"].endswith("__hello.txt")
         on_disk = (
-            server_workspace.root / ".blueclaw" / "uploads" / "c-test" / body["file_id"]
+            server_workspace.root
+            / ".blueclaw"
+            / "conversations"
+            / "c-test"
+            / "uploads"
+            / body["file_id"]
         )
         assert on_disk.read_bytes() == b"hello world"
 

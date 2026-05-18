@@ -178,3 +178,59 @@ def test_get_conversation_has_events_jsonl_flag(workspace_with_traces, tmp_path)
     # has_events_jsonl is a bool on every turn entry
     for turn in body["turns"]:
         assert isinstance(turn["has_events_jsonl"], bool)
+
+
+def test_stream_events_returns_file_contents(workspace_with_traces):
+    cid = "A"
+    capture_dir = (
+        workspace_with_traces.root
+        / ".blueclaw"
+        / "conversations"
+        / cid
+        / "turns"
+        / "turn-001"
+    )
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    events_content = (
+        '{"seq":0,"type":"schema.version","v":1}\n'
+        '{"seq":1,"type":"tool.before","tool_name":"x"}\n'
+        '{"seq":2,"type":"tool.after","status":"success"}\n'
+    )
+    (capture_dir / "events.jsonl").write_text(events_content)
+
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get(f"/api/conversations/{cid}/turns/1/events")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/x-ndjson")
+    assert resp.text == events_content
+
+
+def test_stream_events_404_when_missing(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get("/api/conversations/A/turns/99/events")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert "expected_path" in body
+    assert "turn-099" in body["expected_path"]
+
+
+def test_stream_events_invalid_cid_no_echo(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    # ".." is rejected by validate_session_id; Starlette may normalise it to
+    # 404 before the handler runs — both 400 and 404 are acceptable.
+    resp = client.get("/api/conversations/../turns/1/events")
+    assert resp.status_code in (400, 404)
+    if resp.status_code == 400:
+        assert ".." not in resp.text
+
+
+def test_stream_events_invalid_n_no_echo(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get("/api/conversations/A/turns/0/events")  # 0 not allowed (regex)
+    assert resp.status_code == 400
+    resp = client.get("/api/conversations/A/turns/abc/events")
+    assert resp.status_code == 400

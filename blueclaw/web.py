@@ -9,7 +9,13 @@ from importlib.resources import files
 from pathlib import Path
 
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.routing import Route
 
 from blueclaw.models import RunTrace, classify_error
@@ -531,6 +537,48 @@ def create_app(
             status_code=404,
         )
 
+    async def stream_events(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # expected_path is safe to echo: cid and n are validated above.
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/events.jsonl"
+        for _key, ws in sel:
+            f = ws.root / rel
+            if f.exists():
+
+                def file_iter(path=f):
+                    with open(path, "rb") as fh:
+                        while True:
+                            chunk = fh.read(8192)
+                            if not chunk:
+                                return
+                            yield chunk
+
+                return StreamingResponse(
+                    file_iter(),
+                    media_type="application/x-ndjson",
+                    headers={"Content-Disposition": "inline"},
+                )
+        return JSONResponse(
+            {"error": "not found", "expected_path": rel},
+            status_code=404,
+        )
+
     async def get_conversation(request):
         from blueclaw.runner import validate_session_id
 
@@ -649,5 +697,9 @@ def create_app(
             Route("/api/conversations/{cid}", get_conversation),
             Route("/api/turns/{cid}/{n}/response", get_turn_response),
             Route("/api/turns/{cid}/{n}/messages", get_turn_messages),
+            Route(
+                "/api/conversations/{cid}/turns/{n}/events",
+                stream_events,
+            ),
         ]
     )

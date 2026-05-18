@@ -40,6 +40,10 @@ class ObservationMaskingManager(ConversationManager):
             summary_ratio=summary_ratio,
         )
         self._masked_chars = 0
+        self.bus = None  # set by adapters per turn via runner.bus_for_turn
+        self._strategy_label = (
+            "mask"  # exposed in events; "summarize" when summarize_after triggers
+        )
 
     @property
     def masked_chars(self) -> int:
@@ -56,10 +60,13 @@ class ObservationMaskingManager(ConversationManager):
         self._apply_masking(agent)
         if self.summarize_after is not None:
             if _count_tool_turns(agent.messages) > self.summarize_after:
+                self._strategy_label = "summarize"
                 try:
                     self._summarizer.reduce_context(agent)
                 except Exception:
                     logger.debug("Hybrid summarization skipped", exc_info=True)
+                finally:
+                    self._strategy_label = "mask"
 
     def reduce_context(
         self, agent: "Agent", e: Exception | None = None, **kwargs: Any
@@ -79,12 +86,27 @@ class ObservationMaskingManager(ConversationManager):
         cutoff = _find_mask_cutoff(messages, m)
         if cutoff <= 0:
             return
+        before_chars = self._masked_chars
+        replaced = 0
         for i in range(cutoff):
-            self._mask_tool_results(messages[i])
+            replaced += self._mask_tool_results(messages[i])
+        added = self._masked_chars - before_chars
 
-    def _mask_tool_results(self, message: dict) -> None:
+        if replaced > 0 and self.bus is not None:
+            self.bus.emit(
+                {
+                    "type": "context.mask",
+                    "masked_chars": added,
+                    "replaced_steps": replaced,
+                    "strategy": self._strategy_label,
+                }
+            )
+
+    def _mask_tool_results(self, message: dict) -> int:
+        """Mask any tool results in this message. Returns masked result count."""
         if message.get("role") != "user":
-            return
+            return 0
+        masked_count = 0
         for block in message.get("content", []):
             if "toolResult" not in block:
                 continue
@@ -100,6 +122,8 @@ class ObservationMaskingManager(ConversationManager):
                 continue
             self._masked_chars += total
             tr["content"] = [{"text": MASK_PLACEHOLDER.format(n=total)}]
+            masked_count += 1
+        return masked_count
 
     def reset_metrics(self) -> None:
         self._masked_chars = 0

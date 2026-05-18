@@ -157,7 +157,7 @@ async def test_router_routes_authorized_to_agent(tmp_path: Path):
     assert kwargs["conversation_id"] == "42"
     assert kwargs["channel"] == "telegram"
     assert kwargs["callback_handler"] is None
-    assert kwargs["capture_path"] is None
+    assert kwargs["capture_path"] is not None
     assert kwargs["goal"] == "ping"
     # text passes as the 4th positional (agent_input)
     assert mock_run_turn.call_args.args[3] == "ping"
@@ -263,3 +263,29 @@ def test_session_config_carries_bridges_block():
 
     cfg = SessionConfig(bridges={"telegram": {"bot_token": "abc"}})
     assert cfg.bridges["telegram"]["bot_token"] == "abc"
+
+
+def test_bridge_router_writes_capture_artifacts(tmp_path, monkeypatch):
+    """BridgeRouter.handle_message captures the turn under per-chat workspace."""
+    import asyncio
+
+    from blueclaw.bridges.core import Allowlist, BridgeRouter
+    from blueclaw.models import SessionConfig
+    from tests.helpers.runner_stubs import install_stub_runner
+
+    install_stub_runner(monkeypatch)
+
+    config = SessionConfig()
+    router = BridgeRouter(
+        config=config,
+        model=object(),
+        allowlist=Allowlist(chat_ids=[12345]),
+        chats_root=tmp_path,
+    )
+
+    response = asyncio.run(router.handle_message(chat_id=12345, user_id=999, text="hi"))
+    assert response  # non-empty string from stub
+
+    turn_dir = tmp_path / "12345" / ".blueclaw" / "turns" / "12345" / "turn-001"
+    assert (turn_dir / "response.txt").exists()
+    assert (turn_dir / "messages.json").exists()

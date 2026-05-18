@@ -11,7 +11,7 @@ from typing import Any
 from strands.session.file_session_manager import FileSessionManager
 
 from blueclaw.models import SessionConfig
-from blueclaw.runner import run_turn
+from blueclaw.runner import next_capture_path, run_turn
 from blueclaw.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,7 @@ class BridgeRouter:
             session_manager = FileSessionManager(
                 session_id=str(chat_id), storage_dir=ctx.sessions_dir
             )
+            capture_path = next_capture_path(ctx.workspace.root, str(chat_id))
             outcome = await asyncio.to_thread(
                 run_turn,
                 self._config,
@@ -122,7 +123,7 @@ class BridgeRouter:
                 channel="telegram",
                 callback_handler=None,
                 scripted=True,
-                capture_path=None,
+                capture_path=capture_path,
             )
             if outcome.error is not None:
                 logger.error(

@@ -297,6 +297,13 @@ class RunTrace(BaseModel):
     context_strategy: str | None = None
     source: str = "terminal"  # "terminal" | "api" | "eval" | "telegram"
     conversation_id: str | None = None
+    capture_path: str | None = None
+    # Relative to workspace.root, e.g. ".blueclaw/turns/<cid>/turn-005".
+    # `None` is INTENTIONALLY AMBIGUOUS — covers both:
+    #   - no capture written by design (e.g. HTTP request with no cid)
+    #   - trace predates the capture feature (pre-2026-05-18)
+    # Do NOT add a third semantic to this value; if you need to distinguish
+    # the two cases, introduce a separate field.
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)

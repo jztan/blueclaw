@@ -1,203 +1,109 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 580" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
   <defs>
-    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+    <filter id="s" x="-4%" y="-4%" width="108%" height="112%">
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.10"/>
     </filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#7a9bb5"/>
     </marker>
-    <marker id="arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="a-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#c9a84c"/>
-    </marker>
-    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#5a9a72"/>
-    </marker>
-    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#8a6fb0"/>
-    </marker>
-    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#d97a4a"/>
     </marker>
   </defs>
 
   <!-- Background -->
-  <rect width="880" height="580" fill="#f8fafc" rx="12"/>
+  <rect width="720" height="420" fill="#f8fafc" rx="12"/>
 
-  <!-- ===== Sandbox boundary (wraps Agent Loop) ===== -->
-  <rect x="155" y="15" width="390" height="305" rx="18" fill="#f3eef8" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="2 4"/>
-  <text x="350" y="32" text-anchor="middle" font-size="10.5" font-weight="700" fill="#6b4f95" letter-spacing="1.2">SANDBOX · docker | inprocess (launcher execvp)</text>
+  <!-- Title -->
+  <text x="360" y="30" text-anchor="middle" font-size="14" font-weight="600" fill="#2c5f7c">BlueClaw — architecture</text>
 
-  <!-- ===== Terminal ===== -->
-  <rect x="30" y="100" width="100" height="80" rx="14" fill="#d6e6f0" filter="url(#shadow)"/>
-  <text x="80" y="137" text-anchor="middle" font-size="20">⌨️</text>
-  <text x="80" y="160" text-anchor="middle" font-size="13" font-weight="600" fill="#2c5f7c">Terminal</text>
+  <!-- BlueClaw system boundary (wraps runner + agent + observer + workspace) -->
+  <rect x="195" y="45" width="515" height="320" rx="14" fill="none" stroke="#2c5f7c" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="205" y="60" text-anchor="start" font-size="10.5" font-weight="700" fill="#2c5f7c" letter-spacing="1.5">BLUECLAW</text>
 
-  <!-- Arrow: Terminal → Session (via runner_session) -->
-  <line x1="130" y1="140" x2="168" y2="140" stroke="#7a9bb5" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="149" y="134" text-anchor="middle" font-size="7" font-weight="600" fill="#d97a4a">runner_session</text>
+  <!-- ===== Adapters (left column) ===== -->
+  <rect x="30" y="60" width="110" height="60" rx="12" fill="#d6e6f0" filter="url(#s)"/>
+  <text x="85" y="85" text-anchor="middle" font-size="16">⌨️</text>
+  <text x="85" y="106" text-anchor="middle" font-size="11" font-weight="600" fill="#2c5f7c">Terminal</text>
 
-  <!-- ===== Agent Loop boundary ===== -->
-  <rect x="165" y="48" width="370" height="262" rx="16" fill="none" stroke="#a3c4d6" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="350" y="68" text-anchor="middle" font-size="11" font-weight="600" fill="#3d7a9a" letter-spacing="1">AGENT LOOP · Strands SDK</text>
+  <rect x="30" y="140" width="110" height="60" rx="12" fill="#d8edd8" filter="url(#s)"/>
+  <text x="85" y="165" text-anchor="middle" font-size="16">🌐</text>
+  <text x="85" y="186" text-anchor="middle" font-size="11" font-weight="600" fill="#2a6642">HTTP</text>
+  <text x="85" y="200" text-anchor="middle" font-size="8" fill="#3d7a54">/message · /stream</text>
 
-  <!-- ===== Model pills row (4 providers) ===== -->
-  <rect x="178" y="76" width="58" height="16" rx="8" fill="#e8d9a0"/>
-  <text x="207" y="88" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">Anthropic</text>
-  <rect x="240" y="76" width="58" height="16" rx="8" fill="#e8d9a0"/>
-  <text x="269" y="88" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">Ollama</text>
-  <rect x="178" y="96" width="58" height="16" rx="8" fill="#e8d9a0"/>
-  <text x="207" y="108" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">OpenAI</text>
-  <rect x="240" y="96" width="58" height="16" rx="8" fill="#e8d9a0"/>
-  <text x="269" y="108" text-anchor="middle" font-size="7.5" font-weight="600" fill="#6b5518">LiteLLM</text>
+  <rect x="30" y="220" width="110" height="60" rx="12" fill="#fce4dc" filter="url(#s)"/>
+  <text x="85" y="245" text-anchor="middle" font-size="16">📱</text>
+  <text x="85" y="266" text-anchor="middle" font-size="11" font-weight="600" fill="#8a4226">Telegram</text>
 
-  <!-- ===== Session ===== -->
-  <rect x="178" y="122" width="120" height="96" rx="12" fill="#f5ecd0" filter="url(#shadow)"/>
-  <text x="238" y="140" text-anchor="middle" font-size="12" font-weight="600" fill="#7a6420">Session + Runner</text>
-  <text x="238" y="154" text-anchor="middle" font-size="8" fill="#d97a4a" font-weight="600">runner.py: runner_session / run_turn / finalize</text>
-  <text x="238" y="166" text-anchor="middle" font-size="9" fill="#9a8234">SOUL + CONTEXT prompt</text>
-  <text x="238" y="178" text-anchor="middle" font-size="9" fill="#a89238">ObservationMaskingMgr</text>
-  <text x="238" y="190" text-anchor="middle" font-size="9" fill="#a89238">FileSessionManager</text>
-  <text x="238" y="202" text-anchor="middle" font-size="9" fill="#a89238">Skills · Lessons · MCP cleanup</text>
+  <!-- Eval (smaller, distinct) -->
+  <rect x="30" y="320" width="110" height="40" rx="12" fill="#e8d9a0" filter="url(#s)"/>
+  <text x="85" y="338" text-anchor="middle" font-size="11" font-weight="600" fill="#6b5518">Eval (testing)</text>
+  <text x="85" y="352" text-anchor="middle" font-size="8" fill="#9a7a18">YAML specs</text>
 
-  <!-- Arrow: Session → Model pills -->
-  <line x1="238" y1="122" x2="238" y2="116" stroke="#7a9bb5" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Adapter → Runner arrows -->
+  <line x1="140" y1="90" x2="218" y2="180" stroke="#7a9bb5" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="140" y1="170" x2="218" y2="195" stroke="#7a9bb5" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="140" y1="250" x2="218" y2="210" stroke="#7a9bb5" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="140" y1="340" x2="218" y2="225" stroke="#7a9bb5" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#a)"/>
 
-  <!-- Arrow: Session → Tools -->
-  <line x1="298" y1="158" x2="334" y2="158" stroke="#7a9bb5" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- ===== Runner (central hub) ===== -->
+  <rect x="220" y="160" width="160" height="100" rx="12" fill="#f5ecd0" stroke="#c9a84c" stroke-width="1.5" filter="url(#s)"/>
+  <text x="300" y="183" text-anchor="middle" font-size="12" font-weight="700" fill="#7a6420">runner.py</text>
+  <text x="300" y="200" text-anchor="middle" font-size="9" fill="#9a8234">runner_session · run_turn</text>
+  <text x="300" y="214" text-anchor="middle" font-size="9" fill="#9a8234">finalize · finalize_error</text>
+  <text x="300" y="232" text-anchor="middle" font-size="9" fill="#a89238">next_capture_path</text>
+  <text x="300" y="246" text-anchor="middle" font-size="9" fill="#a89238">validate_session_id</text>
+  <text x="300" y="258" text-anchor="middle" font-size="8" fill="#b09a3e" font-style="italic">owns MCP cleanup + capture</text>
 
-  <!-- ===== Tools ===== -->
-  <rect x="338" y="100" width="180" height="138" rx="12" fill="#cde2ec" filter="url(#shadow)"/>
-  <text x="428" y="124" text-anchor="middle" font-size="13" font-weight="600" fill="#1e4d6b">Tools</text>
+  <!-- Runner → Strands Agent -->
+  <line x1="380" y1="210" x2="430" y2="210" stroke="#7a9bb5" stroke-width="2" marker-end="url(#a)"/>
+  <text x="405" y="203" text-anchor="middle" font-size="8" font-weight="600" fill="#3d7a9a">create_agent</text>
 
-  <!-- Tool pills -->
-  <rect x="350" y="132" width="62" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="381" y="146" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">shell</text>
-  <rect x="418" y="132" width="90" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="463" y="146" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">web_search</text>
+  <!-- ===== Strands Agent (the loop, collapsed) ===== -->
+  <rect x="432" y="160" width="140" height="100" rx="12" fill="#cde2ec" stroke="#a3c4d6" stroke-width="1.5" stroke-dasharray="5 3" filter="url(#s)"/>
+  <text x="502" y="183" text-anchor="middle" font-size="11" font-weight="700" fill="#1e4d6b">Strands Agent</text>
+  <text x="502" y="198" text-anchor="middle" font-size="8" fill="#3d7a9a">model + tools loop</text>
+  <text x="502" y="216" text-anchor="middle" font-size="9" fill="#1e4d6b">Anthropic · Ollama</text>
+  <text x="502" y="228" text-anchor="middle" font-size="9" fill="#1e4d6b">OpenAI · LiteLLM</text>
+  <text x="502" y="246" text-anchor="middle" font-size="9" fill="#1e4d6b">shell · web · pdf · MCP</text>
+  <text x="502" y="258" text-anchor="middle" font-size="8" fill="#3d7a9a" font-style="italic">approval gate · sandbox</text>
 
-  <rect x="350" y="158" width="90" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="395" y="172" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">http_request</text>
-  <rect x="446" y="158" width="62" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="477" y="172" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">pdf</text>
+  <!-- ===== Workspace ===== -->
+  <rect x="585" y="60" width="115" height="170" rx="12" fill="#2c5f7c" filter="url(#s)"/>
+  <text x="642" y="80" text-anchor="middle" font-size="11" font-weight="700" fill="#f0e6c8">Workspace</text>
+  <text x="642" y="93" text-anchor="middle" font-size="8" fill="#a3c4d6">per-source root</text>
 
-  <rect x="350" y="184" width="62" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="381" y="198" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">MCP</text>
-  <rect x="418" y="184" width="90" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="463" y="198" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">uploads</text>
+  <rect x="595" y="103" width="95" height="20" rx="5" fill="#3a7291"/>
+  <text x="642" y="117" text-anchor="middle" font-size="8.5" fill="#e8f0f5">CONTEXT.md</text>
+  <rect x="595" y="127" width="95" height="20" rx="5" fill="#3a7291"/>
+  <text x="642" y="141" text-anchor="middle" font-size="8.5" fill="#e8f0f5">history.jsonl</text>
+  <rect x="595" y="151" width="95" height="20" rx="5" fill="#3a7291"/>
+  <text x="642" y="165" text-anchor="middle" font-size="8.5" fill="#e8f0f5">traces/*.json</text>
+  <rect x="595" y="175" width="95" height="20" rx="5" fill="#3a7291"/>
+  <text x="642" y="189" text-anchor="middle" font-size="8.5" fill="#e8f0f5">turns/&lt;id&gt;/turn-N/</text>
+  <rect x="595" y="199" width="95" height="20" rx="5" fill="#3a7291"/>
+  <text x="642" y="213" text-anchor="middle" font-size="8.5" fill="#e8f0f5">sessions/&lt;id&gt;/</text>
 
-  <rect x="382" y="210" width="92" height="20" rx="10" fill="#b3d1e0"/>
-  <text x="428" y="224" text-anchor="middle" font-size="9" font-weight="600" fill="#1e4d6b">approval gate</text>
+  <!-- Runner → Workspace (capture writes) -->
+  <path d="M 380 185 L 500 130 L 585 130" stroke="#c9a84c" stroke-width="1.5" fill="none" marker-end="url(#a-gold)"/>
+  <text x="500" y="123" text-anchor="middle" font-size="8" font-weight="600" fill="#c9a84c">capture · trace · history</text>
 
-  <!-- Return arrow: Tools → Session (below) with Trace Lessons label -->
-  <path d="M 428 238 L 428 262 L 238 262 L 238 218" stroke="#a3c4d6" stroke-width="1.5" fill="none" marker-end="url(#arrow)" stroke-dasharray="5 3"/>
-  <rect x="284" y="270" width="108" height="20" rx="10" fill="#eee5c6"/>
-  <text x="338" y="284" text-anchor="middle" font-size="9" font-weight="600" fill="#7a6420">Trace Lessons</text>
+  <!-- ===== Observer ===== -->
+  <rect x="432" y="280" width="140" height="60" rx="12" fill="#eee5c6" filter="url(#s)"/>
+  <text x="502" y="300" text-anchor="middle" font-size="11" font-weight="600" fill="#7a6420">Observer (hooks)</text>
+  <text x="502" y="315" text-anchor="middle" font-size="8" fill="#9a8234">tool calls · tokens · cost</text>
+  <text x="502" y="328" text-anchor="middle" font-size="8" fill="#9a8234">feeds traces + history</text>
 
-  <!-- ===== Response arrow back ===== -->
-  <path d="M 178 178 L 145 178 L 145 338 L 80 338 L 80 186" stroke="#7a9bb5" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
-  <rect x="40" y="327" width="80" height="22" rx="11" fill="#d6e6f0"/>
-  <text x="80" y="343" text-anchor="middle" font-size="11" font-weight="600" fill="#2c5f7c">Response</text>
+  <!-- Strands Agent → Observer -->
+  <line x1="502" y1="260" x2="502" y2="278" stroke="#7a9bb5" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#a)"/>
 
-  <!-- ===== HTTP API path ===== -->
-
-  <!-- HTTP Client box -->
-  <rect x="30" y="355" width="100" height="80" rx="14" fill="#d8edd8" filter="url(#shadow)"/>
-  <text x="80" y="388" text-anchor="middle" font-size="18">🌐</text>
-  <text x="80" y="412" text-anchor="middle" font-size="12" font-weight="600" fill="#2a6642">HTTP Client</text>
-
-  <!-- Arrow: HTTP Client → server.py -->
-  <line x1="130" y1="395" x2="168" y2="395" stroke="#5a9a72" stroke-width="2" marker-end="url(#arrow-green)"/>
-
-  <!-- server.py box -->
-  <rect x="178" y="350" width="160" height="92" rx="12" fill="#d8edd8" filter="url(#shadow)"/>
-  <text x="258" y="370" text-anchor="middle" font-size="12" font-weight="600" fill="#2a6642">server.py</text>
-  <text x="258" y="386" text-anchor="middle" font-size="9" fill="#3d7a54">POST /message</text>
-  <text x="258" y="398" text-anchor="middle" font-size="9" fill="#3d7a54">POST /message/stream (SSE)</text>
-  <text x="258" y="410" text-anchor="middle" font-size="9" fill="#3d7a54">GET /playground · /health</text>
-  <text x="258" y="422" text-anchor="middle" font-size="9" fill="#3d7a54">GET /api/traces (trace ui)</text>
-  <text x="258" y="434" text-anchor="middle" font-size="9" fill="#3d7a54">bearer auth · CORS · 1MB cap</text>
-
-  <!-- Arrow: server.py up to Session (via runner_session — owns trigger-before-cleanup) -->
-  <line x1="258" y1="350" x2="258" y2="218" stroke="#5a9a72" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
-  <text x="263" y="290" font-size="8" font-weight="600" fill="#5a9a72">runner_session</text>
-
-  <!-- ===== Right: Workspace ===== -->
-  <line x1="518" y1="140" x2="560" y2="140" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
-
-  <rect x="564" y="60" width="290" height="190" rx="14" fill="#2c5f7c" filter="url(#shadow)"/>
-  <text x="709" y="85" text-anchor="middle" font-size="13" font-weight="600" fill="#f0e6c8">Workspace</text>
-  <text x="709" y="101" text-anchor="middle" font-size="10" fill="#a3c4d6">Sandboxed file I/O · session state · identity</text>
-
-  <rect x="578" y="113" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="640" y="131" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">SOUL.md</text>
-  <rect x="715" y="113" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="777" y="131" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">CONTEXT.md</text>
-
-  <rect x="578" y="148" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="640" y="166" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">history.jsonl</text>
-  <rect x="715" y="148" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="777" y="166" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">traces/*.json</text>
-
-  <rect x="578" y="183" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="640" y="201" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">sessions/&lt;id&gt;/</text>
-  <rect x="715" y="183" width="125" height="28" rx="7" fill="#3a7291"/>
-  <text x="777" y="201" text-anchor="middle" font-size="10" font-weight="500" fill="#e8f0f5">skills/</text>
-
-  <text x="709" y="232" text-anchor="middle" font-size="9" fill="#a3c4d6" font-style="italic">SOUL = persona · CONTEXT = facts · FileSessionManager threads</text>
-
-  <!-- ===== Right: Observer ===== -->
-  <line x1="518" y1="175" x2="560" y2="290" stroke="#c9a84c" stroke-width="2" marker-end="url(#arrow-gold)"/>
-
-  <rect x="564" y="270" width="290" height="80" rx="14" fill="#f5ecd0" filter="url(#shadow)"/>
-  <text x="709" y="296" text-anchor="middle" font-size="13" font-weight="600" fill="#7a6420">Observer</text>
-  <text x="709" y="314" text-anchor="middle" font-size="10" fill="#9a8234">Rich tracing · Structured logs · Hooks</text>
-  <text x="709" y="330" text-anchor="middle" font-size="9" fill="#b09a3e">trace list · graph · timeline · diff · stats · ui</text>
-  <text x="709" y="343" text-anchor="middle" font-size="9" fill="#b09a3e">cost · cache tokens · sandbox.mode/image/digest</text>
-
-  <!-- ===== Right: Testing ===== -->
-  <line x1="518" y1="195" x2="560" y2="395" stroke="#c9a84c" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#arrow-gold)"/>
-
-  <rect x="564" y="375" width="290" height="60" rx="14" fill="#e8d9a0" filter="url(#shadow)"/>
-  <text x="709" y="395" text-anchor="middle" font-size="13" font-weight="600" fill="#6b5518">Regression Testing</text>
-  <text x="709" y="409" text-anchor="middle" font-size="9" fill="#d97a4a" font-weight="600">testing.py → runner.run_turn</text>
-  <text x="709" y="421" text-anchor="middle" font-size="10" fill="#7a6420">YAML specs · 11 assertions · TAP / JUnit</text>
-  <text x="709" y="431" text-anchor="middle" font-size="9" fill="#9a8234">Wilson CI scoring · stub tools · keep-workspace</text>
-
-  <!-- ===== Telegram bridge path =====
-       Orange tones distinguish messenger bridges from the purple sandbox
-       boundary (different concern: isolation vs. message ingress). -->
-
-  <!-- Telegram client box -->
-  <rect x="30" y="455" width="100" height="80" rx="14" fill="#fce4dc" filter="url(#shadow)"/>
-  <text x="80" y="488" text-anchor="middle" font-size="18">📱</text>
-  <text x="80" y="512" text-anchor="middle" font-size="12" font-weight="600" fill="#8a4226">Telegram</text>
-
-  <!-- Arrow: Telegram → bridges -->
-  <line x1="130" y1="495" x2="168" y2="495" stroke="#d97a4a" stroke-width="2" marker-end="url(#arrow-orange)"/>
-
-  <!-- bridges/ box -->
-  <rect x="178" y="450" width="160" height="92" rx="12" fill="#fce4dc" filter="url(#shadow)"/>
-  <text x="258" y="470" text-anchor="middle" font-size="12" font-weight="600" fill="#8a4226">bridges/</text>
-  <text x="258" y="486" text-anchor="middle" font-size="9" fill="#a04a32">Allowlist · ChatContext</text>
-  <text x="258" y="498" text-anchor="middle" font-size="9" fill="#a04a32">BridgeRouter · FileSessionManager</text>
-  <text x="258" y="510" text-anchor="middle" font-size="9" fill="#a04a32">telegram.py (PTB v22)</text>
-  <text x="258" y="522" text-anchor="middle" font-size="9" fill="#a04a32">per-chat workspace</text>
-  <text x="258" y="534" text-anchor="middle" font-size="9" fill="#a04a32">~/blueclaw/chats/&lt;id&gt;/</text>
-
-  <!-- Arrow: bridges → Session (via runner.run_turn — single per-message turn).
-       Routed around server.py on the left so it actually terminates on
-       the Session box, not on Tools. x=135 keeps clear of the blue
-       Response arrow that runs at x=145. -->
-  <path d="M 178 470 L 135 470 L 135 170 L 178 170" stroke="#d97a4a" stroke-width="1.5" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-orange)"/>
-  <text x="125" y="320" text-anchor="end" font-size="8" font-weight="600" fill="#d97a4a">run_turn</text>
-
-  <!-- ===== Sandbox CLI badge =====
-       Curved purple dashed connector from the sandbox boundary's bottom-right
-       corner area down to the badge, replacing the old orphan arrow at x=350. -->
-  <path d="M 500 320 Q 550 380 595 455" stroke="#8a6fb0" stroke-width="1.5" stroke-dasharray="3 3" fill="none" marker-end="url(#arrow-purple)"/>
-  <rect x="490" y="455" width="210" height="22" rx="11" fill="#e6dcf0" stroke="#8a6fb0" stroke-width="1"/>
-  <text x="595" y="471" text-anchor="middle" font-size="10" font-weight="600" fill="#6b4f95">blueclaw sandbox · build / doctor</text>
+  <!-- ===== Per-turn capture annotation ===== -->
+  <rect x="220" y="295" width="160" height="55" rx="10" fill="#fff" stroke="#c9a84c" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="300" y="312" text-anchor="middle" font-size="9" font-weight="700" fill="#7a6420">per-turn capture</text>
+  <text x="300" y="326" text-anchor="middle" font-size="8" fill="#9a8234">terminal: YYYYMMDD-HHMMSS-xxxx</text>
+  <text x="300" y="338" text-anchor="middle" font-size="8" fill="#9a8234">HTTP: conversation_id</text>
+  <text x="300" y="348" text-anchor="middle" font-size="8" fill="#9a8234">Telegram: chat_id</text>
 
   <!-- Bottom credit -->
-  <text x="440" y="565" text-anchor="middle" font-size="9" fill="#a3c4d6">Observable Agent Runtime · Built on Strands Agents SDK · v2.5 + SOUL.md + docker sandbox + Telegram bridge + unified runner.py (runner_session / run_turn / finalize) + multi-workspace traces</text>
+  <text x="360" y="395" text-anchor="middle" font-size="9" fill="#a3c4d6">Three adapters · one runner · one agent loop · sandboxed workspace · per-turn capture across all surfaces</text>
 </svg>

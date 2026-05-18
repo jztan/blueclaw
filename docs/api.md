@@ -128,6 +128,12 @@ Requests without the correct token return `401`. Uses `hmac.compare_digest` to p
 | `504` | Agent did not complete within 300 s |
 | `500` | Workspace error or unexpected exception |
 
+When `conversation_id` is rejected (path-traversal characters, whitespace/control characters, `.`/`..`, empty, or longer than 128 chars), the response body is the generic `{"error": "invalid conversation_id"}` and **does not contain the rejected value** — server logs carry the underlying validation error, the client does not.
+
+## Per-turn capture
+
+Every API turn writes `response.txt` and `messages.json` to `<workspace>/.blueclaw/turns/<conversation_id>/turn-NNN/` (numbering is filesystem-derived per `conversation_id`). Requests without a `conversation_id` are not captured. Capture is best-effort: write failures log to stderr but never fail the request.
+
 ## CORS
 
 Requests from `http://localhost:<any port>` and `http://127.0.0.1:<any port>` are allowed by default. Pass `--cors-origin` to add one additional origin.

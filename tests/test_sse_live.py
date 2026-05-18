@@ -150,3 +150,24 @@ def test_live_endpoint_invalid_n(workspace, running_broker):
     client = TestClient(app)
     resp = client.get("/api/conversations/A/turns/0/events/live")
     assert resp.status_code == 400
+
+
+# ─── /api/live/status tests ───
+
+
+def test_live_status_endpoint_reports_disabled(workspace):
+    """Without a broker, /api/live/status returns {"live": false}."""
+    app = create_app([("workspace", workspace)])  # no broker
+    client = TestClient(app)
+    resp = client.get("/api/live/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"live": False}
+
+
+def test_live_status_endpoint_reports_enabled(running_broker, workspace):
+    """With a live broker, /api/live/status returns {"live": true}."""
+    app = create_app([("workspace", workspace)], live_broker=running_broker)
+    client = TestClient(app)
+    resp = client.get("/api/live/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"live": True}

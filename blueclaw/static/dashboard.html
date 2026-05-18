@@ -299,6 +299,13 @@ code, .mono {
   white-space: nowrap;
 }
 
+/* ─── Live pill ─── */
+.live-pill { display: none; padding: 2px 8px; border-radius: 12px; font-size: 12px; background: var(--bg-hover); color: var(--text-2); white-space: nowrap; }
+.live-pill.idle { display: inline-block; }
+.live-pill.pulsing { display: inline-block; background: rgba(46,160,67,0.13); color: #56d364; }
+.live-pill.pulsing::before { content: '●'; animation: bcpulse 1.4s infinite; margin-right: 4px; }
+@keyframes bcpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
 .cost-cell { color: var(--yellow); font-weight: 500; }
 .duration-cell { color: var(--text-3); }
 
@@ -1354,6 +1361,8 @@ code, .mono {
   let refreshTimer = null;
   let convSortCol = 'last_turn_at';
   let convSortDir = 'desc';
+  let liveMode = false;          // true iff server reported live broker active
+  let _activeEventSource = null; // current open EventSource; closed on view exit
 
   // ─── DOM Refs ───
   const html = document.documentElement;
@@ -1426,6 +1435,11 @@ code, .mono {
   // The main router — called on every hashchange and on init.
   function route() {
     var parsed = parseHash(location.hash);
+
+    // Close any live EventSource when navigating away from a conversation detail.
+    if (!(parsed.route === 'conversations' && parsed.param)) {
+      _closeLiveES();
+    }
 
     setNavActive(parsed.route);
 
@@ -1969,6 +1983,92 @@ code, .mono {
     });
   });
 
+  // ─── Live SSE client ───
+
+  function _closeLiveES() {
+    if (_activeEventSource) {
+      _activeEventSource.close();
+      _activeEventSource = null;
+    }
+    var pill = document.getElementById('conv-live-pill');
+    if (pill) { pill.className = 'live-pill'; }
+  }
+
+  function _openLiveES(cid, n) {
+    _closeLiveES();
+    var pill = document.getElementById('conv-live-pill');
+    if (pill) { pill.className = 'live-pill idle'; }
+
+    var url = '/api/conversations/' + encodeURIComponent(cid) +
+              '/turns/' + encodeURIComponent(String(n)) + '/events/live';
+    var es = new EventSource(url);
+    _activeEventSource = es;
+
+    es.addEventListener('backfill', function() {
+      // Backfill confirms live mode is connected; pill stays idle until first append.
+    });
+
+    es.addEventListener('append', function(e) {
+      if (pill) { pill.className = 'live-pill pulsing'; }
+      var evt;
+      try { evt = JSON.parse(e.data); } catch(_) { return; }
+
+      // Update transcript: re-fetch messages when a message.added event arrives.
+      if (evt.type === 'message.added' && evt.role === 'assistant') {
+        var card = _lastTurnCard();
+        if (card) {
+          var body = card.querySelector('.turn-card-body');
+          var cardN = card.getAttribute('data-n');
+          var cardCid = card.getAttribute('data-cid');
+          if (body && cardCid && cardN) {
+            // Invalidate cache so re-fetch picks up the new message.
+            if (convDetailCache[cardCid] && convDetailCache[cardCid].turnMessages) {
+              delete convDetailCache[cardCid].turnMessages[cardN];
+            }
+            _loadTurnMessages(cardCid, cardN, body);
+          }
+        }
+      }
+
+      // Append row to deep events panel if it is currently open.
+      var deepPanel = _lastTurnOpenDeepPanel();
+      if (deepPanel) {
+        var row = document.createElement('div');
+        row.className = 'event-row event-row-live';
+        row.style.cssText = 'padding:2px 0;font-size:12px;color:var(--text-2);';
+        var seq = (evt.seq != null) ? String(evt.seq) : '?';
+        var typ = evt.type || 'unknown';
+        row.textContent = '#' + seq + '  ' + typ;
+        deepPanel.appendChild(row);
+        deepPanel.scrollTop = deepPanel.scrollHeight;
+      }
+    });
+
+    es.addEventListener('end', function() {
+      if (pill) { pill.className = 'live-pill idle'; }
+    });
+
+    es.onerror = function() {
+      // EventSource auto-reconnects per the retry directive; pill stays idle on gap.
+      if (pill) { pill.className = 'live-pill idle'; }
+    };
+  }
+
+  function _lastTurnCard() {
+    var list = document.getElementById('conv-turn-list');
+    if (!list) return null;
+    var cards = list.querySelectorAll('.turn-card');
+    return cards.length ? cards[cards.length - 1] : null;
+  }
+
+  function _lastTurnOpenDeepPanel() {
+    var card = _lastTurnCard();
+    if (!card) return null;
+    var panel = card.querySelector('.turn-deep-panel');
+    if (!panel || panel.style.display === 'none') return null;
+    return panel;
+  }
+
   // ─── Conversation Detail (UI-5) ───
 
   // Per-cid cache: { summary: {...}, turnMessages: { n: [...] } }
@@ -1978,12 +2078,16 @@ code, .mono {
     var container = document.getElementById('conversationContent');
     if (!container) return;
 
+    // Close any open EventSource from a prior view.
+    _closeLiveES();
+
     // Show loading state immediately.
     container.innerHTML = '<div class="empty-state"><p>Loading conversation ' + escapeHtml(cid) + '…</p></div>';
 
     var cache = convDetailCache[cid];
     if (cache && cache.summary) {
       _renderConvDetailFull(cid, cache.summary, container);
+      _maybeStartLive(cid, cache.summary);
       return;
     }
 
@@ -1992,10 +2096,21 @@ code, .mono {
         if (!convDetailCache[cid]) convDetailCache[cid] = { turnMessages: {} };
         convDetailCache[cid].summary = data;
         _renderConvDetailFull(cid, data, container);
+        _maybeStartLive(cid, data);
       })
       .catch(function(err) {
         container.innerHTML = '<div class="empty-state"><p>Failed to load conversation: ' + escapeHtml(String(err)) + '</p></div>';
       });
+  }
+
+  function _maybeStartLive(cid, data) {
+    if (!liveMode) return;
+    var turns = data.turns || [];
+    if (!turns.length) return;
+    var lastTurn = turns[turns.length - 1];
+    var n = lastTurn.turn_n;
+    if (!n) return;
+    _openLiveES(cid, n);
   }
 
   function _renderConvDetailFull(cid, data, container) {
@@ -2033,8 +2148,8 @@ code, .mono {
     html += '<h2>' + escapeHtml(cid) + '</h2>';
     html += sourceBadges;
     html += modelBadges;
-    // Live pill placeholder — hidden until UI-10.
-    html += '<span class="pill live" style="display:none;" id="conv-live-pill">live</span>';
+    // Live pill — shown/pulsed by SSE client when liveMode is on.
+    html += '<span class="live-pill" id="conv-live-pill">Live</span>';
     html += '</div>';
     html += '<div class="conv-detail-meta">';
     html += '<span>' + (data.turn_count || 0) + ' turns</span>';
@@ -2781,17 +2896,26 @@ code, .mono {
   window.apiFetch = apiFetch;
 
   // ─── Init ───
-  populateWorkspaceSelect().then(function() {
-    loadTraces();
-    startAutoRefresh();
-    // If no hash or hash is just '#', redirect to conversations (default view).
-    var h = location.hash;
-    if (!h || h === '#' || h === '#/') {
-      location.hash = '#/conversations';
-    } else {
-      route();
-    }
-  });
+  // Check live mode status; then boot the app.
+  fetch('/api/live/status')
+    .then(function(r) { return r.ok ? r.json() : { live: false }; })
+    .catch(function() { return { live: false }; })
+    .then(function(status) {
+      liveMode = !!(status && status.live);
+    })
+    .finally(function() {
+      populateWorkspaceSelect().then(function() {
+        loadTraces();
+        startAutoRefresh();
+        // If no hash or hash is just '#', redirect to conversations (default view).
+        var h = location.hash;
+        if (!h || h === '#' || h === '#/') {
+          location.hash = '#/conversations';
+        } else {
+          route();
+        }
+      });
+    });
 
 })();
 </script>

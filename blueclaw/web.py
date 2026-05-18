@@ -694,6 +694,9 @@ def create_app(
         total = len(conversations)
         return JSONResponse({"conversations": conversations[:limit], "total": total})
 
+    async def live_status(request):
+        return JSONResponse({"live": live_broker is not None})
+
     async def stream_events_live(request):
         from blueclaw.runner import validate_session_id
 
@@ -809,6 +812,7 @@ def create_app(
             Route("/", index),
             Route("/blueclaw-crab.png", crab_png),
             Route("/api/workspaces", list_workspaces),
+            Route("/api/live/status", live_status),
             Route("/api/traces", list_traces),
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),

@@ -68,21 +68,31 @@ class TestValidateSessionId:
 class TestNextCapturePath:
     def test_empty_dir_returns_turn_001(self, tmp_path):
         result = next_capture_path(tmp_path, "session-a")
-        assert result == tmp_path / ".blueclaw" / "turns" / "session-a" / "turn-001"
+        assert (
+            result
+            == tmp_path
+            / ".blueclaw"
+            / "conversations"
+            / "session-a"
+            / "turns"
+            / "turn-001"
+        )
 
     def test_creates_parent_dirs(self, tmp_path):
         next_capture_path(tmp_path, "session-a")
-        assert (tmp_path / ".blueclaw" / "turns" / "session-a").is_dir()
+        assert (
+            tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
+        ).is_dir()
 
     def test_with_turn_001_returns_turn_002(self, tmp_path):
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-001").mkdir()
         result = next_capture_path(tmp_path, "session-a")
         assert result == turns_dir / "turn-002"
 
     def test_uses_max_not_count(self, tmp_path):
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-002").mkdir()
         (turns_dir / "turn-005").mkdir()
@@ -90,7 +100,7 @@ class TestNextCapturePath:
         assert result == turns_dir / "turn-006"
 
     def test_malformed_turn_dirs_ignored(self, tmp_path):
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-foo").mkdir()
         (turns_dir / "turn-").mkdir()
@@ -99,7 +109,7 @@ class TestNextCapturePath:
         assert result == turns_dir / "turn-002"
 
     def test_non_turn_entries_ignored(self, tmp_path):
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "scratch").mkdir()
         (turns_dir / "notes.md").write_text("hi")
@@ -112,14 +122,14 @@ class TestNextCapturePath:
         # subsequent mkdir(turn-001) collides with the file. Counting both
         # files and dirs makes the helper collision-safe at the cost of
         # treating any "turn-NNN" entry (regardless of kind) as occupied.
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-001").write_text("oops")
         result = next_capture_path(tmp_path, "session-a")
         assert result == turns_dir / "turn-002"
 
     def test_width_extends_past_999(self, tmp_path):
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-1000").mkdir()
         result = next_capture_path(tmp_path, "session-a")
@@ -132,12 +142,20 @@ class TestNextCapturePath:
     def test_isolation_per_session(self, tmp_path):
         next_capture_path(tmp_path, "session-a")
         result = next_capture_path(tmp_path, "session-b")
-        assert result == tmp_path / ".blueclaw" / "turns" / "session-b" / "turn-001"
+        assert (
+            result
+            == tmp_path
+            / ".blueclaw"
+            / "conversations"
+            / "session-b"
+            / "turns"
+            / "turn-001"
+        )
 
     def test_debug_log_on_malformed(self, tmp_path, caplog):
         import logging
 
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-foo").mkdir()
         with caplog.at_level(logging.DEBUG, logger="blueclaw.runner"):
@@ -148,7 +166,7 @@ class TestNextCapturePath:
         # `turn-+5` and `turn- 5` are not canonical and must not advance
         # the counter — the scan only counts entries whose suffix passes
         # str.isdigit() (rejects '+', '-', whitespace, empty).
-        turns_dir = tmp_path / ".blueclaw" / "turns" / "session-a"
+        turns_dir = tmp_path / ".blueclaw" / "conversations" / "session-a" / "turns"
         turns_dir.mkdir(parents=True)
         (turns_dir / "turn-+5").mkdir()
         (turns_dir / "turn- 5").mkdir()

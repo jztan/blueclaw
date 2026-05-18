@@ -1,5 +1,6 @@
 """Tests for blueclaw.workspace — sandbox enforcement, context/history ops."""
 
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -760,3 +761,68 @@ def test_migration_idempotent(tmp_path):
     Workspace(tmp_path)
     new = tmp_path / ".blueclaw" / "conversations" / "conv1"
     assert (new / "session_conv1" / "session.json").is_file()
+
+
+def test_migration_collision_skips_individual_move_and_withholds_sentinel(tmp_path):
+    cid = "conv1"
+    _populate_legacy(tmp_path, cid)
+    # Pre-create a colliding destination for turns
+    (tmp_path / ".blueclaw" / "conversations" / cid / "turns" / "turn-001").mkdir(
+        parents=True
+    )
+    (
+        tmp_path
+        / ".blueclaw"
+        / "conversations"
+        / cid
+        / "turns"
+        / "turn-001"
+        / "response.txt"
+    ).write_text("preexisting")
+
+    Workspace(tmp_path)
+
+    # Session and uploads moved
+    assert (
+        tmp_path
+        / ".blueclaw"
+        / "conversations"
+        / cid
+        / "session_conv1"
+        / "session.json"
+    ).is_file()
+    assert (
+        tmp_path / ".blueclaw" / "conversations" / cid / "uploads" / "file-abc"
+    ).is_file()
+    # Colliding turn was NOT overwritten
+    assert (
+        tmp_path
+        / ".blueclaw"
+        / "conversations"
+        / cid
+        / "turns"
+        / "turn-001"
+        / "response.txt"
+    ).read_text() == "preexisting"
+    # Legacy turn source remains for retry
+    assert (tmp_path / ".blueclaw" / "turns" / cid / "turn-001").exists()
+    # Sentinel NOT written (any_skip=True path)
+    assert not (tmp_path / ".blueclaw" / ".migrated-v1").exists()
+
+
+def test_migration_retry_completes_after_collision_cleared(tmp_path):
+    cid = "conv1"
+    _populate_legacy(tmp_path, cid)
+    colliding = tmp_path / ".blueclaw" / "conversations" / cid / "turns" / "turn-001"
+    colliding.mkdir(parents=True)
+    (colliding / "response.txt").write_text("preexisting")
+
+    Workspace(tmp_path)  # first attempt skips the collision
+
+    # Operator clears the collision (or accepts losing data)
+    shutil.rmtree(colliding)
+
+    Workspace(tmp_path)  # retry
+
+    assert (colliding / "response.txt").read_text() == "hello"
+    assert (tmp_path / ".blueclaw" / ".migrated-v1").exists()

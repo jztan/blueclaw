@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import queue
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from starlette.applications import Starlette
 from starlette.responses import (
@@ -20,6 +24,9 @@ from starlette.routing import Route
 
 from blueclaw.models import RunTrace, classify_error
 from blueclaw.workspace import Workspace
+
+if TYPE_CHECKING:
+    from blueclaw.live_broker import LiveBroker
 
 
 def _count_trace_files(workspace: Workspace) -> int:
@@ -342,6 +349,8 @@ def _parse_since(request) -> datetime | None:
 
 def create_app(
     workspaces: "list[tuple[str, Workspace]] | Workspace",
+    *,
+    live_broker: "LiveBroker | None" = None,
 ) -> Starlette:
     """Create the Starlette app with trace API routes.
 
@@ -685,6 +694,116 @@ def create_app(
         total = len(conversations)
         return JSONResponse({"conversations": conversations[:limit], "total": total})
 
+    async def stream_events_live(request):
+        from blueclaw.runner import validate_session_id
+
+        # Return 503 immediately if live mode is not enabled.
+        if live_broker is None:
+            return JSONResponse({"error": "live mode not enabled"}, status_code=503)
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # Locate the events.jsonl file.
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/events.jsonl"
+        events_file: Path | None = None
+        for _key, ws in sel:
+            candidate = ws.root / rel
+            if candidate.exists():
+                events_file = candidate
+                break
+
+        async def sse_generator():
+            # ----------------------------------------------------------------
+            # Gap-safe handshake:
+            # 1. Subscribe FIRST so in-flight events are buffered immediately.
+            # 2. Read disk; record last_seq from on-disk events.
+            # 3. Emit backfill frame.
+            # 4. Drain queue, dedup by seq (drop seq <= last_seq).
+            # 5. Continue until stream.end arrives.
+            # ----------------------------------------------------------------
+
+            # Yield the SSE retry directive as the very first bytes.
+            yield "retry: 3000\n\n"
+
+            # Step 1: subscribe before reading disk.
+            q = live_broker.subscribe(cid)
+
+            try:
+                # Step 2: read disk events.
+                disk_events: list[dict] = []
+                last_seq: int = -1
+                if events_file is not None:
+                    try:
+                        raw = events_file.read_text(encoding="utf-8", errors="replace")
+                        for line in raw.splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                evt = json.loads(line)
+                                disk_events.append(evt)
+                                seq = evt.get("seq")
+                                if isinstance(seq, int) and seq > last_seq:
+                                    last_seq = seq
+                            except json.JSONDecodeError:
+                                pass
+                    except OSError:
+                        pass
+
+                # Step 3: emit backfill frame.
+                backfill_payload = json.dumps(
+                    {"events": disk_events, "last_seq": last_seq}
+                )
+                yield f"event: backfill\ndata: {backfill_payload}\n\n"
+
+                # Steps 4 & 5: drain queue forever until stream.end.
+                # Poll the queue without blocking the event loop: try
+                # get_nowait() and sleep briefly on empty.
+                while True:
+                    try:
+                        event = q.get_nowait()
+                    except queue.Empty:
+                        await asyncio.sleep(0.05)
+                        continue
+
+                    # End sentinel — emit and close.
+                    if event.get("type") == "stream.end":
+                        yield 'event: end\ndata: {"reason": "turn_finished"}\n\n'
+                        return
+
+                    # Dedup: skip events already covered by backfill.
+                    seq = event.get("seq")
+                    if isinstance(seq, int) and seq <= last_seq:
+                        continue
+
+                    append_payload = json.dumps(event)
+                    yield f"event: append\ndata: {append_payload}\n\n"
+
+            finally:
+                live_broker.unsubscribe(cid, q)
+
+        return StreamingResponse(
+            sse_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return Starlette(
         routes=[
             Route("/", index),
@@ -700,6 +819,10 @@ def create_app(
             Route(
                 "/api/conversations/{cid}/turns/{n}/events",
                 stream_events,
+            ),
+            Route(
+                "/api/conversations/{cid}/turns/{n}/events/live",
+                stream_events_live,
             ),
         ]
     )

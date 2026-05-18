@@ -1078,8 +1078,8 @@ code, .mono {
       var out = '<details class="capture-row">';
       out += '<summary><span class="capture-chip">' + escapeHtml(row.capture_preview) + '</span></summary>';
       out += '<div class="capture-links">';
-      if (responseUrl) out += '<a href="' + responseUrl + '" target="_blank">view response</a>';
-      if (messagesUrl) out += ' · <a href="' + messagesUrl + '" target="_blank">view messages</a>';
+      if (responseUrl) out += '<a href="' + responseUrl + '" target="_blank" rel="noopener noreferrer">view response</a>';
+      if (messagesUrl) out += ' · <a href="' + messagesUrl + '" target="_blank" rel="noopener noreferrer">view messages</a>';
       out += '</div></details>';
       return out;
     }

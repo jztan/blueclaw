@@ -199,3 +199,206 @@ class TestAdapterRelativization:
         assert len(traces) == 1
         trace = RunTrace.from_json(traces[0].read_text())
         assert trace.capture_path == ".blueclaw/turns/12345/turn-001"
+
+
+class TestComputeCapturePreview:
+    """The /api/traces handler renders preview/pruned state per row."""
+
+    def _import_helper(self):
+        from blueclaw.web import _compute_capture_preview
+
+        return _compute_capture_preview
+
+    def test_missing_dir_is_pruned(self, tmp_path):
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview is None
+        assert pruned is True
+
+    def test_missing_file_is_pruned(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "messages.json").write_text("[]")
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview is None
+        assert pruned is True
+
+    def test_empty_file_returns_empty_preview(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text("")
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview == ""
+        assert pruned is False
+
+    def test_short_single_line(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text("hello world")
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview == "hello world"
+        assert pruned is False
+
+    def test_long_single_line_truncated(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text("x" * 500)
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview is not None
+        assert preview.endswith("…")
+        assert len(preview) == 200  # 199 chars + ellipsis
+        assert pruned is False
+
+    def test_multiline_takes_first_line_only(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text("first line\nsecond line\nthird")
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview == "first line"
+        assert pruned is False
+
+    def test_non_utf8_bytes_decoded_with_replacement(self, tmp_path):
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_bytes(b"hello \xff world")
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        assert preview is not None
+        assert "hello" in preview
+        assert pruned is False
+
+    def test_capture_path_none_returns_nothing(self, tmp_path):
+        fn = self._import_helper()
+        preview, pruned = fn(tmp_path, None)
+        assert preview is None
+        assert pruned is False  # not pruned — never had one
+
+
+class TestSerializeTraceSummaryWithCapture:
+    """_serialize_trace_summary surfaces preview/pruned correctly."""
+
+    def _make_trace_with_capture(self, capture_path):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunTrace
+
+        return RunTrace(
+            run_id="20260518-090000-abcd",
+            goal="hi",
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc),
+            model_id="anthropic/claude-opus-4-7",
+            steps=[],
+            total_tokens=0,
+            status="success",
+            capture_path=capture_path,
+        )
+
+    def test_with_real_capture_includes_preview(self, tmp_path):
+        from blueclaw.web import _serialize_trace_summary
+
+        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text("a real response")
+        t = self._make_trace_with_capture(".blueclaw/turns/cid/turn-005")
+        summary = _serialize_trace_summary(t, workspace_root=tmp_path)
+        assert summary["capture_preview"] == "a real response"
+        assert "captures_pruned" not in summary
+
+    def test_with_pruned_capture_includes_flag(self, tmp_path):
+        from blueclaw.web import _serialize_trace_summary
+
+        t = self._make_trace_with_capture(".blueclaw/turns/cid/turn-005")
+        summary = _serialize_trace_summary(t, workspace_root=tmp_path)
+        assert summary.get("captures_pruned") is True
+        assert "capture_preview" not in summary
+
+    def test_with_no_capture_omits_both(self, tmp_path):
+        from blueclaw.web import _serialize_trace_summary
+
+        t = self._make_trace_with_capture(None)
+        summary = _serialize_trace_summary(t, workspace_root=tmp_path)
+        assert "capture_preview" not in summary
+        assert "captures_pruned" not in summary
+
+
+class TestListTracesEndpoint:
+    """GET /api/traces surfaces capture_preview / captures_pruned per row."""
+
+    def _write_trace_and_capture(self, workspace, capture_path_rel, response_text=None):
+        from datetime import datetime, timezone
+
+        from blueclaw.models import RunTrace
+
+        run_id = "20260518-090000-abcd"
+        t = RunTrace(
+            run_id=run_id,
+            goal="hi",
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc),
+            model_id="anthropic/claude-opus-4-7",
+            steps=[],
+            total_tokens=0,
+            status="success",
+            capture_path=capture_path_rel,
+        )
+        workspace.write_trace(t)
+        if response_text is not None and capture_path_rel is not None:
+            full = workspace.root / capture_path_rel
+            full.mkdir(parents=True, exist_ok=True)
+            (full / "response.txt").write_text(response_text)
+
+    def test_endpoint_surfaces_preview(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+
+        workspace = Workspace(tmp_path)
+        self._write_trace_and_capture(
+            workspace,
+            ".blueclaw/turns/cid/turn-001",
+            response_text="hello from agent",
+        )
+        client = TestClient(create_app(workspace))
+        resp = client.get("/api/traces")
+        assert resp.status_code == 200
+        rows = resp.json()["traces"]
+        assert len(rows) == 1
+        assert rows[0]["capture_preview"] == "hello from agent"
+        assert "captures_pruned" not in rows[0]
+        assert rows[0]["capture_path"] == ".blueclaw/turns/cid/turn-001"
+
+    def test_endpoint_surfaces_pruned(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+
+        workspace = Workspace(tmp_path)
+        self._write_trace_and_capture(workspace, ".blueclaw/turns/cid/turn-001")
+        client = TestClient(create_app(workspace))
+        resp = client.get("/api/traces")
+        rows = resp.json()["traces"]
+        assert rows[0].get("captures_pruned") is True
+        assert "capture_preview" not in rows[0]
+
+    def test_endpoint_omits_both_when_no_capture(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+
+        workspace = Workspace(tmp_path)
+        self._write_trace_and_capture(workspace, None)
+        client = TestClient(create_app(workspace))
+        resp = client.get("/api/traces")
+        rows = resp.json()["traces"]
+        assert "capture_preview" not in rows[0]
+        assert "captures_pruned" not in rows[0]
+        assert rows[0]["capture_path"] is None

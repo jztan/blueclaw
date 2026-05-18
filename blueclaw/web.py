@@ -23,10 +23,55 @@ def _count_trace_files(workspace: Workspace) -> int:
     return len(list(workspace.traces_dir.glob("*.json")))
 
 
-def _serialize_trace_summary(t: RunTrace) -> dict:
+_PREVIEW_MAX_CHARS = 200
+
+
+def _compute_capture_preview(
+    workspace_root: Path, capture_path: str | None
+) -> tuple[str | None, bool]:
+    """Read first line of capture_path/response.txt for inline preview.
+
+    Returns (preview, captures_pruned):
+      - (None, False) — no capture was associated with this trace
+      - (None, True)  — capture_path was set but the file is missing (pruned)
+      - ("...", False) — file exists; preview is the first line, truncated
+                         to _PREVIEW_MAX_CHARS chars with '…' suffix if longer.
+                         Empty string is valid (file exists but is empty, or
+                         a permission/decode error occurred — UI shows empty
+                         chip and the user can still click "view full").
+
+    Never raises. Single open() per call, no separate exists() stat.
+    Atomicity note: a concurrent read while the runner is mid-write may
+    see partial content — accepted for a UI-only preview.
+
+    Boundary note: a line whose length is EXACTLY _PREVIEW_MAX_CHARS is
+    returned untruncated (no ellipsis). The `> _PREVIEW_MAX_CHARS` check
+    is consistent — anything strictly longer is truncated to the same
+    final width as the boundary case.
+    """
+    if capture_path is None:
+        return (None, False)
+    response_file = workspace_root / capture_path / "response.txt"
+    try:
+        with open(response_file, "rb") as f:
+            raw = f.read(_PREVIEW_MAX_CHARS * 4)  # generous buffer for UTF-8
+    except FileNotFoundError:
+        return (None, True)
+    except OSError:
+        return ("", False)  # exists-but-unreadable is NOT pruned
+    text = raw.decode("utf-8", errors="replace")
+    first_line = text.split("\n", 1)[0]
+    if len(first_line) > _PREVIEW_MAX_CHARS:
+        first_line = first_line[: _PREVIEW_MAX_CHARS - 1] + "…"
+    return (first_line, False)
+
+
+def _serialize_trace_summary(
+    t: RunTrace, *, workspace_root: Path | None = None
+) -> dict:
     """Convert a RunTrace to a lightweight summary dict for the list view."""
     elapsed = (t.end_time - t.start_time).total_seconds()
-    return {
+    summary = {
         "run_id": t.run_id,
         "goal": t.goal,
         "model_id": t.model_id,
@@ -40,7 +85,15 @@ def _serialize_trace_summary(t: RunTrace) -> dict:
         "context_masked_chars": t.context_masked_chars,
         "source": t.source,
         "conversation_id": t.conversation_id,
+        "capture_path": t.capture_path,
     }
+    if workspace_root is not None and t.capture_path is not None:
+        preview, pruned = _compute_capture_preview(workspace_root, t.capture_path)
+        if pruned:
+            summary["captures_pruned"] = True
+        elif preview is not None:
+            summary["capture_preview"] = preview
+    return summary
 
 
 def compute_stats(traces: list[RunTrace]) -> dict:
@@ -262,7 +315,7 @@ def create_app(
             if model:
                 traces = [t for t in traces if t.model_id == model]
             for t in traces:
-                summary = _serialize_trace_summary(t)
+                summary = _serialize_trace_summary(t, workspace_root=ws.root)
                 summary["_source"] = key
                 summaries.append(summary)
         summaries.sort(key=lambda r: r["start_time"], reverse=True)

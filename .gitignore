@@ -62,3 +62,6 @@ docs/superpowers
 .env
 .env.docker
 .env.*
+
+# Superpowers brainstorming visual companion
+.superpowers/

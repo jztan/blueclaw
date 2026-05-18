@@ -1203,6 +1203,16 @@ class TestTracePurge:
         assert (traces_dir / "20250101-120000.json").exists()
 
 
+class TestTraceUiLiveFlag:
+    """CLI: blueclaw trace ui --live flag registration."""
+
+    def test_trace_ui_has_live_flag(self):
+        result = runner.invoke(app, ["trace", "ui", "--help"])
+        assert result.exit_code == 0
+        assert "--live" in result.output
+        assert "Enable live event streaming" in result.output
+
+
 class TestServeCommand:
     """CLI: blueclaw serve command."""
 

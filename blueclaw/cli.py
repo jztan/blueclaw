@@ -1268,27 +1268,61 @@ def trace_ui(
         "--all-chats",
         help="Show workspace dropdown across default + every chat",
     ),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Enable live event streaming (opens Unix socket at ~/.blueclaw/live.sock)",
+    ),
 ) -> None:
     """Launch trace visualization dashboard in browser."""
+    import signal
     import threading
     import webbrowser
 
     import uvicorn
 
+    from blueclaw.live_broker import LiveBroker
     from blueclaw.web import create_app
 
     workspaces = _resolve_workspaces_or_exit(chat, all_chats)
-    app = create_app(workspaces)
+    broker: LiveBroker | None = None
+    if live:
+        broker = LiveBroker()
+        try:
+            broker.start()
+            console.print(
+                "[green]Live streaming enabled.[/green] Socket at ~/.blueclaw/live.sock"
+            )
+        except RuntimeError as e:
+            console.print(f"[red]Failed to start live broker: {e}[/red]")
+            raise typer.Exit(1)
+
+    app = create_app(workspaces, live_broker=broker)
     url = f"http://localhost:{port}"
     label = (
         workspaces[0][0] if len(workspaces) == 1 else f"{len(workspaces)} workspaces"
     )
-    console.print(f"Trace UI ({label}): {url}")
+    live_label = " (live)" if live else ""
+    console.print(f"Trace UI{live_label} ({label}): {url}")
 
     if not no_open:
         threading.Timer(0.5, webbrowser.open, args=[url]).start()
 
-    uvicorn.run(app, host=_default_bind_host(), port=port, log_level="warning")
+    # Register signal handlers so the broker stops cleanly on Ctrl-C
+    def _shutdown(signum, frame):
+        if broker is not None:
+            broker.stop()
+        raise SystemExit(0)
+
+    if broker is not None:
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        uvicorn.run(app, host=_default_bind_host(), port=port, log_level="warning")
+    finally:
+        if broker is not None:
+            broker.stop()
 
 
 @trace_app.command("purge")

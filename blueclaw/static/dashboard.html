@@ -2289,14 +2289,41 @@ code, .mono {
       });
   }
 
+  // Slice a full messages.json array (which contains the entire conversation history)
+  // down to just the current turn's exchange. Walk backwards to find the last user
+  // message that has at least one real text block (not a synthetic toolResult-only
+  // message that Strands inserts between assistant tool calls). Slice from there to
+  // the end. If no such message is found (e.g., Turn 1 with only an assistant
+  // greeting), return the full array unchanged.
+  function _sliceToCurrentTurn(messages) {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var msg = messages[i];
+      if ((msg.role || '') !== 'user') continue;
+      var content = msg.content;
+      if (typeof content === 'string' && content.trim()) {
+        return messages.slice(i);
+      }
+      if (Array.isArray(content)) {
+        var hasUserText = content.some(function(block) {
+          return 'text' in block && typeof block.text === 'string' && block.text.trim();
+        });
+        if (hasUserText) {
+          return messages.slice(i);
+        }
+      }
+    }
+    return messages;
+  }
+
   function _renderTurnTranscript(messages, body) {
+    var turnMessages = _sliceToCurrentTurn(messages || []);
     var html = '<div class="turn-transcript-loaded">';
 
     // Pass 1: collect toolUseId → result text mapping from user toolResult blocks.
     // Strands content blocks have no `type` field — discriminate by which key is present.
     // toolResult blocks: { toolResult: { toolUseId, content: [{text}...], status } }
     var toolResultMap = {};  // toolUseId → result text
-    (messages || []).forEach(function(msg) {
+    turnMessages.forEach(function(msg) {
       if ((msg.role || '') !== 'user') return;
       var content = msg.content;
       if (!Array.isArray(content)) return;
@@ -2324,7 +2351,7 @@ code, .mono {
     //   text block:       { text: "..." }
     //   toolUse block:    { toolUse: { name, toolUseId, input } }
     //   toolResult block: { toolResult: { toolUseId, content: [{text}...], status } }
-    (messages || []).forEach(function(msg) {
+    turnMessages.forEach(function(msg) {
       var role = msg.role || 'unknown';
       var content = msg.content;
 

@@ -73,25 +73,22 @@ def validate_session_id(session_id: str) -> None:
 def next_capture_path(workspace_root: Path, session_id: str) -> Path:
     """Return the path for the next turn capture directory.
 
-    Layout: ``<workspace_root>/.blueclaw/turns/<session_id>/turn-NNN/``.
-    Numbering is filesystem-derived: scans existing entries whose names
-    match ``turn-NNN`` (any kind — directory OR plain file — to remain
-    collision-safe against operator-created stray files) and returns
-    ``max + 1`` (or ``turn-001`` if none). Entries whose name starts with
-    ``turn-`` but whose suffix is not a parseable integer are ignored
-    (with a debug log line).
+    Layout: ``<workspace_root>/.blueclaw/conversations/<session_id>/turns/turn-NNN/``.
+    Numbering is filesystem-derived: scans existing entries whose names match
+    ``turn-NNN`` (any kind — directory OR plain file — to remain collision-safe
+    against operator-created stray files) and returns ``max + 1`` (or
+    ``turn-001`` if none). Entries whose name starts with ``turn-`` but whose
+    suffix is not a parseable integer are ignored (with a debug log line).
 
     No locking. HTTP serializes per-cid via conv_locks; terminal is
     single-process; Telegram serializes per-chat via ChatContext.lock.
-    A future adapter introducing concurrent turns on the same session
-    must add its own serialization.
 
-    Side effect: creates the parent ``turns/<session_id>/`` directory if
-    it does not already exist. Callers wanting pure validation should use
-    ``validate_session_id`` instead.
+    Side effect: creates the parent ``conversations/<session_id>/turns/``
+    directory if it does not already exist. Callers wanting pure validation
+    should use ``validate_session_id`` instead.
     """
     validate_session_id(session_id)
-    turns_dir = workspace_root / ".blueclaw" / "turns" / session_id
+    turns_dir = workspace_root / ".blueclaw" / "conversations" / session_id / "turns"
     turns_dir.mkdir(parents=True, exist_ok=True)
 
     existing: list[int] = []

@@ -345,3 +345,29 @@ def test_run_turn_catches_agent_exception_and_attempts_capture(
     assert (capture_path / "messages.json").exists()
     # Cleanup still ran.
     mk_cleanup.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# next_capture_path tests (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_next_capture_path_uses_conversations_layout(tmp_path):
+    from blueclaw.runner import next_capture_path
+    from blueclaw.workspace import Workspace
+
+    ws = Workspace(tmp_path)
+    p = next_capture_path(ws.root, "conv1")
+    assert p == ws.root / ".blueclaw" / "conversations" / "conv1" / "turns" / "turn-001"
+    assert p.parent.is_dir()
+
+
+def test_next_capture_path_increments_within_conversations(tmp_path):
+    from blueclaw.runner import next_capture_path
+    from blueclaw.workspace import Workspace
+
+    ws = Workspace(tmp_path)
+    p1 = next_capture_path(ws.root, "conv1")
+    p1.mkdir()
+    p2 = next_capture_path(ws.root, "conv1")
+    assert p2.name == "turn-002"

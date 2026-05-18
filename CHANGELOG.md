@@ -54,6 +54,28 @@ All notable changes to blueclaw will be documented in this file.
 - `blueclaw/runner.py` exposes `runner_session` (context manager), `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__` runs `cleanup_mcp_clients` unconditionally — adapters can no longer forget it.
 - `tests/test_no_direct_create_agent.py` durability guard: any module outside `blueclaw/runner.py` / `blueclaw/session.py` matching `\bcreate_agent\b` fails the test. With HTTP migrated, `ALLOWLIST_PENDING_MIGRATION` is empty — the set declaration is kept in place so future adapters have a documented place to land if they ever need temporary exemption.
 - `tests/test_server.py::TestStreamingWorkspaceErrorCleanup`: structural regression test asserting that when `workspace.write_trace` raises mid-stream, the SSE `error` event emits AND `cleanup_mcp_clients` runs via `runner_session.__exit__`. Defends the streaming carve-out's cleanup ordering.
+- Per-turn capture for terminal, HTTP, and Telegram adapters. Each turn's
+  `response.txt` and `messages.json` are written to
+  `<workspace>/.blueclaw/turns/<id>/turn-NNN/`. `<id>` is the conversation
+  ID for HTTP, the chat ID for Telegram, and a per-process
+  `YYYYMMDD-HHMMSS-xxxx` timestamp for terminal sessions.
+- `blueclaw.runner.next_capture_path` helper and pure
+  `blueclaw.runner.validate_session_id` validator. IDs are rejected if
+  they contain `/`, `\`, `\x00`, whitespace, control characters, are `.`
+  or `..`, are empty, or exceed 128 characters.
+
+### Changed
+- Terminal sessions now carry a `conversation_id` (the timestamp-based
+  per-process session ID) on trace and history records. Previously this
+  was `None` for terminal-sourced runs; downstream tooling that grouped
+  records by `conversation_id` should account for the new value.
+
+### Security
+- HTTP `POST /message` and `POST /message/stream` now validate the
+  client-supplied `conversation_id` against path-traversal characters and
+  unsafe values. Invalid IDs receive a generic
+  `{"error": "invalid conversation_id"}` 400 response that does not echo
+  the rejected value (the validation error is logged server-side only).
 
 ### Fixed
 - `runner_session.__exit__` enforces `cleanup_mcp_clients` for any adapter that uses the runner, closing a class of bug structurally. The `BridgeRouter.handle_message` (Telegram) cleanup miss was the proof case that motivated this work — adapters that build agents outside the runner can silently skip MCP teardown. The Telegram migration to the runner (also in this release) realizes the fix for that specific call site.

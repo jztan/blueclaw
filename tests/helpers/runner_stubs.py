@@ -21,7 +21,7 @@ class _StubAgent:
         self.messages = [{"role": "assistant", "content": [{"text": "ok"}]}]
         self.state = type("S", (), {"set": lambda self, *a, **kw: None})()
 
-    def __call__(self, _input):
+    def _result(self):
         return type(
             "R",
             (),
@@ -31,6 +31,13 @@ class _StubAgent:
                 "stop_reason": "end_turn",
             },
         )()
+
+    def __call__(self, _input):
+        return self._result()
+
+    async def stream_async(self, _input):
+        yield {"data": "ok"}
+        yield {"result": self._result()}
 
 
 def install_stub_runner(monkeypatch):

@@ -1300,6 +1300,41 @@ def test_message_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
     assert (turn_dir / "messages.json").exists()
 
 
+def test_message_stream_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
+    """POST /message/stream writes turn artifacts under .blueclaw/turns/<cid>/turn-NNN/.
+
+    Same wiring as /message but the streaming code path is separate; this
+    test guards against streaming-only regressions where capture is wired
+    on one endpoint but not the other.
+    """
+    from blueclaw.models import SessionConfig
+    from blueclaw.workspace import Workspace
+    from tests.helpers.runner_stubs import install_stub_runner
+
+    workspace = Workspace(tmp_path)
+    config = SessionConfig()
+    install_stub_runner(monkeypatch)
+    monkeypatch.setenv("BLUECLAW_API_KEY", "")
+
+    app = create_server_app(config=config, workspace=workspace, model=object())
+    client = TestClient(app)
+
+    # Consume the SSE response fully — the capture write happens inside the
+    # async generator, so the stream must close before we can assert on disk.
+    with client.stream(
+        "POST",
+        "/message/stream",
+        json={"message": "hi", "conversation_id": "stream-chat"},
+    ) as resp:
+        assert resp.status_code == 200
+        for _ in resp.iter_text():
+            pass  # drain
+
+    turn_dir = tmp_path / ".blueclaw" / "turns" / "stream-chat" / "turn-001"
+    assert (turn_dir / "response.txt").exists()
+    assert (turn_dir / "messages.json").exists()
+
+
 def test_message_endpoint_rejects_path_traversal_cid(tmp_path, monkeypatch):
     """Malicious conversation_id returns 400 with body that does not echo input."""
     from blueclaw.models import SessionConfig

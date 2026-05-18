@@ -298,7 +298,7 @@ class RunTrace(BaseModel):
     source: str = "terminal"  # "terminal" | "api" | "eval" | "telegram"
     conversation_id: str | None = None
     capture_path: str | None = None
-    # Relative to workspace.root, e.g. ".blueclaw/turns/<cid>/turn-005".
+    # Relative to workspace.root, e.g. ".blueclaw/conversations/<cid>/turns/turn-005".
     # `None` is INTENTIONALLY AMBIGUOUS — covers both:
     #   - no capture written by design (e.g. HTTP request with no cid)
     #   - trace predates the capture feature (pre-2026-05-18)

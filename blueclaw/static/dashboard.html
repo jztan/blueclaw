@@ -1068,8 +1068,8 @@ code, .mono {
     if (typeof row.capture_preview === 'string') {
       // Parse cid + n from capture_path (single source of truth — avoids
       // drift if conversation_id is null/different for any reason).
-      // capture_path shape: ".blueclaw/turns/<cid>/turn-NNN"
-      var m = (row.capture_path || '').match(/^\.blueclaw\/turns\/(.+)\/turn-(\d+)$/);
+      // capture_path shape: ".blueclaw/conversations/<cid>/turns/turn-NNN"
+      var m = (row.capture_path || '').match(/^\.blueclaw\/conversations\/(.+)\/turns\/turn-(\d+)$/);
       var cidFromPath = m ? m[1] : null;
       var n = m ? parseInt(m[2], 10) : null;
       var cid = cidFromPath ? encodeURIComponent(cidFromPath) : null;

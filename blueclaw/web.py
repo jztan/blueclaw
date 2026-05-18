@@ -394,7 +394,7 @@ def create_app(
             return JSONResponse({"error": "unknown workspace"}, status_code=404)
 
         # 4. file existence — echo of expected_path is safe now (cid validated)
-        rel = f".blueclaw/turns/{cid}/turn-{n:03d}/response.txt"
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/response.txt"
         for _key, ws in sel:
             f = ws.root / rel
             if f.exists():
@@ -434,7 +434,7 @@ def create_app(
         if sel is None:
             return JSONResponse({"error": "unknown workspace"}, status_code=404)
 
-        rel = f".blueclaw/turns/{cid}/turn-{n:03d}/messages.json"
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/messages.json"
         for _key, ws in sel:
             f = ws.root / rel
             if f.exists():

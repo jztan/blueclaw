@@ -31,9 +31,9 @@ class TestRunTraceCapturePath:
         assert t.capture_path is None
 
     def test_round_trip_with_capture_path(self):
-        t = _make_trace(capture_path=".blueclaw/turns/my-chat/turn-005")
+        t = _make_trace(capture_path=".blueclaw/conversations/my-chat/turns/turn-005")
         restored = RunTrace.from_json(t.to_json())
-        assert restored.capture_path == ".blueclaw/turns/my-chat/turn-005"
+        assert restored.capture_path == ".blueclaw/conversations/my-chat/turns/turn-005"
 
     def test_round_trip_with_none(self):
         t = _make_trace(capture_path=None)
@@ -88,12 +88,14 @@ class TestRunnerRelativization:
         )
 
     def test_both_kwargs_set_relativizes(self, tmp_path):
-        cp = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-001"
+        cp = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-001"
         outcome = self._stub_outcome(tmp_path, cp, tmp_path)
-        assert outcome.trace.capture_path == ".blueclaw/turns/cid/turn-001"
+        assert (
+            outcome.trace.capture_path == ".blueclaw/conversations/cid/turns/turn-001"
+        )
 
     def test_workspace_root_missing_leaves_none(self, tmp_path):
-        cp = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-001"
+        cp = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-001"
         outcome = self._stub_outcome(tmp_path, cp, workspace_root=None)
         assert outcome.trace.capture_path is None
 
@@ -144,8 +146,8 @@ class TestAdapterRelativization:
         assert len(traces) == 1
         trace = RunTrace.from_json(traces[0].read_text())
         assert trace.capture_path is not None
-        assert trace.capture_path.startswith(".blueclaw/turns/")
-        assert "/turn-001" in trace.capture_path
+        assert trace.capture_path.startswith(".blueclaw/conversations/")
+        assert "/turns/turn-001" in trace.capture_path
 
     def test_http_trace_has_relative_capture_path(self, tmp_path, monkeypatch):
         from starlette.testclient import TestClient
@@ -175,7 +177,7 @@ class TestAdapterRelativization:
         traces = list(workspace.traces_dir.glob("*.json"))
         assert len(traces) == 1
         trace = RunTrace.from_json(traces[0].read_text())
-        assert trace.capture_path == ".blueclaw/turns/test-cid/turn-001"
+        assert trace.capture_path == ".blueclaw/conversations/test-cid/turns/turn-001"
 
     def test_telegram_trace_has_relative_capture_path(self, tmp_path, monkeypatch):
         import asyncio
@@ -198,7 +200,7 @@ class TestAdapterRelativization:
         traces = list((chat_ws_root / ".blueclaw" / "traces").glob("*.json"))
         assert len(traces) == 1
         trace = RunTrace.from_json(traces[0].read_text())
-        assert trace.capture_path == ".blueclaw/turns/12345/turn-001"
+        assert trace.capture_path == ".blueclaw/conversations/12345/turns/turn-001"
 
 
 class TestComputeCapturePreview:
@@ -211,63 +213,63 @@ class TestComputeCapturePreview:
 
     def test_missing_dir_is_pruned(self, tmp_path):
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview is None
         assert pruned is True
 
     def test_missing_file_is_pruned(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "messages.json").write_text("[]")
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview is None
         assert pruned is True
 
     def test_empty_file_returns_empty_preview(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text("")
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview == ""
         assert pruned is False
 
     def test_short_single_line(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text("hello world")
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview == "hello world"
         assert pruned is False
 
     def test_long_single_line_truncated(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text("x" * 500)
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview is not None
         assert preview.endswith("…")
         assert len(preview) == 200  # 199 chars + ellipsis
         assert pruned is False
 
     def test_multiline_takes_first_line_only(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text("first line\nsecond line\nthird")
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview == "first line"
         assert pruned is False
 
     def test_non_utf8_bytes_decoded_with_replacement(self, tmp_path):
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_bytes(b"hello \xff world")
         fn = self._import_helper()
-        preview, pruned = fn(tmp_path, ".blueclaw/turns/cid/turn-005")
+        preview, pruned = fn(tmp_path, ".blueclaw/conversations/cid/turns/turn-005")
         assert preview is not None
         assert "hello" in preview
         assert pruned is False
@@ -302,10 +304,10 @@ class TestSerializeTraceSummaryWithCapture:
     def test_with_real_capture_includes_preview(self, tmp_path):
         from blueclaw.web import _serialize_trace_summary
 
-        turn = tmp_path / ".blueclaw" / "turns" / "cid" / "turn-005"
+        turn = tmp_path / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-005"
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text("a real response")
-        t = self._make_trace_with_capture(".blueclaw/turns/cid/turn-005")
+        t = self._make_trace_with_capture(".blueclaw/conversations/cid/turns/turn-005")
         summary = _serialize_trace_summary(t, workspace_root=tmp_path)
         assert summary["capture_preview"] == "a real response"
         assert "captures_pruned" not in summary
@@ -313,7 +315,7 @@ class TestSerializeTraceSummaryWithCapture:
     def test_with_pruned_capture_includes_flag(self, tmp_path):
         from blueclaw.web import _serialize_trace_summary
 
-        t = self._make_trace_with_capture(".blueclaw/turns/cid/turn-005")
+        t = self._make_trace_with_capture(".blueclaw/conversations/cid/turns/turn-005")
         summary = _serialize_trace_summary(t, workspace_root=tmp_path)
         assert summary.get("captures_pruned") is True
         assert "capture_preview" not in summary
@@ -362,7 +364,7 @@ class TestListTracesEndpoint:
         workspace = Workspace(tmp_path)
         self._write_trace_and_capture(
             workspace,
-            ".blueclaw/turns/cid/turn-001",
+            ".blueclaw/conversations/cid/turns/turn-001",
             response_text="hello from agent",
         )
         client = TestClient(create_app(workspace))
@@ -372,7 +374,7 @@ class TestListTracesEndpoint:
         assert len(rows) == 1
         assert rows[0]["capture_preview"] == "hello from agent"
         assert "captures_pruned" not in rows[0]
-        assert rows[0]["capture_path"] == ".blueclaw/turns/cid/turn-001"
+        assert rows[0]["capture_path"] == ".blueclaw/conversations/cid/turns/turn-001"
 
     def test_endpoint_surfaces_pruned(self, tmp_path):
         from starlette.testclient import TestClient
@@ -381,7 +383,9 @@ class TestListTracesEndpoint:
         from blueclaw.workspace import Workspace
 
         workspace = Workspace(tmp_path)
-        self._write_trace_and_capture(workspace, ".blueclaw/turns/cid/turn-001")
+        self._write_trace_and_capture(
+            workspace, ".blueclaw/conversations/cid/turns/turn-001"
+        )
         client = TestClient(create_app(workspace))
         resp = client.get("/api/traces")
         rows = resp.json()["traces"]
@@ -415,7 +419,14 @@ class TestTurnRoutes:
         from starlette.testclient import TestClient
 
         workspace = Workspace(tmp_path)
-        turn = workspace.root / ".blueclaw" / "turns" / cid / f"turn-{n:03d}"
+        turn = (
+            workspace.root
+            / ".blueclaw"
+            / "conversations"
+            / cid
+            / "turns"
+            / f"turn-{n:03d}"
+        )
         turn.mkdir(parents=True)
         (turn / "response.txt").write_text(response_text)
         (turn / "messages.json").write_text(messages_json)
@@ -441,7 +452,10 @@ class TestTurnRoutes:
         assert resp.status_code == 404
         body = resp.json()
         assert body["error"] == "capture not found"
-        assert body["expected_path"] == ".blueclaw/turns/cid/turn-999/response.txt"
+        assert (
+            body["expected_path"]
+            == ".blueclaw/conversations/cid/turns/turn-999/response.txt"
+        )
         assert "hint" in body
 
     def test_cid_validation_fails_first_no_echo(self, tmp_path):
@@ -484,7 +498,9 @@ class TestTurnRoutes:
         ws_a = Workspace(tmp_path / "a")
         ws_b = Workspace(tmp_path / "b")
         for ws, text in ((ws_a, "from-a"), (ws_b, "from-b")):
-            turn = ws.root / ".blueclaw" / "turns" / "cid" / "turn-001"
+            turn = (
+                ws.root / ".blueclaw" / "conversations" / "cid" / "turns" / "turn-001"
+            )
             turn.mkdir(parents=True)
             (turn / "response.txt").write_text(text)
 

@@ -1281,7 +1281,7 @@ class TestStatefulStream:
 
 
 def test_message_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
-    """POST /message writes turn artifacts under .blueclaw/turns/<cid>/turn-NNN/."""
+    """POST /message writes turn artifacts to .blueclaw/conversations/<cid>/turns/."""
     from blueclaw.models import SessionConfig
     from blueclaw.workspace import Workspace
     from tests.helpers.runner_stubs import install_stub_runner
@@ -1300,13 +1300,15 @@ def test_message_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
     )
     assert resp.status_code == 200, resp.text
 
-    turn_dir = tmp_path / ".blueclaw" / "turns" / "my-chat" / "turn-001"
+    turn_dir = (
+        tmp_path / ".blueclaw" / "conversations" / "my-chat" / "turns" / "turn-001"
+    )
     assert (turn_dir / "response.txt").exists()
     assert (turn_dir / "messages.json").exists()
 
 
 def test_message_stream_endpoint_writes_capture_artifacts(tmp_path, monkeypatch):
-    """POST /message/stream writes turn artifacts under .blueclaw/turns/<cid>/turn-NNN/.
+    """POST /message/stream writes turn artifacts to .blueclaw/conversations/.
 
     Same wiring as /message but the streaming code path is separate; this
     test guards against streaming-only regressions where capture is wired
@@ -1335,7 +1337,9 @@ def test_message_stream_endpoint_writes_capture_artifacts(tmp_path, monkeypatch)
         for _ in resp.iter_text():
             pass  # drain
 
-    turn_dir = tmp_path / ".blueclaw" / "turns" / "stream-chat" / "turn-001"
+    turn_dir = (
+        tmp_path / ".blueclaw" / "conversations" / "stream-chat" / "turns" / "turn-001"
+    )
     assert (turn_dir / "response.txt").exists()
     assert (turn_dir / "messages.json").exists()
 

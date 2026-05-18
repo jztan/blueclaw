@@ -286,6 +286,14 @@ def test_bridge_router_writes_capture_artifacts(tmp_path, monkeypatch):
     response = asyncio.run(router.handle_message(chat_id=12345, user_id=999, text="hi"))
     assert response  # non-empty string from stub
 
-    turn_dir = tmp_path / "12345" / ".blueclaw" / "turns" / "12345" / "turn-001"
+    turn_dir = (
+        tmp_path
+        / "12345"
+        / ".blueclaw"
+        / "conversations"
+        / "12345"
+        / "turns"
+        / "turn-001"
+    )
     assert (turn_dir / "response.txt").exists()
     assert (turn_dir / "messages.json").exists()

@@ -1530,11 +1530,11 @@ def test_run_chat_loop_writes_capture_artifacts(tmp_path, monkeypatch):
     console = Console(file=io.StringIO())
     session_mod.run_chat_loop(workspace, console, config, model=None, scripted=True)
 
-    turns_root = tmp_path / ".blueclaw" / "turns"
-    assert turns_root.exists(), "turns/ dir must be created"
-    sessions = list(turns_root.iterdir())
+    convs_root = tmp_path / ".blueclaw" / "conversations"
+    assert convs_root.exists(), "conversations/ dir must be created"
+    sessions = list(convs_root.iterdir())
     assert len(sessions) == 1, f"expected one session dir, got {sessions}"
-    turn_dir = sessions[0] / "turn-001"
+    turn_dir = sessions[0] / "turns" / "turn-001"
     assert (turn_dir / "response.txt").exists()
     assert (turn_dir / "messages.json").exists()
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{4}", sessions[0].name), sessions[0].name

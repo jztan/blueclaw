@@ -91,6 +91,22 @@ All notable changes to blueclaw will be documented in this file.
   line of `response.txt`, truncated to 200 chars) per trace row with a
   "view full" link. Rows whose captures have been pruned show a "captures
   pruned" badge instead.
+- **Conversation-first trace UI:** new `#/conversations` and
+  `#/conversations/<cid>` views in the dashboard. Per-turn transcript with
+  user / tool / assistant inline; Deep details panel exposes the waterfall
+  (from RunTrace.steps) and a virtualized raw events stream (from
+  `events.jsonl`). The flat traces view is preserved as a secondary tab.
+- **Backend conversation API:** `GET /api/conversations`,
+  `/api/conversations/<cid>`, `/api/conversations/<cid>/turns/<n>/events`
+  expose per-cid aggregates and per-turn event streams. Aggregates are
+  computed at query time from existing trace files — no new persistence.
+- **Live event streaming:** `blueclaw trace ui --live` starts a Unix-socket
+  broker at `~/.blueclaw/live.sock`. Any blueclaw process started afterward
+  detects the socket and forwards every event in real time. The dashboard
+  subscribes via SSE at `/api/conversations/<cid>/turns/<n>/events/live`
+  and renders new tool calls / assistant text / model events incrementally.
+  Backfill + dedup-by-seq handshake ensures no events are missed on
+  reconnect. Off by default; opt in with `--live`.
 
 ### Notes
 - **Phase 1 ships independently.** This release adds capture only; no UI

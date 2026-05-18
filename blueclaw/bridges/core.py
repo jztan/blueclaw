@@ -124,6 +124,7 @@ class BridgeRouter:
                 callback_handler=None,
                 scripted=True,
                 capture_path=capture_path,
+                workspace_root=ctx.workspace.root,
             )
             if outcome.error is not None:
                 logger.error(

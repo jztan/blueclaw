@@ -749,6 +749,7 @@ def run_chat_loop(
                         end_time=end_time,
                         config=config,
                         capture_path=capture_path,
+                        workspace_root=workspace.root,
                     )
                     total_tool_calls += len(outcome.record.tools)
                     elapsed = (end_time - start_time).total_seconds()
@@ -783,6 +784,7 @@ def run_chat_loop(
                         end_time=end_time,
                         config=config,
                         capture_path=capture_path,
+                        workspace_root=workspace.root,
                     )
                     turn_count -= 1
                     continue

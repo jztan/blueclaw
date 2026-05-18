@@ -383,6 +383,7 @@ def run_turn(
     callback_handler=_UNSET,
     scripted: bool = True,
     capture_path: Path | None = None,
+    workspace_root: Path | None = None,
 ) -> RunOutcome:
     """Convenience for non-streaming, per-request adapters.
 
@@ -414,6 +415,7 @@ def run_turn(
                 end_time=end_time,
                 config=config,
                 capture_path=capture_path,
+                workspace_root=workspace_root,
             )
         except Exception as exc:
             end_time = datetime.now(timezone.utc)
@@ -427,4 +429,5 @@ def run_turn(
                 end_time=end_time,
                 config=config,
                 capture_path=capture_path,
+                workspace_root=workspace_root,
             )

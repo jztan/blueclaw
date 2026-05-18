@@ -69,6 +69,7 @@ def install_stub_runner(monkeypatch):
                 end_time=end,
                 config=args[0] if args else kwargs["config"],
                 capture_path=kwargs.get("capture_path"),
+                workspace_root=kwargs.get("workspace_root"),
             )
 
     monkeypatch.setattr("blueclaw.runner.runner_session", _stub_runner_session)

@@ -288,6 +288,7 @@ def create_server_app(
                             end_time=end_time,
                             config=config,
                             capture_path=capture_path,
+                            workspace_root=workspace.root,
                         )
                         if context_updater is not None:
                             try:
@@ -409,6 +410,7 @@ def create_server_app(
                                 end_time=end_time,
                                 config=config,
                                 capture_path=capture_path,
+                                workspace_root=workspace.root,
                             )
                             if context_updater is not None:
                                 try:

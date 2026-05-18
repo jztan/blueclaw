@@ -316,6 +316,53 @@ def finalize_error(
     )
 
 
+def _bus_targets(observer) -> list:
+    """Collect every bus-aware component reachable from observer."""
+    targets = [observer]
+    cm = getattr(observer, "conversation_manager", None)
+    if cm is not None and hasattr(cm, "bus"):
+        targets.append(cm)
+    return targets
+
+
+@contextmanager
+def bus_for_turn(observer, capture_path: Path | None):
+    """Create an EventBus for a single turn and attach it to every bus-aware
+    component reachable from the observer.
+
+    capture_path may be None when an adapter has no capture wiring; in
+    that case we yield None and every component's emit guard no-ops. This
+    is the single chokepoint for per-turn bus lifecycle — adapters call
+    this rather than constructing EventBus directly.
+
+    Bus-aware components in Phase 1: ObserverHooks (event emit for tool /
+    model / message hooks), ObservationMaskingManager (event emit for
+    context.mask). Both expose a settable `.bus` attribute. The masking
+    manager is reachable via `observer.conversation_manager`, which
+    session.py sets after construction.
+    """
+    if capture_path is None or observer is None:
+        yield None
+        return
+
+    from blueclaw.events import EventBus
+
+    capture_path.mkdir(parents=True, exist_ok=True)
+    bus = EventBus(capture_path / "events.jsonl")
+
+    targets = _bus_targets(observer)
+    prev_buses: list[tuple[Any, Any]] = [(t, getattr(t, "bus", None)) for t in targets]
+    for t in targets:
+        t.bus = bus
+
+    try:
+        yield bus
+    finally:
+        for t, prev in prev_buses:
+            t.bus = prev
+        bus.close()
+
+
 _UNSET = object()
 
 
@@ -398,33 +445,34 @@ def run_turn(
         callback_handler=callback_handler,
         scripted=scripted,
     ) as ctx:
-        start_time = datetime.now(timezone.utc)
-        try:
-            result = ctx.agent(agent_input)
-            end_time = datetime.now(timezone.utc)
-            return finalize(
-                ctx,
-                result,
-                goal=goal,
-                source=source,
-                conversation_id=conversation_id,
-                start_time=start_time,
-                end_time=end_time,
-                config=config,
-                capture_path=capture_path,
-                workspace_root=workspace_root,
-            )
-        except Exception as exc:
-            end_time = datetime.now(timezone.utc)
-            return finalize_error(
-                ctx,
-                exc,
-                goal=goal,
-                source=source,
-                conversation_id=conversation_id,
-                start_time=start_time,
-                end_time=end_time,
-                config=config,
-                capture_path=capture_path,
-                workspace_root=workspace_root,
-            )
+        with bus_for_turn(ctx.observer, capture_path):
+            start_time = datetime.now(timezone.utc)
+            try:
+                result = ctx.agent(agent_input)
+                end_time = datetime.now(timezone.utc)
+                return finalize(
+                    ctx,
+                    result,
+                    goal=goal,
+                    source=source,
+                    conversation_id=conversation_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    config=config,
+                    capture_path=capture_path,
+                    workspace_root=workspace_root,
+                )
+            except Exception as exc:
+                end_time = datetime.now(timezone.utc)
+                return finalize_error(
+                    ctx,
+                    exc,
+                    goal=goal,
+                    source=source,
+                    conversation_id=conversation_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    config=config,
+                    capture_path=capture_path,
+                    workspace_root=workspace_root,
+                )

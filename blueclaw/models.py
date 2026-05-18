@@ -123,6 +123,7 @@ class SessionConfig(BaseModel):
     workspace_path: Path = Path.home() / "blueclaw" / "workspace"
     allowlist_domains: list[str] = []
     tools: list[str] = ["web", "shell", "pdf"]
+    http_extract_main: bool = True
     trace_retention_days: int = 30
     context_strategy: str = "mask"
     context_mask_after: int = 10

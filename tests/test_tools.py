@@ -104,17 +104,52 @@ class TestHttpRequest:
         result = tool(url="https://evil.com/page")
         assert "not in allowlist" in result.lower() or "error" in result.lower()
 
+    def _mock_curl_response(self, body: bytes, content_type: str = "text/html"):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = body.decode("utf-8")
+        mock_response.headers = {"content-type": content_type}
+        return mock_response
+
     def test_http_request_allows_listed_domain(self):
-        tool = make_http_request(allowlist=["example.com"])
-        with patch("blueclaw.tools.web.urlopen") as mock_urlopen:
-            mock_response = MagicMock()
-            mock_response.read.return_value = b"<html>content</html>"
-            mock_response.headers.get_content_charset.return_value = "utf-8"
-            mock_response.__enter__ = lambda s: mock_response
-            mock_response.__exit__ = MagicMock(return_value=False)
-            mock_urlopen.return_value = mock_response
+        tool = make_http_request(allowlist=["example.com"], extract_main=False)
+        with patch("curl_cffi.requests.get") as mock_get:
+            mock_get.return_value = self._mock_curl_response(b"<html>content</html>")
             result = tool(url="https://example.com/page")
             assert "content" in result
+
+    def test_http_request_extracts_main_text(self):
+        tool = make_http_request(allowlist=["example.com"], extract_main=True)
+        body = (
+            b"<html><head><title>The Title</title></head><body>"
+            b"<nav>nav links nav links</nav>"
+            b"<article><h1>The Title</h1>"
+            b"<p>This is the substantive article body paragraph with "
+            b"enough content for the extractor to identify it as the main "
+            b"area, which is the whole point of this test.</p>"
+            b"<p>A second paragraph reinforcing the main content so the "
+            b"extractor scores this section highest on the page.</p>"
+            b"</article><footer>boilerplate footer</footer></body></html>"
+        )
+        with patch("curl_cffi.requests.get") as mock_get:
+            mock_get.return_value = self._mock_curl_response(body)
+            result = tool(url="https://example.com/page")
+            assert "The Title" in result
+            assert "substantive article body" in result
+            assert "<html>" not in result
+            assert "<p>" not in result
+
+    def test_http_request_returns_http_error_message(self):
+        tool = make_http_request(allowlist=["example.com"])
+        with patch("curl_cffi.requests.get") as mock_get:
+            err = MagicMock()
+            err.status_code = 403
+            err.text = "blocked"
+            err.headers = {"content-type": "text/plain"}
+            mock_get.return_value = err
+            result = tool(url="https://example.com/page")
+            assert "403" in result
+            assert "Error" in result
 
     def test_tool_docstrings_present(self):
         ws = make_web_search()

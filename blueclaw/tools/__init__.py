@@ -13,7 +13,9 @@ from blueclaw.tools.web import make_http_request, make_web_search
 TOOL_REGISTRY: dict[str, Callable] = {
     "web": lambda config, workspace: [
         make_web_search(),
-        make_http_request(config.allowlist_domains),
+        make_http_request(
+            config.allowlist_domains, extract_main=config.http_extract_main
+        ),
     ],
     "shell": lambda config, workspace: [make_shell_command(workspace)],
 }

@@ -4,6 +4,18 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **`http_request`: Cloudflare-aware fetch + article extraction.**
+  Replaced `urllib.urlopen` with `curl_cffi` using Chrome 124 TLS
+  impersonation, so blueclaw can fetch pages behind Cloudflare's bot
+  challenge (Medium, Substack, many news sites) that previously returned
+  403. HTML responses are then run through `trafilatura` to strip
+  boilerplate and return article title + main body text — typical
+  reduction from ~80k tokens of DOM to ~2–8k tokens of prose, which
+  lets smaller local models (Ollama gemma/qwen) actually read the
+  result instead of choking on tag soup. New `SessionConfig.http_extract_main`
+  YAML flag (default `true`) toggles extraction; set `false` when an
+  agent legitimately needs raw HTML or non-article content. New runtime
+  deps: `curl-cffi>=0.7`, `trafilatura>=1.12`.
 - **Eval response capture.** `blueclaw test` now persists the final assistant
   response text (`response.txt`) and the full `agent.messages` structure
   (`messages.json`) per run to `~/blueclaw/test-runs/<invocation-ts>/case-<N>/run-<N>/`,
@@ -46,6 +58,13 @@ All notable changes to blueclaw will be documented in this file.
   for that and are tracked as a follow-up.
 
 ### Changed
+- **System prompt: allowlist-error retry rule softened.** The previous
+  rule told the agent to fall back to search snippets on any
+  `http_request` domain-allowlist failure and never retry. After the
+  user adds a domain mid-session (or restarts the bridge with an updated
+  `blueclaw.yaml`), saying "try it again" or "it's allowlisted now"
+  now prompts a real retry instead of an apology. Silent fan-out to
+  unrequested domains is still discouraged.
 - Unified agent invocation orchestration into `blueclaw/runner.py`. Eval (`testing._run_single`) and terminal (`session.run_chat_loop`) now construct, invoke, and tear down Strands agents via the runner instead of duplicating the observer + `create_agent` + `build_trace_and_record` + `cleanup_mcp_clients` block. The `run` subcommand (`blueclaw run "..."`) also routes through the runner via `run_turn`. `RunOutcome` is the single exit type; capture artifacts (`response.txt` + `messages.json`) are written by the runner when an adapter supplies a `capture_path`. HTTP migration is tracked separately.
 - Telegram bridge (`BridgeRouter.handle_message` in `blueclaw/bridges/core.py`) migrated onto `runner.run_turn`. The ~40-line inline orchestration block (observer + `create_agent` + manual `asyncio.to_thread(agent, text)` + `build_trace_and_record` + `extract_text`) collapses to a single `run_turn` call. The bridge keeps allowlist gating, per-chat `ChatContext`/lock, `FileSessionManager` construction, and trace/history persistence; everything agent-mechanical (including the previously missing `cleanup_mcp_clients`) is now the runner's responsibility.
 - HTTP gateway (`handle_message` and `handle_message_stream` in `blueclaw/server.py`) migrated onto `runner_session` + `finalize`. Both endpoints use `runner_session` directly (not `run_turn`) so `context_updater.trigger(agent)` runs before `cleanup_mcp_clients` inside the same `with` block — structural enforcement of the trigger-must-precede-cleanup invariant. The streaming endpoint keeps `agent.stream_async` adapter-driven (the documented streaming carve-out) and hands the terminal `event["result"]` to `finalize`. `ALLOWLIST_PENDING_MIGRATION` is now empty — every adapter constructs agents through one sanctioned path.

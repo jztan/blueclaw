@@ -240,6 +240,20 @@ def _clear_sandbox_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _clear_blueclaw_api_key(monkeypatch):
+    """Unset BLUECLAW_API_KEY for every test.
+
+    blueclaw.cli calls load_dotenv() at import time, which pulls the developer's
+    real BLUECLAW_API_KEY out of the project .env and into os.environ for the
+    rest of the pytest process. Any subsequent test that builds a server app
+    without supplying the matching Bearer header then sees a 401. Forcing the
+    var clear per-test isolates server tests from that leak.
+    """
+    monkeypatch.delenv("BLUECLAW_API_KEY", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_observer_sandbox_cache():
     from blueclaw.observer import _reset_sandbox_metadata_cache
 

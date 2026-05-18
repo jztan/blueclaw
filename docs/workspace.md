@@ -32,6 +32,13 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
     ├── conversations/
     │   └── <cid>/
     │       ├── session_<cid>/  # Strands FileSessionManager state (HTTP, Telegram)
+    │       │   ├── session.json         # Strands session metadata (id, version, timestamps)
+    │       │   ├── agents/
+    │       │   │   └── agent_<id>/      # one per Strands agent (default: agent_default)
+    │       │   │       ├── agent.json   # agent state at session start
+    │       │   │       └── messages/
+    │       │   │           └── message_<N>.json  # one file per message (user + assistant)
+    │       │   └── multi_agents/        # reserved by Strands for multi-agent sessions
     │       ├── turns/
     │       │   └── turn-NNN/
     │       │       ├── response.txt    # raw assistant text for this turn
@@ -53,9 +60,14 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
 | `.blueclaw/traces/<run_id>.json` | JSON | adapter after `finalize` | `blueclaw trace *`; `web.py` (`/api/traces`) | retained until `blueclaw trace purge` |
 | `.blueclaw/conversations/<cid>/turns/turn-NNN/{response,messages}` | text + JSON | `runner._write_capture_artifacts` per turn | `web.py` (`/api/turns/...`); dashboard preview chip | not pruned automatically (operator action only) |
 | `.blueclaw/conversations/<cid>/session_<cid>/` | Strands SDK state | `FileSessionManager` per turn | `FileSessionManager` on next turn | retained until `purge_old_sessions` (`trace_retention_days`) |
+| `.blueclaw/conversations/<cid>/session_<cid>/session.json` | JSON | Strands SDK | Strands SDK | per session |
+| `.blueclaw/conversations/<cid>/session_<cid>/agents/<agent_id>/agent.json` | JSON | Strands SDK at session start | Strands SDK on next turn | per session |
+| `.blueclaw/conversations/<cid>/session_<cid>/agents/<agent_id>/messages/message_<N>.json` | JSON | Strands SDK per message | Strands SDK on rehydrate | per session |
 | `.blueclaw/conversations/<cid>/uploads/` | binary blobs | `server.py` `POST /upload` | `server.py` `_resolve_attachments` | retained per `UploadStore` policy |
 | `.blueclaw/uploads_tmp/` | binary blobs (staging) | `server.py` during upload | `server.py` on finalize | ephemeral; cleared after upload completes or fails |
-| `.blueclaw/.migrated-v1` | sentinel file | `workspace.py` migration | `workspace.py` on load (skip if present) | persistent; do not delete |
+| `.blueclaw/.migrated-v2` | sentinel file | `workspace.py` migration | `workspace.py` on load (skip if present) | persistent; do not delete |
+
+The contents of `session_<cid>/` are owned by the Strands SDK (`strands.session.file_session_manager`). BlueClaw never reads or writes inside this directory — it only constructs `FileSessionManager(session_id=cid, storage_dir=workspace.conversation_dir(cid))` and hands the rest to Strands. The layout above reflects Strands ≥ 1.0 and may shift between SDK versions; treat the subtree as opaque from BlueClaw's perspective and consult Strands docs for authoritative details.
 
 ## What `<cid>` means per adapter
 

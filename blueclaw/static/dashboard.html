@@ -468,6 +468,8 @@ code, .mono {
 .waterfall-bar.http_request { background: var(--yellow); }
 .waterfall-bar.shell_command { background: var(--green); }
 .waterfall-bar.other { background: var(--text-3); }
+.waterfall-bar.model { background: #9b59b6; }
+[data-theme="dark"] .waterfall-bar.model { background: #d2a8ff; }
 
 .waterfall-duration {
   width: 60px;
@@ -2528,50 +2530,98 @@ code, .mono {
       var trace = results[0];
       var eventsText = results[1] || '';
 
+      // Parse events.jsonl once — used by both waterfall and raw-events panel.
+      var parsedEvents = [];
+      if (eventsText) {
+        eventsText.trim().split('\n').forEach(function(line) {
+          if (!line.trim()) return;
+          try { parsedEvents.push(JSON.parse(line)); } catch(e) {}
+        });
+      }
+
       var html = '';
 
       // ── Sub-panel A: Waterfall ──
+      // Build rows from BOTH model invocations (events.jsonl) and tool calls (trace.steps).
+      // Sort by start time; compute total wall time from min(starts) to max(ends).
       html += '<div class="deep-waterfall">';
-      html += '<div class="deep-subpanel-title">Waterfall</div>';
-      if (trace && trace.steps && trace.steps.length > 0) {
-        var steps = trace.steps;
-        var traceStartMs = steps[0].start_time ? new Date(steps[0].start_time).getTime() : 0;
-        var traceEndMs = steps[steps.length - 1].end_time ? new Date(steps[steps.length - 1].end_time).getTime() : 0;
-        var traceTotalMs = traceEndMs - traceStartMs;
-        if (traceTotalMs <= 0) traceTotalMs = 1;
 
+      // Collect model invocation rows from model.before / model.after pairs.
+      var modelRows = [];
+      var pendingModelBefore = null;
+      parsedEvents.forEach(function(ev) {
+        if (ev.type === 'model.before') {
+          pendingModelBefore = ev;
+        } else if (ev.type === 'model.after' && pendingModelBefore) {
+          var startMs = new Date(pendingModelBefore.ts).getTime();
+          var durMs = ev.duration_ms || 0;
+          var endMs = durMs > 0 ? (startMs + durMs) : new Date(ev.ts).getTime();
+          if (!isNaN(startMs)) {
+            modelRows.push({ kind: 'model', name: 'model.invoke', startMs: startMs, endMs: endMs, durMs: endMs - startMs });
+          }
+          pendingModelBefore = null;
+        }
+      });
+
+      // Collect tool call rows from trace.steps.
+      var toolRows = [];
+      if (trace && trace.steps) {
+        trace.steps.forEach(function(step) {
+          var startMs = step.start_time ? new Date(step.start_time).getTime() : NaN;
+          var durMs = step.duration_ms || 0;
+          var endMs = step.end_time ? new Date(step.end_time).getTime() : (startMs + durMs);
+          if (!isNaN(startMs)) {
+            toolRows.push({ kind: 'tool', name: step.tool_name || 'unknown', startMs: startMs, endMs: endMs, durMs: durMs });
+          }
+        });
+      }
+
+      var allRows = modelRows.concat(toolRows);
+      // Sort by startMs; use seq order (index in array) as tiebreaker — already preserved.
+      allRows.sort(function(a, b) { return a.startMs - b.startMs; });
+
+      if (allRows.length > 0) {
+        var wallStartMs = allRows[0].startMs;
+        var wallEndMs = allRows.reduce(function(m, r) { return Math.max(m, r.endMs); }, allRows[0].endMs);
+        var wallTotalMs = wallEndMs - wallStartMs;
+        if (wallTotalMs <= 0) wallTotalMs = 1;
+
+        var totalToolMs = toolRows.reduce(function(s, r) { return s + r.durMs; }, 0);
+        var totalModelMs = modelRows.reduce(function(s, r) { return s + r.durMs; }, 0);
+
+        var fmtS = function(ms) { return (ms / 1000).toFixed(1) + 's'; };
+        html += '<div class="deep-subpanel-title">Waterfall — ' + fmtS(wallTotalMs) + ' wall, ' + fmtS(totalToolMs) + ' tool, ' + fmtS(totalModelMs) + ' model</div>';
         html += '<div class="waterfall">';
-        steps.forEach(function(step) {
-          var toolName = step.tool_name || 'unknown';
+        allRows.forEach(function(row) {
           var barClass = 'other';
-          if (toolName === 'web_search') barClass = 'web_search';
-          else if (toolName === 'http_request') barClass = 'http_request';
-          else if (toolName === 'shell_command') barClass = 'shell_command';
+          if (row.kind === 'model') {
+            barClass = 'model';
+          } else if (row.name === 'web_search') barClass = 'web_search';
+          else if (row.name === 'http_request') barClass = 'http_request';
+          else if (row.name === 'shell_command') barClass = 'shell_command';
 
-          var stepStartMs = step.start_time ? new Date(step.start_time).getTime() : 0;
-          var stepDurMs = step.duration_ms || 0;
-          var leftPct = traceStartMs ? ((stepStartMs - traceStartMs) / traceTotalMs * 100) : 0;
-          var widthPct = (stepDurMs / traceTotalMs * 100);
+          var leftPct = (row.startMs - wallStartMs) / wallTotalMs * 100;
+          var widthPct = row.durMs / wallTotalMs * 100;
           if (leftPct < 0) leftPct = 0;
           if (leftPct > 100) leftPct = 100;
           if (widthPct < 0.5) widthPct = 0.5;
           if (leftPct + widthPct > 100) widthPct = 100 - leftPct;
 
           html += '<div class="waterfall-row">';
-          html += '<span class="waterfall-tool">' + escapeHtml(toolName) + '</span>';
+          html += '<span class="waterfall-tool">' + escapeHtml(row.name) + '</span>';
           html += '<div class="waterfall-bar-container">';
           html += '<div class="waterfall-bar ' + barClass + '" style="left:' + leftPct.toFixed(1) + '%;width:' + widthPct.toFixed(1) + '%"></div>';
           html += '</div>';
-          html += '<span class="waterfall-duration">' + (stepDurMs != null ? stepDurMs + 'ms' : '--') + '</span>';
+          html += '<span class="waterfall-duration">' + row.durMs + 'ms</span>';
           html += '</div>';
         });
         html += '</div>';
-      } else if (trace && (!trace.steps || trace.steps.length === 0)) {
-        html += '<div class="deep-empty">No tool calls in this turn.</div>';
-      } else if (!runId) {
+      } else if (!runId && !hasEvents) {
+        html += '<div class="deep-subpanel-title">Waterfall</div>';
         html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No trace ID linked to this turn.</div>';
       } else {
-        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">Trace not found.</div>';
+        html += '<div class="deep-subpanel-title">Waterfall</div>';
+        html += '<div class="deep-empty">No tool calls or model invocations recorded for this turn.</div>';
       }
       html += '</div>';
 
@@ -2581,17 +2631,21 @@ code, .mono {
       if (!hasEvents) {
         html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No events.jsonl captured for this turn.</div>';
       } else {
-        var lines = eventsText ? eventsText.trim().split('\n').filter(function(l) { return l.trim(); }) : [];
+        // Re-read raw lines (we need line text for unparseable rows).
+        var rawLines = eventsText ? eventsText.trim().split('\n').filter(function(l) { return l.trim(); }) : [];
         var MAX_ROWS = 1000;
-        var capped = lines.length > MAX_ROWS;
-        var visible = capped ? lines.slice(0, MAX_ROWS) : lines;
+        var capped = rawLines.length > MAX_ROWS;
+        var visibleLines = capped ? rawLines.slice(0, MAX_ROWS) : rawLines;
 
         html += '<div class="bc-events">';
 
-        if (visible.length === 0) {
+        if (visibleLines.length === 0) {
           html += '<div class="bc-events-cap-notice">No events found.</div>';
         } else {
-          visible.forEach(function(line, idx) {
+          // Track model depth for optional indentation.
+          var modelDepth = 0;
+
+          visibleLines.forEach(function(line, idx) {
             var ev = null;
             try { ev = JSON.parse(line); } catch(e) {}
             if (!ev) {
@@ -2599,19 +2653,33 @@ code, .mono {
               html += '<span class="ev-seq">' + (idx + 1) + '</span>';
               html += '<span class="ev-ts"></span>';
               html += '<span class="ev-type ev-type-default">?</span>';
-              html += '<span class="ev-summary">' + escapeHtml(line.substring(0, 120)) + '</span>';
+              html += '<span class="ev-summary">' + escapeHtml(line.substring(0, 200)) + '</span>';
               html += '</div>';
               return;
             }
 
             var evType = ev.type || ev.event || '';
             var evSeq = ev.seq != null ? ev.seq : (idx + 1);
+
+            // Bug 2 fix: ev.ts is an ISO 8601 string, not a Unix timestamp.
             var evTs = '';
             if (ev.ts) {
-              var d = new Date(ev.ts * 1000);
+              var d = new Date(ev.ts);
               if (!isNaN(d.getTime())) {
                 evTs = d.toISOString().substring(11, 23);  // HH:MM:SS.mmm
               }
+            }
+
+            // Depth tracking for indentation (model.before opens, model.after closes).
+            var indent = 0;
+            if (evType === 'model.before') {
+              indent = modelDepth;  // before increment
+              modelDepth++;
+            } else if (evType === 'model.after') {
+              modelDepth = Math.max(0, modelDepth - 1);
+              indent = modelDepth;  // after decrement
+            } else {
+              indent = modelDepth;
             }
 
             // Color class by prefix
@@ -2621,33 +2689,65 @@ code, .mono {
             else if (evType.indexOf('message.') === 0) typeClass = 'ev-type-message';
             else if (evType.indexOf('context.') === 0) typeClass = 'ev-type-context';
             else if (evType.indexOf('lesson.') === 0) typeClass = 'ev-type-lesson';
-            else if (evType.indexOf('stream.dropped') === 0) typeClass = 'ev-type-dropped';
+            else if (evType.indexOf('stream.') === 0) typeClass = 'ev-type-dropped';
             else if (evType === 'schema.version') typeClass = 'ev-type-schema';
 
-            // Payload summary: pick meaningful fields
+            // Bug 3 fix: per-type summary formats.
             var summary = '';
-            if (ev.tool_name) summary += ev.tool_name;
-            if (ev.model_id) summary += (summary ? ' ' : '') + ev.model_id;
-            if (ev.tokens != null) summary += (summary ? ' ' : '') + ev.tokens + ' tok';
-            if (ev.dropped_count != null) summary += (summary ? ' ' : '') + 'dropped=' + ev.dropped_count;
-            if (ev.hint) summary += (summary ? ' ' : '') + ev.hint.substring(0, 60);
-            if (ev.version) summary += (summary ? ' ' : '') + 'v' + ev.version;
-            if (!summary) {
-              // Fallback: serialize top-level keys except type/seq/ts
+            if (evType === 'schema.version') {
+              summary = 'v=' + (ev.v != null ? ev.v : '') + ' blueclaw=' + (ev.blueclaw_version || '');
+            } else if (evType === 'model.before') {
+              var toolCount = Array.isArray(ev.tools_provided) ? ev.tools_provided.length : (ev.tools_provided != null ? ev.tools_provided : '?');
+              summary = (ev.model_id || '') + '  prompt_msgs=' + (ev.prompt_messages != null ? ev.prompt_messages : '?') +
+                        ' sys_chars=' + (ev.system_prompt_chars != null ? ev.system_prompt_chars : '?') +
+                        ' tools=' + toolCount;
+            } else if (evType === 'model.after') {
+              summary = 'dur=' + (ev.duration_ms != null ? ev.duration_ms : '?') + 'ms' +
+                        ' in_tok=' + (ev.input_tokens != null ? ev.input_tokens : '?') +
+                        ' out_tok=' + (ev.output_tokens != null ? ev.output_tokens : '?') +
+                        ' stop=' + (ev.stop_reason || '?');
+            } else if (evType === 'tool.before') {
+              var inputStr = '';
+              try { inputStr = JSON.stringify(ev.input); } catch(e) { inputStr = String(ev.input); }
+              if (inputStr.length > 60) inputStr = inputStr.substring(0, 57) + '...';
+              summary = (ev.tool_name || '') + '  id=' + (ev.tool_use_id || '?') + ' input=' + inputStr;
+            } else if (evType === 'tool.after') {
+              summary = (ev.tool_name || '') + '  id=' + (ev.tool_use_id || '?') +
+                        ' status=' + (ev.status || '?') +
+                        ' dur=' + (ev.duration_ms != null ? ev.duration_ms : '?') + 'ms' +
+                        ' out_chars=' + (ev.output_chars != null ? ev.output_chars : '?');
+            } else if (evType === 'message.added') {
+              summary = 'role=' + (ev.role || '?') +
+                        ' text_chars=' + (ev.text_chars != null ? ev.text_chars : '?') +
+                        ' tool_uses=' + (ev.tool_uses != null ? ev.tool_uses : '?');
+            } else if (evType === 'context.mask') {
+              summary = 'masked_chars=' + (ev.masked_chars != null ? ev.masked_chars : '?') +
+                        ' replaced_steps=' + (ev.replaced_steps != null ? ev.replaced_steps : '?') +
+                        ' strategy=' + (ev.strategy || '?');
+            } else if (evType === 'lesson.injected') {
+              var goals = Array.isArray(ev.goals) ? ev.goals.join(', ') : (ev.goals || '');
+              summary = 'count=' + (ev.count != null ? ev.count : '?') + ' goals=' + goals;
+            } else if (evType === 'stream.dropped') {
+              summary = 'subscriber_id=' + (ev.subscriber_id != null ? ev.subscriber_id : '?') +
+                        ' dropped_count=' + (ev.dropped_count != null ? ev.dropped_count : '?');
+            } else {
+              // Generic fallback: top-level keys except type/event/seq/ts
               var keys = Object.keys(ev).filter(function(k) { return k !== 'type' && k !== 'event' && k !== 'seq' && k !== 'ts'; });
               summary = keys.slice(0, 4).map(function(k) { return k + '=' + String(ev[k]).substring(0, 30); }).join(' ');
             }
 
-            html += '<div class="bc-events-row" data-raw="' + escapeHtml(JSON.stringify(ev)) + '">';
+            var paddingLeft = indent * 14;
+            html += '<div class="bc-events-row" data-raw="' + escapeHtml(JSON.stringify(ev)) + '"' +
+                    (paddingLeft > 0 ? ' style="padding-left:' + (8 + paddingLeft) + 'px"' : '') + '>';
             html += '<span class="ev-seq">' + escapeHtml(String(evSeq)) + '</span>';
             html += '<span class="ev-ts">' + escapeHtml(evTs) + '</span>';
             html += '<span class="ev-type ' + typeClass + '">' + escapeHtml(evType || '?') + '</span>';
-            html += '<span class="ev-summary">' + escapeHtml(summary.substring(0, 120)) + '</span>';
+            html += '<span class="ev-summary">' + escapeHtml(summary.substring(0, 200)) + '</span>';
             html += '</div>';
           });
 
           if (capped) {
-            html += '<div class="bc-events-cap-notice">Showing first ' + MAX_ROWS + ' of ' + lines.length + ' events. ';
+            html += '<div class="bc-events-cap-notice">Showing first ' + MAX_ROWS + ' of ' + rawLines.length + ' events. ';
             html += '<a href="' + escapeHtml(wsAppend(eventsUrl)) + '" target="_blank" rel="noopener">Download full file</a>.';
             html += '</div>';
           }

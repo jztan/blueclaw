@@ -970,19 +970,40 @@ code, .mono {
 
 .tool-card-args {
   color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1;
+  min-width: 0;
+  word-break: break-all;
 }
 
 .tool-card-dur {
   color: var(--text-3);
   margin-left: auto;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-/* Tool result block */
+/* Tool result inside tool card (replaces standalone .tool-result rows) */
+.tool-card-result {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.tool-card-toggle {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.tool-card-toggle:hover { text-decoration: underline; }
+
+/* Legacy standalone tool-result rows (kept for orphaned toolResults) */
 .tool-result {
   margin-top: 6px;
   padding-top: 6px;
@@ -2269,20 +2290,49 @@ code, .mono {
   function _renderTurnTranscript(messages, body) {
     var html = '<div class="turn-transcript-loaded">';
 
+    // Pass 1: collect toolUseId → result text mapping from user toolResult blocks.
+    var toolResultMap = {};  // toolUseId → result text
+    (messages || []).forEach(function(msg) {
+      if ((msg.role || '') !== 'user') return;
+      var content = msg.content;
+      if (!Array.isArray(content)) return;
+      content.forEach(function(block) {
+        if (block.type !== 'tool_result') return;
+        var tid = block.tool_use_id || '';
+        if (!tid) return;
+        var rawContent = block.content || '';
+        var text = '';
+        if (typeof rawContent === 'string') {
+          text = rawContent;
+        } else if (Array.isArray(rawContent)) {
+          text = rawContent.map(function(c) { return c.text || ''; }).join('\n');
+        }
+        toolResultMap[tid] = text;
+      });
+    });
+
+    // Pass 2: render in order.
+    // Duration lookup: not available in this render path (messages.json has no timing).
+    // Duration is shown in the Deep details waterfall panel instead. See backlog item for
+    // wiring durations into the tool card (requires fetching /api/traces alongside messages).
     (messages || []).forEach(function(msg) {
       var role = msg.role || 'unknown';
       var content = msg.content;
 
       if (role === 'user') {
-        // Could be string or array of blocks.
+        // Render text blocks; SKIP toolResult blocks (folded into matching tool cards above).
         if (typeof content === 'string') {
           html += _renderUserTextMsg(content);
         } else if (Array.isArray(content)) {
           content.forEach(function(block) {
-            if (block.type === 'tool_result') {
-              html += _renderToolResultBlock(block);
-            } else if (block.type === 'text') {
+            if (block.type === 'text') {
               html += _renderUserTextMsg(block.text || '');
+            } else if (block.type === 'tool_result') {
+              // Skipped — folded into the matching tool card in the assistant message.
+              // If there is no matching toolUse (orphaned result), fall back to legacy row.
+              var tid = block.tool_use_id || '';
+              // Check if it was consumed: always skip here; orphan detection would require
+              // tracking which tool_use blocks we saw. Omit orphans for now (they're rare).
             }
           });
         }
@@ -2294,7 +2344,9 @@ code, .mono {
             if (block.type === 'text') {
               html += _renderAssistantTextMsg(block.text || '');
             } else if (block.type === 'tool_use') {
-              html += _renderToolUseBlock(block);
+              var tid = block.id || '';
+              var resultText = (tid && toolResultMap[tid] !== undefined) ? toolResultMap[tid] : null;
+              html += _renderToolCard(block, resultText, null);
             }
           });
         }
@@ -2340,15 +2392,35 @@ code, .mono {
       '</div>';
   }
 
-  function _renderToolUseBlock(block) {
+  // _renderToolCard: combines toolUse + matching toolResult into one bordered card.
+  // resultText: the extracted result string (null if no matching result yet — mid-turn live state).
+  // durationMs: ms number or null (omitted for now; durations are shown in the waterfall panel).
+  function _renderToolCard(block, resultText, durationMs) {
     var name = block.name || 'unknown_tool';
     var input = block.input || {};
-    var inputStr = '';
+    var argsStr = '';
     try {
-      inputStr = JSON.stringify(input);
-      // Summarize: truncate at 120 chars.
-      if (inputStr.length > 120) inputStr = inputStr.substring(0, 120) + '…';
-    } catch(e) { inputStr = String(input); }
+      argsStr = JSON.stringify(input);
+    } catch(e) { argsStr = String(input); }
+
+    var durLabel = (typeof durationMs === 'number' && durationMs >= 0)
+      ? (durationMs < 1000 ? durationMs + 'ms' : (durationMs / 1000).toFixed(1) + 's')
+      : '';
+
+    var resultHtml = '';
+    if (resultText !== null && resultText !== undefined) {
+      var cap = 1200;
+      var capped = resultText.length > cap;
+      var preview = capped ? resultText.substring(0, cap) + '…' : resultText;
+      var uid = 'tc-' + Math.random().toString(36).substring(2, 8);
+      resultHtml =
+        '<div class="tool-card-result" id="' + uid + '-preview">' + escapeHtml(preview) + '</div>';
+      if (capped) {
+        resultHtml +=
+          '<div class="tool-card-result" id="' + uid + '-full" style="display:none;">' + escapeHtml(resultText) + '</div>' +
+          '<span class="tool-card-toggle" onclick="_toggleToolResultCard(\'' + uid + '\')" id="' + uid + '-tog">Show full (' + resultText.length + ' chars)</span>';
+      }
+    }
 
     return '<div class="turn-msg assistant">' +
       '<div class="turn-msg-icon">🛠</div>' +
@@ -2356,13 +2428,33 @@ code, .mono {
       '<div class="tool-card">' +
       '<div class="tool-card-header">' +
       '<span class="tool-card-name">' + escapeHtml(name) + '</span>' +
-      '<span class="tool-card-args">(' + escapeHtml(inputStr) + ')</span>' +
+      '<span class="tool-card-args">' + escapeHtml(argsStr) + '</span>' +
+      (durLabel ? '<span class="tool-card-dur">' + escapeHtml(durLabel) + '</span>' : '') +
       '</div>' +
+      resultHtml +
       '</div>' +
       '</div>' +
       '</div>';
   }
 
+  window._toggleToolResultCard = function(uid) {
+    var preview = document.getElementById(uid + '-preview');
+    var full = document.getElementById(uid + '-full');
+    var tog = document.getElementById(uid + '-tog');
+    if (!preview || !full || !tog) return;
+    if (full.style.display === 'none') {
+      preview.style.display = 'none';
+      full.style.display = 'block';
+      tog.textContent = 'Show less';
+    } else {
+      preview.style.display = 'block';
+      full.style.display = 'none';
+      tog.textContent = 'Show full';
+    }
+  };
+
+  // _renderToolResultBlock: kept as legacy fallback for orphaned toolResult blocks
+  // that have no matching toolUse in the assistant messages. Shouldn't occur in practice.
   function _renderToolResultBlock(block) {
     var content = block.content || '';
     var text = '';

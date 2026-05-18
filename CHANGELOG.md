@@ -15,21 +15,6 @@ All notable changes to blueclaw will be documented in this file.
   settable attributes (default `None`). Adapters never set them directly —
   use `runner.bus_for_turn(observer, capture_path)`, which fans out to every
   bus-aware component reachable from the observer.
-
-### Notes
-- **Phase 1 ships independently.** This release adds capture only; no UI
-  consumes `events.jsonl` yet. Reading these files is the job of Phase 2
-  (conversation-first persistence) and Phase 3 (dashboard). `blueclaw trace
-  ui` is unchanged.
-- **Orphan events on mid-turn crash.** If a turn crashes after
-  `events.jsonl` has been written but before `RunTrace` finalization
-  completes, the events file remains on disk while the trace is missing.
-  This is an accepted Phase 1 state — Phase 2 extends `blueclaw trace purge
-  --older-than N` to clean orphan events. Until then, orphan events are
-  harmless (no reader); inspect manually with `find ~/blueclaw -name
-  events.jsonl -newer <date>` if needed.
-
-### Added
 - **`http_request`: Cloudflare-aware fetch + article extraction.**
   Replaced `urllib.urlopen` with `curl_cffi` using Chrome 124 TLS
   impersonation, so blueclaw can fetch pages behind Cloudflare's bot
@@ -82,23 +67,6 @@ All notable changes to blueclaw will be documented in this file.
   (api-channel constraint carry-forward) is no longer covered by
   automated tests in this file; real multi-turn fixtures are needed
   for that and are tracked as a follow-up.
-
-### Changed
-- **System prompt: allowlist-error retry rule softened.** The previous
-  rule told the agent to fall back to search snippets on any
-  `http_request` domain-allowlist failure and never retry. After the
-  user adds a domain mid-session (or restarts the bridge with an updated
-  `blueclaw.yaml`), saying "try it again" or "it's allowlisted now"
-  now prompts a real retry instead of an apology. Silent fan-out to
-  unrequested domains is still discouraged.
-- Unified agent invocation orchestration into `blueclaw/runner.py`. Eval (`testing._run_single`) and terminal (`session.run_chat_loop`) now construct, invoke, and tear down Strands agents via the runner instead of duplicating the observer + `create_agent` + `build_trace_and_record` + `cleanup_mcp_clients` block. The `run` subcommand (`blueclaw run "..."`) also routes through the runner via `run_turn`. `RunOutcome` is the single exit type; capture artifacts (`response.txt` + `messages.json`) are written by the runner when an adapter supplies a `capture_path`. HTTP migration is tracked separately.
-- Telegram bridge (`BridgeRouter.handle_message` in `blueclaw/bridges/core.py`) migrated onto `runner.run_turn`. The ~40-line inline orchestration block (observer + `create_agent` + manual `asyncio.to_thread(agent, text)` + `build_trace_and_record` + `extract_text`) collapses to a single `run_turn` call. The bridge keeps allowlist gating, per-chat `ChatContext`/lock, `FileSessionManager` construction, and trace/history persistence; everything agent-mechanical (including the previously missing `cleanup_mcp_clients`) is now the runner's responsibility.
-- HTTP gateway (`handle_message` and `handle_message_stream` in `blueclaw/server.py`) migrated onto `runner_session` + `finalize`. Both endpoints use `runner_session` directly (not `run_turn`) so `context_updater.trigger(agent)` runs before `cleanup_mcp_clients` inside the same `with` block — structural enforcement of the trigger-must-precede-cleanup invariant. The streaming endpoint keeps `agent.stream_async` adapter-driven (the documented streaming carve-out) and hands the terminal `event["result"]` to `finalize`. `ALLOWLIST_PENDING_MIGRATION` is now empty — every adapter constructs agents through one sanctioned path.
-- Workspace layout: per-conversation directories now live under `.blueclaw/conversations/<cid>/` (containing `session_<cid>/`, `turns/`, and `uploads/`). Legacy `.blueclaw/sessions/`, `.blueclaw/turns/`, and `.blueclaw/uploads/` are auto-migrated on first workspace load; a `.blueclaw/.migrated-v2` sentinel marks completion. Operators with custom backup or retention scripts pointing at the legacy paths must update them.
-- Migration sentinel bumped from `.migrated-v1` to `.migrated-v2`. The earlier v1 migration mis-placed session directories at `conversations/session_<cid>/` (one level too shallow) because it assumed the legacy shape was `sessions/<cid>/session_<cid>/`; the real shape was `sessions/session_<cid>/` (Strands `FileSessionManager` writes `storage_dir/session_<session_id>/` directly, with no per-cid wrapper). v2 walks both the legacy `sessions/` directory and any post-v1 remnants under `conversations/`, moving each `session_<cid>/` directory to its correct location at `conversations/<cid>/session_<cid>/`. Workspaces that already ran v1 will be corrected automatically on next load; the v1 sentinel is preserved for forensics.
-- If `.blueclaw/.migrated-v2` is absent after upgrading, the migration encountered a destination collision (a `conversations/<cid>/session_<cid>/` already existed and the legacy source could not be safely moved on top of it). Look for `migration skipping` warnings on stderr; resolve by manually moving or removing the conflicting destination, then run any blueclaw command to retry. The migration is safe to re-run.
-
-### Added
 - `blueclaw/runner.py` exposes `runner_session` (context manager), `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__` runs `cleanup_mcp_clients` unconditionally — adapters can no longer forget it.
 - `tests/test_no_direct_create_agent.py` durability guard: any module outside `blueclaw/runner.py` / `blueclaw/session.py` matching `\bcreate_agent\b` fails the test. With HTTP migrated, `ALLOWLIST_PENDING_MIGRATION` is empty — the set declaration is kept in place so future adapters have a documented place to land if they ever need temporary exemption.
 - `tests/test_server.py::TestStreamingWorkspaceErrorCleanup`: structural regression test asserting that when `workspace.write_trace` raises mid-stream, the SSE `error` event emits AND `cleanup_mcp_clients` runs via `runner_session.__exit__`. Defends the streaming carve-out's cleanup ordering.
@@ -123,6 +91,19 @@ All notable changes to blueclaw will be documented in this file.
   line of `response.txt`, truncated to 200 chars) per trace row with a
   "view full" link. Rows whose captures have been pruned show a "captures
   pruned" badge instead.
+
+### Notes
+- **Phase 1 ships independently.** This release adds capture only; no UI
+  consumes `events.jsonl` yet. Reading these files is the job of Phase 2
+  (conversation-first persistence) and Phase 3 (dashboard). `blueclaw trace
+  ui` is unchanged.
+- **Orphan events on mid-turn crash.** If a turn crashes after
+  `events.jsonl` has been written but before `RunTrace` finalization
+  completes, the events file remains on disk while the trace is missing.
+  This is an accepted Phase 1 state — Phase 2 extends `blueclaw trace purge
+  --older-than N` to clean orphan events. Until then, orphan events are
+  harmless (no reader); inspect manually with `find ~/blueclaw -name
+  events.jsonl -newer <date>` if needed.
 
 ### Changed
 - Terminal sessions now carry a `conversation_id` (the timestamp-based

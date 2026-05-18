@@ -1027,6 +1027,7 @@ code, .mono {
 }
 
 .turn-deep-link::before { content: '▸ '; color: var(--text-3); }
+.turn-deep-link.open::before { content: '▾ '; color: var(--text-3); }
 
 .turn-deep-panel {
   margin-top: 10px;
@@ -1037,6 +1038,120 @@ code, .mono {
   font-size: 12px;
   color: var(--text-2);
 }
+
+/* Deep sub-panel sections */
+.deep-subpanel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin: 0 0 6px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deep-waterfall {
+  margin-bottom: 14px;
+}
+
+/* Events stream */
+.bc-events {
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 360px;
+}
+
+.bc-events-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 8px;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bc-events-row:hover { background: var(--bg-hover); }
+.bc-events-row:last-child { border-bottom: none; }
+
+.bc-events-row .ev-seq {
+  color: var(--text-3);
+  min-width: 26px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.bc-events-row .ev-ts {
+  color: var(--text-3);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.bc-events-row .ev-type {
+  min-width: 120px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.bc-events-row .ev-summary {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* Event type color coding */
+.ev-type-tool    { color: var(--blue); }
+.ev-type-model   { color: #9b59b6; }
+.ev-type-message { color: var(--green); }
+.ev-type-context { color: #e67e22; }
+.ev-type-lesson  { color: var(--yellow); }
+.ev-type-dropped { color: var(--red); }
+.ev-type-schema  { color: var(--text-3); }
+.ev-type-default { color: var(--text-2); }
+
+[data-theme="dark"] .ev-type-model { color: #c77dff; }
+[data-theme="dark"] .ev-type-context { color: #f39c12; }
+
+.bc-events-expand {
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.bc-events-expand pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 11px;
+  color: var(--text-1);
+}
+
+.bc-events-cap-notice {
+  padding: 4px 8px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.bc-events-footer {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0 2px 0;
+  font-size: 11px;
+}
+
+.bc-events-footer a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.bc-events-footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -1944,7 +2059,9 @@ code, .mono {
       var expanded = autoExpand;
       var cardId = 'turn-card-' + escapeHtml(String(n));
 
-      html += '<div class="turn-card' + (expanded ? '' : ' collapsed') + '" id="' + cardId + '" data-n="' + escapeHtml(String(n)) + '">';
+      var runId = turn.run_id || '';
+      var hasEvents = turn.has_events_jsonl ? '1' : '0';
+      html += '<div class="turn-card' + (expanded ? '' : ' collapsed') + '" id="' + cardId + '" data-cid="' + escapeHtml(cid) + '" data-n="' + escapeHtml(String(n)) + '" data-run-id="' + escapeHtml(runId) + '" data-has-events="' + hasEvents + '">';
       html += '<div class="turn-card-head">';
       html += '<span class="turn-num">Turn ' + escapeHtml(String(n)) + '</span>';
       html += '<span class="turn-ts">' + escapeHtml(ts) + '</span>';
@@ -2064,15 +2181,25 @@ code, .mono {
 
     html += '</div>';
 
-    // Deep details placeholder footer.
+    // Deep details footer — data attributes read from parent .turn-card at wire time.
     html += '<div class="turn-deep-footer">';
-    html += '<span class="turn-deep-link" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">Deep details</span>';
-    html += '<div class="turn-deep-panel" style="display:none;">';
-    html += 'Waterfall + raw events panel — UI-6 wires this.';
-    html += '</div>';
+    html += '<span class="turn-deep-link">Deep details</span>';
+    html += '<div class="turn-deep-panel" style="display:none;"></div>';
     html += '</div>';
 
     body.innerHTML = html;
+
+    // Wire the Deep details click handler after DOM insertion.
+    var footer = body.querySelector('.turn-deep-footer');
+    if (footer) {
+      // Resolve cid/n/runId from the ancestor .turn-card (set during _renderConvDetailFull).
+      var card = body.closest('.turn-card');
+      var deepCid = card ? (card.getAttribute('data-cid') || '') : '';
+      var deepN = card ? (card.getAttribute('data-n') || '') : '';
+      var deepRunId = card ? (card.getAttribute('data-run-id') || '') : '';
+      var deepHasEvents = card ? (card.getAttribute('data-has-events') === '1') : false;
+      wireDeepFooter(footer, deepCid, deepN, deepRunId, deepHasEvents);
+    }
   }
 
   function _renderUserTextMsg(text) {
@@ -2141,6 +2268,215 @@ code, .mono {
       '</div>' +
       '</div>' +
       '</div>';
+  }
+
+  // ─── Deep details panel ───
+
+  var _deepPanelCache = {};  // keyed by cid + ':' + n
+
+  function wireDeepFooter(footer, cid, n, runId, hasEvents) {
+    var link = footer.querySelector('.turn-deep-link');
+    var panel = footer.querySelector('.turn-deep-panel');
+    if (!link || !panel) return;
+
+    link.addEventListener('click', function() {
+      var isOpen = panel.style.display !== 'none';
+      if (isOpen) {
+        panel.style.display = 'none';
+        link.classList.remove('open');
+        return;
+      }
+      panel.style.display = 'block';
+      link.classList.add('open');
+
+      // Only render once.
+      var cacheKey = cid + ':' + n;
+      if (_deepPanelCache[cacheKey]) {
+        panel.innerHTML = _deepPanelCache[cacheKey];
+        _wireEventRowClicks(panel);
+        return;
+      }
+
+      panel.innerHTML = '<div style="color:var(--text-3);font-size:12px;padding:6px 0;">Loading deep details…</div>';
+      renderDeepPanel(cid, n, runId, hasEvents, panel);
+    });
+  }
+
+  function renderDeepPanel(cid, n, runId, hasEvents, container) {
+    var cacheKey = cid + ':' + n;
+    var eventsUrl = '/api/conversations/' + encodeURIComponent(cid) + '/turns/' + encodeURIComponent(n) + '/events';
+    var traceFetch = runId
+      ? apiFetch('/api/traces/' + encodeURIComponent(runId))
+      : Promise.resolve(null);
+    var eventsFetch = hasEvents
+      ? fetch(wsAppend(eventsUrl)).then(function(r) {
+          if (!r.ok) return '';
+          return r.text();
+        }).catch(function() { return ''; })
+      : Promise.resolve('');
+
+    Promise.all([traceFetch, eventsFetch]).then(function(results) {
+      var trace = results[0];
+      var eventsText = results[1] || '';
+
+      var html = '';
+
+      // ── Sub-panel A: Waterfall ──
+      html += '<div class="deep-waterfall">';
+      html += '<div class="deep-subpanel-title">Waterfall</div>';
+      if (trace && trace.steps && trace.steps.length > 0) {
+        var steps = trace.steps;
+        var traceStartMs = steps[0].start_time ? new Date(steps[0].start_time).getTime() : 0;
+        var traceEndMs = steps[steps.length - 1].end_time ? new Date(steps[steps.length - 1].end_time).getTime() : 0;
+        var traceTotalMs = traceEndMs - traceStartMs;
+        if (traceTotalMs <= 0) traceTotalMs = 1;
+
+        html += '<div class="waterfall">';
+        steps.forEach(function(step) {
+          var toolName = step.tool_name || 'unknown';
+          var barClass = 'other';
+          if (toolName === 'web_search') barClass = 'web_search';
+          else if (toolName === 'http_request') barClass = 'http_request';
+          else if (toolName === 'shell_command') barClass = 'shell_command';
+
+          var stepStartMs = step.start_time ? new Date(step.start_time).getTime() : 0;
+          var stepDurMs = step.duration_ms || 0;
+          var leftPct = traceStartMs ? ((stepStartMs - traceStartMs) / traceTotalMs * 100) : 0;
+          var widthPct = (stepDurMs / traceTotalMs * 100);
+          if (leftPct < 0) leftPct = 0;
+          if (leftPct > 100) leftPct = 100;
+          if (widthPct < 0.5) widthPct = 0.5;
+          if (leftPct + widthPct > 100) widthPct = 100 - leftPct;
+
+          html += '<div class="waterfall-row">';
+          html += '<span class="waterfall-tool">' + escapeHtml(toolName) + '</span>';
+          html += '<div class="waterfall-bar-container">';
+          html += '<div class="waterfall-bar ' + barClass + '" style="left:' + leftPct.toFixed(1) + '%;width:' + widthPct.toFixed(1) + '%"></div>';
+          html += '</div>';
+          html += '<span class="waterfall-duration">' + (stepDurMs != null ? stepDurMs + 'ms' : '--') + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      } else if (trace && (!trace.steps || trace.steps.length === 0)) {
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No tool steps recorded for this turn.</div>';
+      } else if (!runId) {
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No trace ID linked to this turn.</div>';
+      } else {
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">Trace not found.</div>';
+      }
+      html += '</div>';
+
+      // ── Sub-panel B: Raw events stream ──
+      html += '<div class="deep-subpanel-title" style="margin-top:10px;">Raw Events</div>';
+
+      if (!hasEvents) {
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No events.jsonl captured for this turn.</div>';
+      } else {
+        var lines = eventsText ? eventsText.trim().split('\n').filter(function(l) { return l.trim(); }) : [];
+        var MAX_ROWS = 1000;
+        var capped = lines.length > MAX_ROWS;
+        var visible = capped ? lines.slice(0, MAX_ROWS) : lines;
+
+        html += '<div class="bc-events">';
+
+        if (visible.length === 0) {
+          html += '<div class="bc-events-cap-notice">No events found.</div>';
+        } else {
+          visible.forEach(function(line, idx) {
+            var ev = null;
+            try { ev = JSON.parse(line); } catch(e) {}
+            if (!ev) {
+              html += '<div class="bc-events-row" data-raw="' + escapeHtml(line) + '">';
+              html += '<span class="ev-seq">' + (idx + 1) + '</span>';
+              html += '<span class="ev-ts"></span>';
+              html += '<span class="ev-type ev-type-default">?</span>';
+              html += '<span class="ev-summary">' + escapeHtml(line.substring(0, 120)) + '</span>';
+              html += '</div>';
+              return;
+            }
+
+            var evType = ev.type || ev.event || '';
+            var evSeq = ev.seq != null ? ev.seq : (idx + 1);
+            var evTs = '';
+            if (ev.ts) {
+              var d = new Date(ev.ts * 1000);
+              evTs = d.toISOString().substring(11, 23);  // HH:MM:SS.mmm
+            }
+
+            // Color class by prefix
+            var typeClass = 'ev-type-default';
+            if (evType.indexOf('tool.') === 0) typeClass = 'ev-type-tool';
+            else if (evType.indexOf('model.') === 0) typeClass = 'ev-type-model';
+            else if (evType.indexOf('message.') === 0) typeClass = 'ev-type-message';
+            else if (evType.indexOf('context.') === 0) typeClass = 'ev-type-context';
+            else if (evType.indexOf('lesson.') === 0) typeClass = 'ev-type-lesson';
+            else if (evType.indexOf('stream.dropped') === 0) typeClass = 'ev-type-dropped';
+            else if (evType === 'schema.version') typeClass = 'ev-type-schema';
+
+            // Payload summary: pick meaningful fields
+            var summary = '';
+            if (ev.tool_name) summary += ev.tool_name;
+            if (ev.model_id) summary += (summary ? ' ' : '') + ev.model_id;
+            if (ev.tokens != null) summary += (summary ? ' ' : '') + ev.tokens + ' tok';
+            if (ev.dropped_count != null) summary += (summary ? ' ' : '') + 'dropped=' + ev.dropped_count;
+            if (ev.hint) summary += (summary ? ' ' : '') + ev.hint.substring(0, 60);
+            if (ev.version) summary += (summary ? ' ' : '') + 'v' + ev.version;
+            if (!summary) {
+              // Fallback: serialize top-level keys except type/seq/ts
+              var keys = Object.keys(ev).filter(function(k) { return k !== 'type' && k !== 'event' && k !== 'seq' && k !== 'ts'; });
+              summary = keys.slice(0, 4).map(function(k) { return k + '=' + String(ev[k]).substring(0, 30); }).join(' ');
+            }
+
+            html += '<div class="bc-events-row" data-raw="' + escapeHtml(JSON.stringify(ev)) + '">';
+            html += '<span class="ev-seq">' + escapeHtml(String(evSeq)) + '</span>';
+            html += '<span class="ev-ts">' + escapeHtml(evTs) + '</span>';
+            html += '<span class="ev-type ' + typeClass + '">' + escapeHtml(evType || '?') + '</span>';
+            html += '<span class="ev-summary">' + escapeHtml(summary.substring(0, 120)) + '</span>';
+            html += '</div>';
+          });
+
+          if (capped) {
+            html += '<div class="bc-events-cap-notice">Showing first ' + MAX_ROWS + ' of ' + lines.length + ' events. ';
+            html += '<a href="' + escapeHtml(wsAppend(eventsUrl)) + '" target="_blank" rel="noopener">Download full file</a>.';
+            html += '</div>';
+          }
+        }
+        html += '</div>';
+
+        // Footer links
+        html += '<div class="bc-events-footer">';
+        html += '<a href="' + escapeHtml(wsAppend(eventsUrl)) + '" target="_blank" rel="noopener">events.jsonl</a>';
+        html += '<a href="' + escapeHtml(wsAppend('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/messages')) + '" target="_blank" rel="noopener">messages.json</a>';
+        html += '<a href="' + escapeHtml(wsAppend('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/response')) + '" target="_blank" rel="noopener">response.txt</a>';
+        html += '</div>';
+      }
+
+      _deepPanelCache[cacheKey] = html;
+      container.innerHTML = html;
+      _wireEventRowClicks(container);
+    }).catch(function(err) {
+      container.innerHTML = '<div style="color:var(--red);font-size:12px;">Failed to load deep details: ' + escapeHtml(String(err)) + '</div>';
+    });
+  }
+
+  function _wireEventRowClicks(container) {
+    container.querySelectorAll('.bc-events-row').forEach(function(row) {
+      row.addEventListener('click', function(e) {
+        // Toggle an expand block after this row.
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('bc-events-expand')) {
+          next.parentNode.removeChild(next);
+          return;
+        }
+        var raw = row.getAttribute('data-raw') || '';
+        var pretty = '';
+        try { pretty = JSON.stringify(JSON.parse(raw), null, 2); } catch(ex) { pretty = raw; }
+        var expDiv = document.createElement('div');
+        expDiv.className = 'bc-events-expand';
+        expDiv.innerHTML = '<pre>' + escapeHtml(pretty) + '</pre>';
+        row.parentNode.insertBefore(expDiv, row.nextSibling);
+      });
+    });
   }
 
   function _toggleToolResult(uid) {

@@ -402,3 +402,93 @@ class TestListTracesEndpoint:
         assert "capture_preview" not in rows[0]
         assert "captures_pruned" not in rows[0]
         assert rows[0]["capture_path"] is None
+
+
+class TestTurnRoutes:
+    """GET /api/turns/<cid>/<n>/{response,messages} serves captured artifacts."""
+
+    def _setup(
+        self, tmp_path, cid="cid", n=1, response_text="hello", messages_json="[]"
+    ):
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+        from starlette.testclient import TestClient
+
+        workspace = Workspace(tmp_path)
+        turn = workspace.root / ".blueclaw" / "turns" / cid / f"turn-{n:03d}"
+        turn.mkdir(parents=True)
+        (turn / "response.txt").write_text(response_text)
+        (turn / "messages.json").write_text(messages_json)
+        return TestClient(create_app(workspace))
+
+    def test_response_route_returns_200_text(self, tmp_path):
+        client = self._setup(tmp_path, response_text="hello world")
+        resp = client.get("/api/turns/cid/1/response")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+        assert resp.text == "hello world"
+
+    def test_messages_route_returns_200_json(self, tmp_path):
+        client = self._setup(tmp_path, messages_json='[{"role":"user","content":"hi"}]')
+        resp = client.get("/api/turns/cid/1/messages")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/json")
+        assert resp.json() == [{"role": "user", "content": "hi"}]
+
+    def test_response_route_404_when_missing_echoes_path(self, tmp_path):
+        client = self._setup(tmp_path, cid="cid", n=1)
+        resp = client.get("/api/turns/cid/999/response")
+        assert resp.status_code == 404
+        body = resp.json()
+        assert body["error"] == "capture not found"
+        assert body["expected_path"] == ".blueclaw/turns/cid/turn-999/response.txt"
+        assert "hint" in body
+
+    def test_cid_validation_fails_first_no_echo(self, tmp_path):
+        """Path-traversal cid must be rejected BEFORE existence check, no echo."""
+        client = self._setup(tmp_path)
+        malicious = "../etc/passwd"
+        resp = client.get(f"/api/turns/{malicious}/1/response")
+        assert resp.status_code in (400, 404)
+        body = resp.text
+        assert malicious not in body
+        assert ".." not in body
+
+    def test_invalid_n_fails_with_400(self, tmp_path):
+        client = self._setup(tmp_path)
+        for bad in ("abc", "0", "01", "100000", "-1", ""):
+            resp = client.get(f"/api/turns/cid/{bad}/response")
+            # Starlette may 404 for "" and "-1"; the regex-failing ones
+            # reach the handler and return 400.
+            assert resp.status_code in (400, 404)
+            if resp.status_code == 400:
+                assert resp.json()["error"] == "invalid turn number"
+
+    def test_cid_validation_fires_on_null_byte(self, tmp_path):
+        """Ensure OUR validator runs — not just Starlette routing.
+
+        A null byte in the URL-decoded cid is valid in a Starlette path
+        param but fails validate_session_id. This proves the handler-level
+        validation is wired, not dead code masked by Starlette's URL parser.
+        """
+        client = self._setup(tmp_path)
+        resp = client.get("/api/turns/abc%00def/1/response")
+        assert resp.status_code == 400
+        assert resp.json() == {"error": "invalid cid"}
+
+    def test_workspace_query_param_honored(self, tmp_path):
+        from blueclaw.web import create_app
+        from blueclaw.workspace import Workspace
+        from starlette.testclient import TestClient
+
+        ws_a = Workspace(tmp_path / "a")
+        ws_b = Workspace(tmp_path / "b")
+        for ws, text in ((ws_a, "from-a"), (ws_b, "from-b")):
+            turn = ws.root / ".blueclaw" / "turns" / "cid" / "turn-001"
+            turn.mkdir(parents=True)
+            (turn / "response.txt").write_text(text)
+
+        app = create_app([("alpha", ws_a), ("beta", ws_b)])
+        client = TestClient(app)
+        assert client.get("/api/turns/cid/1/response?workspace=alpha").text == "from-a"
+        assert client.get("/api/turns/cid/1/response?workspace=beta").text == "from-b"

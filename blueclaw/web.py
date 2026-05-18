@@ -9,7 +9,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
 from blueclaw.models import RunTrace, classify_error
@@ -368,6 +368,95 @@ def create_app(
             payload["by_source"] = by_source
         return JSONResponse(payload)
 
+    async def get_turn_response(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        # Order of checks (load-bearing for no-echo):
+        # 1. cid validation — generic 400, no echo
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        # 2. <n> regex (1..99999, no leading zeros) — generic 400, no echo
+        # ^[1-9]\d{0,4}$ → 1..99999, no leading zeros, no n=0. Caps the
+        # zero-padded string length and gives one canonical URL form per
+        # turn (so /turn/cid/5/... and /turn/cid/005/... aren't aliases).
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        # 3. workspace selection
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # 4. file existence — echo of expected_path is safe now (cid validated)
+        rel = f".blueclaw/turns/{cid}/turn-{n:03d}/response.txt"
+        for _key, ws in sel:
+            f = ws.root / rel
+            if f.exists():
+                try:
+                    return PlainTextResponse(
+                        f.read_text(encoding="utf-8", errors="replace")
+                    )
+                except OSError:
+                    break
+        return JSONResponse(
+            {
+                "error": "capture not found",
+                "expected_path": rel,
+                "hint": (
+                    "may have been pruned (no retention policy is enforced) "
+                    "or workspace root may have moved"
+                ),
+            },
+            status_code=404,
+        )
+
+    async def get_turn_messages(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        rel = f".blueclaw/turns/{cid}/turn-{n:03d}/messages.json"
+        for _key, ws in sel:
+            f = ws.root / rel
+            if f.exists():
+                try:
+                    return Response(
+                        f.read_bytes(),
+                        media_type="application/json",
+                    )
+                except OSError:
+                    break
+        return JSONResponse(
+            {
+                "error": "capture not found",
+                "expected_path": rel,
+                "hint": (
+                    "may have been pruned (no retention policy is enforced) "
+                    "or workspace root may have moved"
+                ),
+            },
+            status_code=404,
+        )
+
     return Starlette(
         routes=[
             Route("/", index),
@@ -376,5 +465,7 @@ def create_app(
             Route("/api/traces", list_traces),
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),
+            Route("/api/turns/{cid}/{n}/response", get_turn_response),
+            Route("/api/turns/{cid}/{n}/messages", get_turn_messages),
         ]
     )

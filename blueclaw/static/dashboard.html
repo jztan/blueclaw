@@ -791,6 +791,252 @@ code, .mono {
 }
 
 .hidden { display: none !important; }
+
+/* ─── Conversation Detail (UI-5) ─── */
+.conv-detail-header {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.conv-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.conv-detail-title h2 {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  margin: 0;
+}
+
+.conv-detail-meta {
+  font-size: 13px;
+  color: var(--text-2);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.conv-detail-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Turn cards */
+.turn-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.turn-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.turn-card-head:hover { background: var(--bg-hover); }
+
+.turn-card.collapsed .turn-card-head { border-bottom: none; }
+
+.turn-card-head .turn-num {
+  font-weight: 600;
+  min-width: 56px;
+  color: var(--text-1);
+}
+
+.turn-card-head .turn-ts { color: var(--text-3); font-size: 12px; }
+
+.turn-card-head .turn-model {
+  color: #a855f7;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+[data-theme="dark"] .turn-card-head .turn-model { color: #d2a8ff; }
+
+.turn-card-head .turn-tokens {
+  color: var(--blue);
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.turn-card-head .turn-status {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.turn-card-head .turn-status.success { color: var(--green); }
+.turn-card-head .turn-status.error { color: var(--red); }
+.turn-card-head .turn-status.unknown { color: var(--text-3); }
+
+.turn-card-head .turn-caret {
+  color: var(--text-3);
+  font-size: 12px;
+  margin-left: 4px;
+  transition: transform 0.15s;
+}
+
+/* Turn body */
+.turn-card-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.turn-card.collapsed .turn-card-body { display: none; }
+
+/* Loading state inside a turn */
+.turn-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* Message rows in transcript */
+.turn-msg {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.turn-msg:last-of-type { border-bottom: none; }
+
+.turn-msg-icon {
+  flex: 0 0 24px;
+  font-size: 16px;
+  text-align: center;
+  line-height: 1.4;
+  padding-top: 1px;
+}
+
+.turn-msg-body { flex: 1; min-width: 0; }
+
+.turn-msg.user .turn-msg-body { color: var(--text-1); }
+.turn-msg.assistant .turn-msg-body { color: var(--text-2); }
+
+.turn-msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Inline tool card */
+.tool-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-card-name {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.tool-card-args {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tool-card-dur {
+  color: var(--text-3);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Tool result block */
+.tool-result {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  color: var(--text-2);
+}
+
+.tool-result-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.tool-result-preview:hover { color: var(--text-1); }
+
+.tool-result-full {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.tool-result-toggle {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 11px;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.tool-result-toggle:hover { text-decoration: underline; }
+
+/* Deep details footer */
+.turn-deep-footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+
+.turn-deep-link {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  margin-right: 14px;
+}
+
+.turn-deep-link::before { content: '▸ '; color: var(--text-3); }
+
+.turn-deep-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
 </style>
 </head>
 <body>
@@ -876,7 +1122,7 @@ code, .mono {
       </div>
     </div>
 
-    <!-- ── Single Conversation View (placeholder for UI-5) ── -->
+    <!-- ── Single Conversation View (UI-5) ── -->
     <div class="view" id="viewConversation">
       <button class="back-btn" id="backToConversations">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -1070,10 +1316,8 @@ code, .mono {
 
     if (parsed.route === 'conversations') {
       if (parsed.param) {
-        // Single conversation view (UI-5 placeholder)
         activateView('viewConversation');
-        var ph = document.getElementById('conversationPlaceholder');
-        if (ph) ph.textContent = 'Loading conversation ' + parsed.param + '…';
+        renderConversationDetail(parsed.param);
       } else {
         activateView('viewConversations');
         loadConversations();
@@ -1609,6 +1853,305 @@ code, .mono {
       renderConversationTable();
     });
   });
+
+  // ─── Conversation Detail (UI-5) ───
+
+  // Per-cid cache: { summary: {...}, turnMessages: { n: [...] } }
+  var convDetailCache = {};
+
+  function renderConversationDetail(cid) {
+    var container = document.getElementById('conversationContent');
+    if (!container) return;
+
+    // Show loading state immediately.
+    container.innerHTML = '<div class="empty-state"><p>Loading conversation ' + escapeHtml(cid) + '…</p></div>';
+
+    var cache = convDetailCache[cid];
+    if (cache && cache.summary) {
+      _renderConvDetailFull(cid, cache.summary, container);
+      return;
+    }
+
+    apiFetch('/api/conversations/' + encodeURIComponent(cid))
+      .then(function(data) {
+        if (!convDetailCache[cid]) convDetailCache[cid] = { turnMessages: {} };
+        convDetailCache[cid].summary = data;
+        _renderConvDetailFull(cid, data, container);
+      })
+      .catch(function(err) {
+        container.innerHTML = '<div class="empty-state"><p>Failed to load conversation: ' + escapeHtml(String(err)) + '</p></div>';
+      });
+  }
+
+  function _renderConvDetailFull(cid, data, container) {
+    var turns = data.turns || [];
+    var autoExpand = turns.length <= 10;
+
+    // Header HTML.
+    var sources = [];
+    if (data.source) sources.push(data.source);
+    var sourceBadges = sources.map(function(s) {
+      return '<span class="pill">' + escapeHtml(s) + '</span>';
+    }).join('');
+
+    var models = (data.model_ids || []);
+    var modelBadges = models.map(function(m) {
+      return '<span class="pill">' + escapeHtml(m) + '</span>';
+    }).join('');
+
+    var costStr = '';
+    if (data.turns_with_unknown_cost > 0 && data.total_cost === 0) {
+      costStr = '$0.00 (' + data.turns_with_unknown_cost + ' unknown)';
+    } else {
+      costStr = '$' + (data.total_cost || 0).toFixed(4);
+      if (data.turns_with_unknown_cost > 0) {
+        costStr += ' (' + data.turns_with_unknown_cost + ' unknown)';
+      }
+    }
+
+    var firstSeen = data.first_turn_at ? relativeTime(data.first_turn_at) : '--';
+    var lastActive = data.last_turn_at ? relativeTime(data.last_turn_at) : '--';
+
+    var html = '';
+    html += '<div class="conv-detail-header">';
+    html += '<div class="conv-detail-title">';
+    html += '<h2>' + escapeHtml(cid) + '</h2>';
+    html += sourceBadges;
+    html += modelBadges;
+    // Live pill placeholder — hidden until UI-10.
+    html += '<span class="pill live" style="display:none;" id="conv-live-pill">live</span>';
+    html += '</div>';
+    html += '<div class="conv-detail-meta">';
+    html += '<span>' + (data.turn_count || 0) + ' turns</span>';
+    html += '<span>' + formatTokens(data.total_tokens) + ' tokens</span>';
+    html += '<span class="cost-cell">' + escapeHtml(costStr) + '</span>';
+    html += '<span title="' + escapeHtml(data.first_turn_at || '') + '">first seen ' + firstSeen + '</span>';
+    html += '<span title="' + escapeHtml(data.last_turn_at || '') + '">last active ' + lastActive + '</span>';
+    html += '</div>';
+    html += '</div>';
+
+    // Turn timeline.
+    html += '<div id="conv-turn-list">';
+
+    turns.forEach(function(turn) {
+      var n = turn.turn_n || turn.n || '?';
+      var ts = turn.start_time ? new Date(turn.start_time).toLocaleString() : '--';
+      var model = turn.model_id || '--';
+      var tokens = turn.total_tokens != null ? formatTokens(turn.total_tokens) + ' tok' : '';
+      var status = turn.status || 'unknown';
+      var statusClass = (status === 'success' || status === 'ok') ? 'success' : (status === 'error' ? 'error' : 'unknown');
+      var statusLabel = statusClass === 'success' ? 'success' : (statusClass === 'error' ? 'error' : status);
+      var expanded = autoExpand;
+      var cardId = 'turn-card-' + escapeHtml(String(n));
+
+      html += '<div class="turn-card' + (expanded ? '' : ' collapsed') + '" id="' + cardId + '" data-n="' + escapeHtml(String(n)) + '">';
+      html += '<div class="turn-card-head">';
+      html += '<span class="turn-num">Turn ' + escapeHtml(String(n)) + '</span>';
+      html += '<span class="turn-ts">' + escapeHtml(ts) + '</span>';
+      html += '<span class="turn-model">' + escapeHtml(model) + '</span>';
+      if (tokens) html += '<span class="turn-tokens">' + escapeHtml(tokens) + '</span>';
+      html += '<span class="turn-status ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>';
+      html += '<span class="turn-caret">' + (expanded ? '▾' : '▸') + '</span>';
+      html += '</div>';
+      html += '<div class="turn-card-body">';
+      if (expanded) {
+        html += '<div class="turn-loading" data-n="' + escapeHtml(String(n)) + '">Loading…</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+
+    container.innerHTML = html;
+
+    // Wire click handlers on turn heads.
+    var list = document.getElementById('conv-turn-list');
+    if (!list) return;
+
+    list.querySelectorAll('.turn-card-head').forEach(function(head) {
+      head.addEventListener('click', function() {
+        var card = head.parentElement;
+        var isCollapsed = card.classList.contains('collapsed');
+        var caret = head.querySelector('.turn-caret');
+        var n = card.getAttribute('data-n');
+
+        if (isCollapsed) {
+          card.classList.remove('collapsed');
+          if (caret) caret.textContent = '▾';
+          var body = card.querySelector('.turn-card-body');
+          if (body) {
+            // Lazy-load messages if not yet fetched.
+            var already = body.querySelector('.turn-msg, .turn-transcript-loaded');
+            if (!already) {
+              _loadTurnMessages(cid, n, body);
+            }
+          }
+        } else {
+          card.classList.add('collapsed');
+          if (caret) caret.textContent = '▸';
+        }
+      });
+    });
+
+    // Kick off lazy fetches for auto-expanded turns.
+    if (autoExpand) {
+      list.querySelectorAll('.turn-card:not(.collapsed)').forEach(function(card) {
+        var n = card.getAttribute('data-n');
+        var body = card.querySelector('.turn-card-body');
+        if (body && n) {
+          _loadTurnMessages(cid, n, body);
+        }
+      });
+    }
+  }
+
+  function _loadTurnMessages(cid, n, body) {
+    // Use cache if available.
+    var cache = convDetailCache[cid];
+    if (cache && cache.turnMessages && cache.turnMessages[n]) {
+      _renderTurnTranscript(cache.turnMessages[n], body);
+      return;
+    }
+
+    body.innerHTML = '<div class="turn-loading">Loading messages…</div>';
+
+    apiFetch('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/messages')
+      .then(function(messages) {
+        if (!convDetailCache[cid]) convDetailCache[cid] = { turnMessages: {} };
+        convDetailCache[cid].turnMessages[n] = messages;
+        _renderTurnTranscript(messages, body);
+      })
+      .catch(function(err) {
+        body.innerHTML = '<div class="turn-loading">Failed to load: ' + escapeHtml(String(err)) + '</div>';
+      });
+  }
+
+  function _renderTurnTranscript(messages, body) {
+    var html = '<div class="turn-transcript-loaded">';
+
+    (messages || []).forEach(function(msg) {
+      var role = msg.role || 'unknown';
+      var content = msg.content;
+
+      if (role === 'user') {
+        // Could be string or array of blocks.
+        if (typeof content === 'string') {
+          html += _renderUserTextMsg(content);
+        } else if (Array.isArray(content)) {
+          content.forEach(function(block) {
+            if (block.type === 'tool_result') {
+              html += _renderToolResultBlock(block);
+            } else if (block.type === 'text') {
+              html += _renderUserTextMsg(block.text || '');
+            }
+          });
+        }
+      } else if (role === 'assistant') {
+        if (typeof content === 'string') {
+          html += _renderAssistantTextMsg(content);
+        } else if (Array.isArray(content)) {
+          content.forEach(function(block) {
+            if (block.type === 'text') {
+              html += _renderAssistantTextMsg(block.text || '');
+            } else if (block.type === 'tool_use') {
+              html += _renderToolUseBlock(block);
+            }
+          });
+        }
+      }
+    });
+
+    html += '</div>';
+
+    // Deep details placeholder footer.
+    html += '<div class="turn-deep-footer">';
+    html += '<span class="turn-deep-link" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">Deep details</span>';
+    html += '<div class="turn-deep-panel" style="display:none;">';
+    html += 'Waterfall + raw events panel — UI-6 wires this.';
+    html += '</div>';
+    html += '</div>';
+
+    body.innerHTML = html;
+  }
+
+  function _renderUserTextMsg(text) {
+    if (!text || !text.trim()) return '';
+    return '<div class="turn-msg user">' +
+      '<div class="turn-msg-icon">👤</div>' +
+      '<div class="turn-msg-body"><div class="turn-msg-text">' + escapeHtml(text) + '</div></div>' +
+      '</div>';
+  }
+
+  function _renderAssistantTextMsg(text) {
+    if (!text || !text.trim()) return '';
+    return '<div class="turn-msg assistant">' +
+      '<div class="turn-msg-icon">🤖</div>' +
+      '<div class="turn-msg-body"><div class="turn-msg-text">' + escapeHtml(text) + '</div></div>' +
+      '</div>';
+  }
+
+  function _renderToolUseBlock(block) {
+    var name = block.name || 'unknown_tool';
+    var input = block.input || {};
+    var inputStr = '';
+    try {
+      inputStr = JSON.stringify(input);
+      // Summarize: truncate at 120 chars.
+      if (inputStr.length > 120) inputStr = inputStr.substring(0, 120) + '…';
+    } catch(e) { inputStr = String(input); }
+
+    return '<div class="turn-msg assistant">' +
+      '<div class="turn-msg-icon">🛠</div>' +
+      '<div class="turn-msg-body">' +
+      '<div class="tool-card">' +
+      '<div class="tool-card-header">' +
+      '<span class="tool-card-name">' + escapeHtml(name) + '</span>' +
+      '<span class="tool-card-args">(' + escapeHtml(inputStr) + ')</span>' +
+      '</div>' +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function _renderToolResultBlock(block) {
+    var content = block.content || '';
+    var text = '';
+    if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content.map(function(c) { return c.text || ''; }).join('\n');
+    }
+
+    var preview = text.length > 200 ? text.substring(0, 200) + '…' : text;
+    var hasMore = text.length > 200;
+    var uid = 'tr-' + Math.random().toString(36).substring(2, 8);
+
+    var full = hasMore
+      ? '<div class="tool-result-full" id="' + uid + '-full" style="display:none;">' + escapeHtml(text) + '</div>' +
+        '<span class="tool-result-toggle" onclick="_toggleToolResult(\'' + uid + '\')" id="' + uid + '-tog">Show full (' + text.length + ' chars)</span>'
+      : '';
+
+    return '<div class="turn-msg user">' +
+      '<div class="turn-msg-icon">📥</div>' +
+      '<div class="turn-msg-body">' +
+      '<div class="tool-result">' +
+      '<div class="tool-result-preview">' + escapeHtml(preview) + '</div>' +
+      full +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function _toggleToolResult(uid) {
+    var fullEl = document.getElementById(uid + '-full');
+    var togEl = document.getElementById(uid + '-tog');
+    if (!fullEl || !togEl) return;
+    var showing = fullEl.style.display !== 'none';
+    fullEl.style.display = showing ? 'none' : 'block';
+    togEl.textContent = showing ? 'Show full (' + fullEl.textContent.length + ' chars)' : 'Collapse';
+  }
+  window._toggleToolResult = _toggleToolResult;
 
   // ─── Compare ───
   function renderCompare() {

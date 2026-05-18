@@ -96,6 +96,35 @@ def _serialize_trace_summary(
     return summary
 
 
+def _serialize_turn_summary(trace: RunTrace, workspace_root: Path) -> dict:
+    """Convert a RunTrace to a per-turn summary dict for the conversation view."""
+    elapsed = (trace.end_time - trace.start_time).total_seconds()
+    # Derive turn_n from capture_path "turn-NNN" segment; caller fills in fallback.
+    turn_n: int | None = None
+    if trace.capture_path is not None:
+        # e.g. ".blueclaw/conversations/A/turns/turn-001"
+        segment = Path(trace.capture_path).name
+        if segment.startswith("turn-") and segment[5:].isdigit():
+            turn_n = int(segment[5:])
+    # Check events.jsonl existence
+    has_events = False
+    if trace.capture_path is not None:
+        has_events = (workspace_root / trace.capture_path / "events.jsonl").exists()
+    return {
+        "turn_n": turn_n,  # may be None; caller replaces with index+1 if so
+        "run_id": trace.run_id,
+        "goal": trace.goal,
+        "status": trace.status,
+        "model_id": trace.model_id,
+        "start_time": trace.start_time.isoformat(),
+        "duration_s": round(elapsed, 1),
+        "tokens": trace.total_tokens,
+        "cost": trace.total_cost,
+        "capture_path": trace.capture_path,
+        "has_events_jsonl": has_events,
+    }
+
+
 def _aggregate_conversations(traces: list[RunTrace]) -> dict[str, dict]:
     """Group a flat trace list by conversation_id.
 
@@ -502,6 +531,63 @@ def create_app(
             status_code=404,
         )
 
+    async def get_conversation(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid conversation_id"}, status_code=400)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # Collect all traces matching cid across selected workspaces.
+        matching_traces: list[tuple[str, RunTrace, Path]] = []
+        for ws_key, ws in sel:
+            traces = ws.list_traces(limit=500)
+            for t in traces:
+                if t.conversation_id == cid:
+                    matching_traces.append((ws_key, t, ws.root))
+
+        if not matching_traces:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Build aggregate via reused helper.
+        all_traces = [t for _, t, _ in matching_traces]
+        agg = _aggregate_conversations(all_traces).get(cid)
+        if agg is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Serialize turn list sorted by start_time ascending.
+        turn_dicts = []
+        for _, t, ws_root in matching_traces:
+            turn_dicts.append(_serialize_turn_summary(t, ws_root))
+        turn_dicts.sort(key=lambda d: d["start_time"])
+
+        # Fill in turn_n for any turns that could not derive it from capture_path.
+        for i, td in enumerate(turn_dicts):
+            if td["turn_n"] is None:
+                td["turn_n"] = i + 1
+
+        return JSONResponse(
+            {
+                "conversation_id": agg["conversation_id"],
+                "source": agg["source"],
+                "turn_count": agg["turn_count"],
+                "first_turn_at": agg["first_turn_at"].isoformat(),
+                "last_turn_at": agg["last_turn_at"].isoformat(),
+                "total_tokens": agg["total_tokens"],
+                "total_cost": round(agg["total_cost"], 6),
+                "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                "model_ids": sorted(agg["model_ids"]),
+                "status_counts": agg["status_counts"],
+                "turns": turn_dicts,
+            }
+        )
+
     async def list_conversations(request):
         sel = _select(request.query_params.get("workspace"))
         if sel is None:
@@ -560,6 +646,7 @@ def create_app(
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),
             Route("/api/conversations", list_conversations),
+            Route("/api/conversations/{cid}", get_conversation),
             Route("/api/turns/{cid}/{n}/response", get_turn_response),
             Route("/api/turns/{cid}/{n}/messages", get_turn_messages),
         ]

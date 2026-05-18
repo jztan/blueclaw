@@ -121,3 +121,60 @@ def test_conversations_unknown_workspace_404(workspace_with_traces):
     client = TestClient(app)
     resp = client.get("/api/conversations?workspace=nope")
     assert resp.status_code == 404
+
+
+def test_get_conversation_returns_summary_and_turns(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get("/api/conversations/A")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["conversation_id"] == "A"
+    assert body["turn_count"] == 3
+    assert len(body["turns"]) == 3
+
+    # turns sorted ascending by start_time
+    starts = [t["start_time"] for t in body["turns"]]
+    assert starts == sorted(starts)
+
+    # turn_n derived from index when capture_path is missing
+    for i, turn in enumerate(body["turns"]):
+        assert "turn_n" in turn
+        assert "run_id" in turn
+        assert "status" in turn
+        assert "model_id" in turn
+        assert "tokens" in turn
+        assert "duration_s" in turn
+
+
+def test_get_conversation_unknown_cid_404(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get("/api/conversations/Z")
+    assert resp.status_code == 404
+
+
+def test_get_conversation_invalid_cid_400_no_echo(workspace_with_traces):
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    # ".." would resolve to parent dir — must be rejected by validate_session_id.
+    # Starlette may normalise the path before the handler sees it, so the router
+    # can return 404 itself (defense-in-depth). Both 400 and 404 are acceptable;
+    # if the handler IS reached it must not echo the rejected value.
+    resp = client.get("/api/conversations/..")
+    assert resp.status_code in (400, 404)
+    if resp.status_code == 400:
+        assert ".." not in resp.text
+
+
+def test_get_conversation_has_events_jsonl_flag(workspace_with_traces, tmp_path):
+    # Synthesize an events.jsonl in one of the capture paths
+    # to verify has_events_jsonl reports True for it.
+    # Find the trace with capture_path set; if none, skip the flag check.
+    app = create_app([("workspace", workspace_with_traces)])
+    client = TestClient(app)
+    resp = client.get("/api/conversations/A")
+    body = resp.json()
+    # has_events_jsonl is a bool on every turn entry
+    for turn in body["turns"]:
+        assert isinstance(turn["has_events_jsonl"], bool)

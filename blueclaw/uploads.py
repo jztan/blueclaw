@@ -1,6 +1,6 @@
 """File-upload storage for the HTTP API.
 
-Stores files under workspace/.blueclaw/uploads/<conversation_id>/<file_id>.
+Stores files under workspace/.blueclaw/conversations/<cid>/uploads/<file_id>.
 Path traversal, oversize, and disallowed-MIME requests raise UploadError.
 """
 
@@ -95,13 +95,16 @@ def _detect_mime(filename: str, head: bytes) -> str:
 
 
 class UploadStore:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.root.mkdir(parents=True, exist_ok=True)
+    def __init__(self, workspace_root: Path) -> None:
+        self.workspace_root = workspace_root
+        self._bc = workspace_root / ".blueclaw"
+        self._bc.mkdir(parents=True, exist_ok=True)
+        self._tmp_root = self._bc / "uploads_tmp"
+        self._tmp_root.mkdir(parents=True, exist_ok=True)
 
     def _conv_dir(self, cid: str) -> Path:
         _validate_cid(cid)
-        return self.root / cid
+        return self._bc / "conversations" / cid / "uploads"
 
     def save(self, cid: str, filename: str, stream: BinaryIO) -> UploadRecord:
         safe_name = sanitize_filename(filename)
@@ -171,7 +174,7 @@ class UploadStore:
             _validate_cid(cid)
         except UploadError:
             return
-        target = self.root / cid
+        target = self._bc / "conversations" / cid / "uploads"
         if not target.exists():
             return
         shutil.rmtree(target, ignore_errors=True)

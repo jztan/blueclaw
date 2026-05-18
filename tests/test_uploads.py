@@ -17,7 +17,7 @@ from blueclaw.uploads import (
 
 @pytest.fixture
 def store(tmp_path: Path) -> UploadStore:
-    return UploadStore(tmp_path / ".blueclaw" / "uploads")
+    return UploadStore(tmp_path)
 
 
 def test_sanitize_filename_strips_unsafe_chars():
@@ -93,21 +93,33 @@ def test_save_accepts_real_webp(store: UploadStore):
 def test_resolve_rejects_malformed_file_id(store: UploadStore, tmp_path: Path):
     """A file_id without `__` is structurally invalid."""
     # Plant a file directly so existence check would otherwise pass
-    cdir = store.root / "c-test"
+    cdir = tmp_path / ".blueclaw" / "conversations" / "c-test" / "uploads"
     cdir.mkdir(parents=True, exist_ok=True)
     (cdir / "no-separator.txt").write_text("hi")
     with pytest.raises(UploadError, match="malformed"):
         store.resolve("c-test", "no-separator.txt")
 
 
-def test_resolve_rejects_unknown_extension(store: UploadStore):
+def test_resolve_rejects_unknown_extension(store: UploadStore, tmp_path: Path):
     """resolve() should reject file_ids whose extension is outside the allowlist."""
-    cdir = store.root / "c-test"
+    cdir = tmp_path / ".blueclaw" / "conversations" / "c-test" / "uploads"
     cdir.mkdir(parents=True, exist_ok=True)
     fid = "deadbeef-1234__notes.weird"
     (cdir / fid).write_text("hi")
     with pytest.raises(UploadError):
         store.resolve("c-test", fid)
+
+
+def test_upload_store_uses_new_layout(tmp_path):
+    from blueclaw.uploads import UploadStore
+    import io
+
+    store = UploadStore(tmp_path)
+    rec = store.save("conv1", "foo.txt", io.BytesIO(b"hello world"))
+    assert (
+        rec.path.parent
+        == tmp_path / ".blueclaw" / "conversations" / "conv1" / "uploads"
+    )
 
 
 def test_message_request_accepts_file_ids():

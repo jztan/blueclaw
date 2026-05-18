@@ -11,10 +11,13 @@ from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from strands.hooks import (
+    AfterModelCallEvent,
     AfterToolCallEvent,
+    BeforeModelCallEvent,
     BeforeToolCallEvent,
     HookProvider,
     HookRegistry,
+    MessageAddedEvent,
 )
 
 from blueclaw.models import TraceStep
@@ -108,6 +111,9 @@ class ObserverHooks(HookProvider):
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
         registry.add_callback(AfterToolCallEvent, self.after_tool)
+        registry.add_callback(BeforeModelCallEvent, self.before_model)
+        registry.add_callback(AfterModelCallEvent, self.after_model)
+        registry.add_callback(MessageAddedEvent, self.on_message_added)
 
     # --- Escape detection ---
 
@@ -265,6 +271,131 @@ class ObserverHooks(HookProvider):
         )
         self.trace_steps.append(step)
         self.tools_called.append(tool_name)
+
+    def before_model(self, event: BeforeModelCallEvent) -> None:
+        """Emit model.before event with agent context snapshot."""
+        if self.bus is None:
+            return
+        try:
+            agent = event.agent
+            model_id = ""
+            try:
+                model_id = str(getattr(agent.model, "config", {}).get("model_id", ""))
+            except (AttributeError, TypeError):
+                pass
+
+            prompt_messages = 0
+            try:
+                prompt_messages = len(agent.messages)
+            except (AttributeError, TypeError):
+                pass
+
+            system_prompt_chars = 0
+            try:
+                sp = agent.system_prompt
+                system_prompt_chars = len(sp) if sp else 0
+            except (AttributeError, TypeError):
+                pass
+
+            tools_provided: list[str] = []
+            try:
+                tools_provided = list(agent.tool_names)
+            except (AttributeError, TypeError):
+                pass
+
+            self.bus.emit(
+                {
+                    "type": "model.before",
+                    "model_id": model_id,
+                    "prompt_messages": prompt_messages,
+                    "system_prompt_chars": system_prompt_chars,
+                    "tools_provided": tools_provided,
+                }
+            )
+        except Exception:
+            pass
+
+    def after_model(self, event: AfterModelCallEvent) -> None:
+        """Emit model.after event with usage and timing metrics."""
+        if self.bus is None:
+            return
+        try:
+            duration_ms = 0
+            input_tokens = 0
+            output_tokens = 0
+            cache_read = 0
+            cache_creation = 0
+            stop_reason: str | None = None
+
+            sr = event.stop_response
+            if sr is not None:
+                try:
+                    stop_reason = sr.stop_reason
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    metadata = sr.message.get("metadata", {}) or {}
+                    usage = metadata.get("usage", {}) or {}
+                    metrics = metadata.get("metrics", {}) or {}
+                    input_tokens = int(usage.get("inputTokens", 0) or 0)
+                    output_tokens = int(usage.get("outputTokens", 0) or 0)
+                    cache_read = int(usage.get("cacheReadInputTokens", 0) or 0)
+                    cache_creation = int(usage.get("cacheWriteInputTokens", 0) or 0)
+                    duration_ms = int(metrics.get("latencyMs", 0) or 0)
+                except (AttributeError, TypeError, KeyError):
+                    pass
+
+            self.bus.emit(
+                {
+                    "type": "model.after",
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cache_read": cache_read,
+                    "cache_creation": cache_creation,
+                    "stop_reason": stop_reason,
+                }
+            )
+        except Exception:
+            pass
+
+    def on_message_added(self, event: MessageAddedEvent) -> None:
+        """Emit message.added event with role and content statistics."""
+        if self.bus is None:
+            return
+        try:
+            message = event.message
+            role = ""
+            text_chars = 0
+            tool_uses = 0
+
+            try:
+                role = str(message.get("role", "") or "")
+            except (AttributeError, TypeError):
+                pass
+
+            try:
+                content = message.get("content", []) or []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if "text" in block:
+                        text_chars += len(block["text"] or "")
+                    if "toolUse" in block:
+                        tool_uses += 1
+            except (AttributeError, TypeError):
+                pass
+
+            self.bus.emit(
+                {
+                    "type": "message.added",
+                    "role": role,
+                    "text_chars": text_chars,
+                    "tool_uses": tool_uses,
+                }
+            )
+        except Exception:
+            pass
 
     def reset(self) -> None:
         """Clear accumulated state between agent turns."""

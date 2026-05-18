@@ -744,6 +744,38 @@ code, .mono {
 
 .empty-state p { font-size: 15px; }
 
+/* ─── Capture preview ─── */
+/* The backend already truncates capture_preview to 200 chars + ellipsis,
+   so the chip carries the full preview without additional CSS clipping. */
+.capture-chip {
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+  cursor: pointer;
+}
+.capture-pruned {
+  display: inline-block;
+  font-size: 11px;
+  color: #999;
+  font-style: italic;
+  border: 1px dashed #ccc;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.capture-row summary {
+  cursor: pointer;
+  list-style: none;
+}
+.capture-row summary::-webkit-details-marker {
+  display: none;
+}
+.capture-links {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
 /* ─── Utilities ─── */
 .section-title {
   font-size: 20px;
@@ -835,6 +867,7 @@ code, .mono {
               <th>Cost</th>
               <th>Duration</th>
               <th>Status</th>
+              <th>Captures</th>
             </tr>
           </thead>
           <tbody id="traceTableBody"></tbody>
@@ -1028,6 +1061,31 @@ code, .mono {
     return div.innerHTML;
   }
 
+  function renderCaptureCell(row) {
+    if (row.captures_pruned === true) {
+      return '<span class="capture-pruned" title="' + escapeHtml(row.capture_path || '') + '">captures pruned</span>';
+    }
+    if (typeof row.capture_preview === 'string') {
+      // Parse cid + n from capture_path (single source of truth — avoids
+      // drift if conversation_id is null/different for any reason).
+      // capture_path shape: ".blueclaw/turns/<cid>/turn-NNN"
+      var m = (row.capture_path || '').match(/^\.blueclaw\/turns\/(.+)\/turn-(\d+)$/);
+      var cidFromPath = m ? m[1] : null;
+      var n = m ? parseInt(m[2], 10) : null;
+      var cid = cidFromPath ? encodeURIComponent(cidFromPath) : null;
+      var responseUrl = (cid && n !== null) ? '/api/turns/' + cid + '/' + n + '/response' : null;
+      var messagesUrl = (cid && n !== null) ? '/api/turns/' + cid + '/' + n + '/messages' : null;
+      var out = '<details class="capture-row">';
+      out += '<summary><span class="capture-chip">' + escapeHtml(row.capture_preview) + '</span></summary>';
+      out += '<div class="capture-links">';
+      if (responseUrl) out += '<a href="' + responseUrl + '" target="_blank">view response</a>';
+      if (messagesUrl) out += ' · <a href="' + messagesUrl + '" target="_blank">view messages</a>';
+      out += '</div></details>';
+      return out;
+    }
+    return '';
+  }
+
   function isWithin7Days(dateStr) {
     if (!dateStr) return false;
     var d = new Date(dateStr);
@@ -1130,6 +1188,7 @@ code, .mono {
       html += '<td class="cost-cell">' + formatCost(t.total_cost) + '</td>';
       html += '<td class="duration-cell">' + formatDuration(t.duration_s) + '</td>';
       html += '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>';
+      html += '<td>' + renderCaptureCell(t) + '</td>';
       html += '</tr>';
     });
 
@@ -1138,6 +1197,11 @@ code, .mono {
     // Row click handlers
     traceTableBody.querySelectorAll('tr').forEach(function(row) {
       row.addEventListener('click', function(e) {
+        // If click originated inside a capture cell (chip, summary, links, pruned badge),
+        // let the <details> toggle / link navigate naturally without opening the detail view.
+        if (e.target.closest('.capture-row') || e.target.closest('.capture-pruned') || e.target.closest('.capture-links')) {
+          return;
+        }
         // If clicking checkbox, handle selection
         if (e.target.type === 'checkbox') {
           var cid = e.target.getAttribute('data-check-id');

@@ -1062,6 +1062,13 @@ code, .mono {
   margin-bottom: 14px;
 }
 
+.deep-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
 /* Events stream */
 .bc-events {
   font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
@@ -2473,7 +2480,7 @@ code, .mono {
         });
         html += '</div>';
       } else if (trace && (!trace.steps || trace.steps.length === 0)) {
-        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No tool steps recorded for this turn.</div>';
+        html += '<div class="deep-empty">No tool calls in this turn.</div>';
       } else if (!runId) {
         html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No trace ID linked to this turn.</div>';
       } else {
@@ -2515,7 +2522,9 @@ code, .mono {
             var evTs = '';
             if (ev.ts) {
               var d = new Date(ev.ts * 1000);
-              evTs = d.toISOString().substring(11, 23);  // HH:MM:SS.mmm
+              if (!isNaN(d.getTime())) {
+                evTs = d.toISOString().substring(11, 23);  // HH:MM:SS.mmm
+              }
             }
 
             // Color class by prefix

@@ -101,3 +101,96 @@ def test_emit_after_close_is_no_op(tmp_path: Path) -> None:
     lines = (tmp_path / "events.jsonl").read_text().splitlines()
     # Only the schema.version line — no post-close emit
     assert len(lines) == 1
+
+
+import queue as _q
+
+
+def test_subscriber_receives_events(tmp_path: Path) -> None:
+    bus = EventBus(tmp_path / "events.jsonl")
+    q = bus.subscribe()
+    bus.emit({"type": "tool.before", "tool_name": "x"})
+    bus.emit({"type": "tool.after", "tool_name": "x"})
+    bus.close()
+
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    # schema.version was emitted BEFORE subscribe — only post-subscribe events arrive
+    types = [e["type"] for e in events]
+    assert types == ["tool.before", "tool.after"]
+
+
+def test_unsubscribe_stops_delivery(tmp_path: Path) -> None:
+    bus = EventBus(tmp_path / "events.jsonl")
+    q = bus.subscribe()
+    bus.unsubscribe(q)
+    bus.emit({"type": "tool.before", "tool_name": "x"})
+    bus.close()
+    assert q.empty()
+
+
+def test_overflow_drops_subscriber_and_emits_stream_dropped(tmp_path: Path) -> None:
+    bus = EventBus(tmp_path / "events.jsonl")
+    slow = bus.subscribe()  # noqa: F841 — held to keep the queue alive
+    fast = bus.subscribe()
+
+    from blueclaw.events import SUBSCRIBER_QUEUE_SIZE
+
+    drain_thread_stop = [False]  # mutable container so the inner closure can see it
+
+    def drain_fast() -> None:
+        while not drain_thread_stop[0]:
+            try:
+                fast.get(timeout=0.01)
+            except _q.Empty:
+                pass
+
+    t = threading.Thread(target=drain_fast)
+    t.start()
+    try:
+        for i in range(SUBSCRIBER_QUEUE_SIZE + 5):
+            bus.emit({"type": "tool.before", "tool_name": "spam", "i": i})
+    finally:
+        drain_thread_stop[0] = True
+        t.join(timeout=1)
+    bus.close()
+
+    lines = (tmp_path / "events.jsonl").read_text().splitlines()
+    types = [json.loads(line)["type"] for line in lines]
+    assert "stream.dropped" in types
+
+    drop_events = [
+        json.loads(line)
+        for line in lines
+        if json.loads(line)["type"] == "stream.dropped"
+    ]
+    for ev in drop_events:
+        assert isinstance(ev["subscriber_id"], int)
+        # IDs are small monotonic counter values, not 14-digit memory addresses.
+        assert ev["subscriber_id"] < 10_000
+
+
+def test_no_recursive_drop_under_cascading_overflow(tmp_path: Path) -> None:
+    """If multiple subscribers overflow during a single emit, dispatch must
+    not recurse — stream.dropped notices fire after dispatch finishes."""
+    bus = EventBus(tmp_path / "events.jsonl")
+    # Create three subscribers, none draining. All will overflow at the same emit.
+    [bus.subscribe() for _ in range(3)]
+
+    from blueclaw.events import SUBSCRIBER_QUEUE_SIZE
+
+    # Fill all three queues, then one more emit to trigger triple-overflow.
+    for i in range(SUBSCRIBER_QUEUE_SIZE):
+        bus.emit({"type": "tool.before", "tool_name": "x", "i": i})
+    bus.emit({"type": "tool.before", "tool_name": "trigger"})
+    bus.close()
+
+    lines = (tmp_path / "events.jsonl").read_text().splitlines()
+    drops = [
+        json.loads(line)
+        for line in lines
+        if json.loads(line)["type"] == "stream.dropped"
+    ]
+    assert len(drops) == 3
+    assert len({d["subscriber_id"] for d in drops}) == 3

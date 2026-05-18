@@ -2291,21 +2291,24 @@ code, .mono {
     var html = '<div class="turn-transcript-loaded">';
 
     // Pass 1: collect toolUseId → result text mapping from user toolResult blocks.
+    // Strands content blocks have no `type` field — discriminate by which key is present.
+    // toolResult blocks: { toolResult: { toolUseId, content: [{text}...], status } }
     var toolResultMap = {};  // toolUseId → result text
     (messages || []).forEach(function(msg) {
       if ((msg.role || '') !== 'user') return;
       var content = msg.content;
       if (!Array.isArray(content)) return;
       content.forEach(function(block) {
-        if (block.type !== 'tool_result') return;
-        var tid = block.tool_use_id || '';
+        if (!('toolResult' in block) || !block.toolResult) return;
+        var tr = block.toolResult;
+        var tid = tr.toolUseId || '';
         if (!tid) return;
-        var rawContent = block.content || '';
+        var rawContent = tr.content;
         var text = '';
         if (typeof rawContent === 'string') {
           text = rawContent;
         } else if (Array.isArray(rawContent)) {
-          text = rawContent.map(function(c) { return c.text || ''; }).join('\n');
+          text = rawContent.map(function(c) { return (c && c.text) || ''; }).join('\n');
         }
         toolResultMap[tid] = text;
       });
@@ -2315,42 +2318,34 @@ code, .mono {
     // Duration lookup: not available in this render path (messages.json has no timing).
     // Duration is shown in the Deep details waterfall panel instead. See backlog item for
     // wiring durations into the tool card (requires fetching /api/traces alongside messages).
+    // Strands block shapes:
+    //   text block:       { text: "..." }
+    //   toolUse block:    { toolUse: { name, toolUseId, input } }
+    //   toolResult block: { toolResult: { toolUseId, content: [{text}...], status } }
     (messages || []).forEach(function(msg) {
       var role = msg.role || 'unknown';
       var content = msg.content;
 
-      if (role === 'user') {
-        // Render text blocks; SKIP toolResult blocks (folded into matching tool cards above).
-        if (typeof content === 'string') {
-          html += _renderUserTextMsg(content);
-        } else if (Array.isArray(content)) {
-          content.forEach(function(block) {
-            if (block.type === 'text') {
-              html += _renderUserTextMsg(block.text || '');
-            } else if (block.type === 'tool_result') {
-              // Skipped — folded into the matching tool card in the assistant message.
-              // If there is no matching toolUse (orphaned result), fall back to legacy row.
-              var tid = block.tool_use_id || '';
-              // Check if it was consumed: always skip here; orphan detection would require
-              // tracking which tool_use blocks we saw. Omit orphans for now (they're rare).
-            }
-          });
-        }
-      } else if (role === 'assistant') {
-        if (typeof content === 'string') {
-          html += _renderAssistantTextMsg(content);
-        } else if (Array.isArray(content)) {
-          content.forEach(function(block) {
-            if (block.type === 'text') {
-              html += _renderAssistantTextMsg(block.text || '');
-            } else if (block.type === 'tool_use') {
-              var tid = block.id || '';
-              var resultText = (tid && toolResultMap[tid] !== undefined) ? toolResultMap[tid] : null;
-              html += _renderToolCard(block, resultText, null);
-            }
-          });
-        }
+      if (typeof content === 'string') {
+        if (role === 'user') html += _renderUserTextMsg(content);
+        else if (role === 'assistant') html += _renderAssistantTextMsg(content);
+        return;
       }
+      if (!Array.isArray(content)) return;
+
+      content.forEach(function(block) {
+        if ('text' in block && typeof block.text === 'string') {
+          if (role === 'user') html += _renderUserTextMsg(block.text);
+          else if (role === 'assistant') html += _renderAssistantTextMsg(block.text);
+        } else if ('toolUse' in block && block.toolUse) {
+          var tu = block.toolUse;
+          var tid = tu.toolUseId || '';
+          var resultText = (tid && toolResultMap[tid] !== undefined) ? toolResultMap[tid] : null;
+          // Pass the toolUse sub-object so _renderToolCard reads .name / .input directly.
+          html += _renderToolCard(tu, resultText, null);
+        }
+        // toolResult blocks under role=user are skipped — folded into the matching tool card.
+      });
     });
 
     html += '</div>';

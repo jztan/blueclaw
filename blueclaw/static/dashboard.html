@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BlueClaw Trace Dashboard</title>
+<title>BlueClaw Dashboard</title>
 <style>
 /* ─── Reset ─── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -776,6 +776,13 @@ code, .mono {
   font-size: 11px;
 }
 
+/* ─── Conversations table sort indicators ─── */
+.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.sortable:hover { color: var(--text-1); }
+.sort-indicator::after { content: ''; }
+.sortable.sort-asc .sort-indicator::after { content: ' ▲'; }
+.sortable.sort-desc .sort-indicator::after { content: ' ▼'; }
+
 /* ─── Utilities ─── */
 .section-title {
   font-size: 20px;
@@ -811,19 +818,19 @@ code, .mono {
       </button>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-item active" data-view="list">
+      <div class="nav-item" data-hash="#/conversations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        <span>Conversations</span>
+      </div>
+      <div class="nav-item" data-hash="#/traces">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
         <span>Traces</span>
       </div>
-      <div class="nav-item" data-view="detail">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-        <span>Detail</span>
-      </div>
-      <div class="nav-item" data-view="compare">
+      <div class="nav-item" data-hash="#/compare">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
         <span>Compare</span>
       </div>
-      <div class="nav-item" data-view="stats">
+      <div class="nav-item" data-hash="#/stats">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
         <span>Stats</span>
       </div>
@@ -833,6 +840,7 @@ code, .mono {
         <label for="workspaceSelect" style="display:block; font-size:11px; opacity:0.7; margin-bottom:2px;">Workspace</label>
         <select id="workspaceSelect" style="width:100%; padding:2px 4px; font-size:12px;"></select>
       </div>
+      <div>Conversations: <span class="trace-count" id="sidebarConvCount">--</span></div>
       <div>Traces: <span class="trace-count" id="sidebarTraceCount">--</span></div>
       <div style="margin-top:4px;">{{VERSION}}</div>
     </div>
@@ -840,6 +848,46 @@ code, .mono {
 
   <!-- ─── Main Content ─── -->
   <main class="main">
+
+    <!-- ── Conversations List View ── -->
+    <div class="view" id="viewConversations">
+      <h2 class="section-title">Conversations</h2>
+      <div id="convTableContainer">
+        <table class="trace-table" id="convTable">
+          <thead>
+            <tr>
+              <th class="conv-col-cid sortable" data-col="conversation_id">Conversation ID <span class="sort-indicator"></span></th>
+              <th class="conv-col-turns sortable" data-col="turn_count">Turns <span class="sort-indicator"></span></th>
+              <th class="conv-col-tokens sortable" data-col="total_tokens">Tokens <span class="sort-indicator"></span></th>
+              <th class="conv-col-cost sortable" data-col="total_cost">Cost <span class="sort-indicator"></span></th>
+              <th class="conv-col-last sortable" data-col="last_turn_at">Last Activity <span class="sort-indicator"></span></th>
+              <th class="conv-col-source">Source</th>
+              <th class="conv-col-models">Models</th>
+            </tr>
+          </thead>
+          <tbody id="convTableBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state hidden" id="convEmpty">
+        <div class="empty-icon">
+          <img src="/blueclaw-crab.png" alt="" style="width:48px;height:48px;object-fit:contain;opacity:0.35;">
+        </div>
+        <p>No conversations yet — run <code>blueclaw</code> to start.</p>
+      </div>
+    </div>
+
+    <!-- ── Single Conversation View (placeholder for UI-5) ── -->
+    <div class="view" id="viewConversation">
+      <button class="back-btn" id="backToConversations">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        Back to conversations
+      </button>
+      <div id="conversationContent">
+        <div class="empty-state">
+          <p id="conversationPlaceholder">Loading conversation…</p>
+        </div>
+      </div>
+    </div>
 
     <!-- ── Trace List View ── -->
     <div class="view active" id="viewList">
@@ -882,7 +930,7 @@ code, .mono {
     </div>
 
     <!-- ── Trace Detail View ── -->
-    <div class="view" id="viewDetail">
+    <div class="view" id="viewTraceDetail">
       <button class="back-btn" id="backToList">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
         Back to traces
@@ -933,6 +981,7 @@ code, .mono {
 
   // ─── State ───
   let allTraces = [];
+  let allConversations = [];
   let currentFilter = 'all';
   let searchQuery = '';
   let selectedRunIds = new Set();
@@ -942,6 +991,8 @@ code, .mono {
   let statsData = null;
   let statsDaysFilter = 7;
   let refreshTimer = null;
+  let convSortCol = 'last_turn_at';
+  let convSortDir = 'desc';
 
   // ─── DOM Refs ───
   const html = document.documentElement;
@@ -955,7 +1006,9 @@ code, .mono {
   const listEmpty = document.getElementById('listEmpty');
   const traceTableContainer = document.getElementById('traceTableContainer');
   const sidebarTraceCount = document.getElementById('sidebarTraceCount');
+  const sidebarConvCount = document.getElementById('sidebarConvCount');
   const backToList = document.getElementById('backToList');
+  const backToConversations = document.getElementById('backToConversations');
   const detailContent = document.getElementById('detailContent');
   const compareContent = document.getElementById('compareContent');
   const statsContent = document.getElementById('statsContent');
@@ -977,31 +1030,90 @@ code, .mono {
     localStorage.setItem('blueclaw-theme', next);
   });
 
-  // ─── Navigation ───
-  function switchView(viewName) {
-    navItems.forEach(function(n) {
-      n.classList.toggle('active', n.getAttribute('data-view') === viewName);
-    });
-    views.forEach(function(v) {
-      v.classList.toggle('active', v.id === 'view' + viewName.charAt(0).toUpperCase() + viewName.slice(1));
-    });
+  // ─── Hash Router ───
+  // Maps a hash string to a { view, param } descriptor.
+  function parseHash(hash) {
+    var h = (hash || '').replace(/^#\/?/, '');
+    if (!h || h === '/') return { route: 'conversations', param: null };
+    var parts = h.split('/');
+    var section = parts[0];
+    var param = parts[1] ? decodeURIComponent(parts[1]) : null;
+    if (section === 'conversations') return { route: 'conversations', param: param };
+    if (section === 'traces') return { route: 'traces', param: param };
+    if (section === 'stats') return { route: 'stats', param: null };
+    if (section === 'compare') return { route: 'compare', param: null };
+    // fallback
+    return { route: 'conversations', param: null };
+  }
 
-    if (viewName === 'stats') {
+  // Activate a named view element (by id) and deactivate all others.
+  function activateView(viewId) {
+    views.forEach(function(v) {
+      v.classList.toggle('active', v.id === viewId);
+    });
+  }
+
+  // Update nav-item active state based on the top-level route.
+  function setNavActive(route) {
+    navItems.forEach(function(n) {
+      var targetHash = n.getAttribute('data-hash') || '';
+      var targetRoute = targetHash.replace(/^#\//, '').split('/')[0];
+      n.classList.toggle('active', targetRoute === route);
+    });
+  }
+
+  // The main router — called on every hashchange and on init.
+  function route() {
+    var parsed = parseHash(location.hash);
+
+    setNavActive(parsed.route);
+
+    if (parsed.route === 'conversations') {
+      if (parsed.param) {
+        // Single conversation view (UI-5 placeholder)
+        activateView('viewConversation');
+        var ph = document.getElementById('conversationPlaceholder');
+        if (ph) ph.textContent = 'Loading conversation ' + parsed.param + '…';
+      } else {
+        activateView('viewConversations');
+        loadConversations();
+      }
+    } else if (parsed.route === 'traces') {
+      if (parsed.param) {
+        activateView('viewTraceDetail');
+        openDetailById(parsed.param);
+      } else {
+        activateView('viewList');
+      }
+    } else if (parsed.route === 'stats') {
+      activateView('viewStats');
       loadStats();
-    }
-    if (viewName === 'compare') {
+    } else if (parsed.route === 'compare') {
+      activateView('viewCompare');
       renderCompare();
+    } else {
+      // Unknown — redirect to conversations
+      location.hash = '#/conversations';
     }
   }
 
+  window.addEventListener('hashchange', route);
+
+  // Wire up sidebar nav items to update hash (hash change triggers route()).
   navItems.forEach(function(item) {
     item.addEventListener('click', function() {
-      switchView(item.getAttribute('data-view'));
+      var h = item.getAttribute('data-hash');
+      if (h) location.hash = h;
     });
   });
 
+  // Back buttons: change hash, let router handle the rest.
   backToList.addEventListener('click', function() {
-    switchView('list');
+    location.hash = '#/traces';
+  });
+
+  backToConversations.addEventListener('click', function() {
+    location.hash = '#/conversations';
   });
 
   // ─── Filter Chips ───
@@ -1225,11 +1337,14 @@ code, .mono {
     });
   }
 
-  // ─── Open Trace Detail ───
+  // ─── Open Trace Detail (via hash) ───
   function openDetail(runId) {
-    currentDetailRunId = runId;
-    switchView('detail');
+    location.hash = '#/traces/' + encodeURIComponent(runId);
+  }
 
+  // Internal: load and render detail for a given runId (called by router).
+  function openDetailById(runId) {
+    currentDetailRunId = runId;
     detailContent.innerHTML = '<div class="empty-state"><p>Loading trace...</p></div>';
 
     apiFetch('/api/traces/' + encodeURIComponent(runId)).then(function(trace) {
@@ -1359,6 +1474,141 @@ code, .mono {
       });
     });
   }
+
+  // ─── Conversations ───
+  function relativeTime(isoStr) {
+    if (!isoStr) return '--';
+    var d = new Date(isoStr);
+    var now = new Date();
+    var diff = now - d; // ms
+    if (isNaN(diff)) return '--';
+    var sec = Math.floor(diff / 1000);
+    if (sec < 60) return sec + 's ago';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    var days = Math.floor(hr / 24);
+    if (days === 1) return 'yesterday';
+    if (days < 7) return days + ' days ago';
+    return d.toLocaleDateString();
+  }
+
+  function formatConvCost(conv) {
+    if (conv.turns_with_unknown_cost > 0 && conv.total_cost === 0) {
+      return '$0.00 (' + conv.turns_with_unknown_cost + ' unknown)';
+    }
+    var s = '$' + conv.total_cost.toFixed(2);
+    if (conv.turns_with_unknown_cost > 0) {
+      s += ' (' + conv.turns_with_unknown_cost + ' unknown)';
+    }
+    return s;
+  }
+
+  function convSortValue(conv, col) {
+    if (col === 'conversation_id') return (conv.conversation_id || '').toLowerCase();
+    if (col === 'turn_count') return conv.turn_count || 0;
+    if (col === 'total_tokens') return conv.total_tokens || 0;
+    if (col === 'total_cost') return conv.total_cost || 0;
+    if (col === 'last_turn_at') return conv.last_turn_at || '';
+    return '';
+  }
+
+  function loadConversations() {
+    apiFetch('/api/conversations').then(function(data) {
+      allConversations = data.conversations || [];
+      if (sidebarConvCount) sidebarConvCount.textContent = data.total != null ? data.total : allConversations.length;
+      renderConversationTable();
+    }).catch(function(err) {
+      console.error('Failed to load conversations:', err);
+      allConversations = [];
+      renderConversationTable();
+    });
+  }
+
+  function renderConversationTable() {
+    var convTableContainer = document.getElementById('convTableContainer');
+    var convEmpty = document.getElementById('convEmpty');
+    var convTableBody = document.getElementById('convTableBody');
+
+    if (allConversations.length === 0) {
+      convTableContainer.classList.add('hidden');
+      convEmpty.classList.remove('hidden');
+      return;
+    }
+
+    convTableContainer.classList.remove('hidden');
+    convEmpty.classList.add('hidden');
+
+    // Sort
+    var sorted = allConversations.slice().sort(function(a, b) {
+      var va = convSortValue(a, convSortCol);
+      var vb = convSortValue(b, convSortCol);
+      if (va < vb) return convSortDir === 'asc' ? -1 : 1;
+      if (va > vb) return convSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Update sort indicators on headers
+    var ths = document.querySelectorAll('#convTable th.sortable');
+    ths.forEach(function(th) {
+      var col = th.getAttribute('data-col');
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (col === convSortCol) {
+        th.classList.add(convSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    });
+
+    var h = '';
+    sorted.forEach(function(conv) {
+      var cid = conv.conversation_id || '';
+      var models = (conv.model_ids || []);
+      var modelBadges = models.map(function(m) {
+        return '<span class="pill" style="margin-right:3px;">' + escapeHtml(m) + '</span>';
+      }).join('');
+      if (!modelBadges) modelBadges = '<span style="color:var(--text-3)">--</span>';
+
+      var sourceBadge = conv._source
+        ? '<span class="pill">' + escapeHtml(conv._source) + '</span>'
+        : '<span style="color:var(--text-3)">--</span>';
+
+      h += '<tr data-cid="' + escapeHtml(cid) + '">';
+      h += '<td><span class="run-id-link mono">' + escapeHtml(cid) + '</span></td>';
+      h += '<td>' + (conv.turn_count != null ? conv.turn_count : '--') + '</td>';
+      h += '<td>' + formatTokens(conv.total_tokens) + '</td>';
+      h += '<td class="cost-cell">' + escapeHtml(formatConvCost(conv)) + '</td>';
+      h += '<td class="duration-cell" title="' + escapeHtml(conv.last_turn_at || '') + '">' + relativeTime(conv.last_turn_at) + '</td>';
+      h += '<td>' + sourceBadge + '</td>';
+      h += '<td>' + modelBadges + '</td>';
+      h += '</tr>';
+    });
+
+    convTableBody.innerHTML = h;
+
+    // Row click: navigate via hash
+    convTableBody.querySelectorAll('tr').forEach(function(row) {
+      row.addEventListener('click', function() {
+        var cid = row.getAttribute('data-cid');
+        if (cid) location.hash = '#/conversations/' + encodeURIComponent(cid);
+      });
+    });
+  }
+
+  // Wire sortable headers on the conversations table (delegation — headers are
+  // static so we can bind directly, but convTableBody rows are rebuilt on each
+  // render so we bind row clicks inside renderConversationTable above).
+  document.querySelectorAll('#convTable th.sortable').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var col = th.getAttribute('data-col');
+      if (convSortCol === col) {
+        convSortDir = convSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        convSortCol = col;
+        convSortDir = col === 'last_turn_at' ? 'desc' : 'asc';
+      }
+      renderConversationTable();
+    });
+  });
 
   // ─── Compare ───
   function renderCompare() {
@@ -1632,7 +1882,7 @@ code, .mono {
         currentWorkspace = sel.value;
         loadTraces();
         // Stats view refresh if it's currently visible
-        if (document.querySelector('.nav-item.active[data-view="stats"]')) {
+        if (document.getElementById('viewStats').classList.contains('active')) {
           if (typeof loadStats === 'function') loadStats();
         }
       });
@@ -1655,6 +1905,13 @@ code, .mono {
   populateWorkspaceSelect().then(function() {
     loadTraces();
     startAutoRefresh();
+    // If no hash or hash is just '#', redirect to conversations (default view).
+    var h = location.hash;
+    if (!h || h === '#' || h === '#/') {
+      location.hash = '#/conversations';
+    } else {
+      route();
+    }
   });
 
 })();

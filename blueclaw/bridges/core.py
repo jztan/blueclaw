@@ -59,8 +59,13 @@ class ChatContext:
             raise TypeError(f"chat_id must be int, got {type(chat_id).__name__}")
         chat_dir = chats_root / str(chat_id)
         workspace = Workspace(chat_dir)
-        sessions_dir = chat_dir / ".blueclaw" / "sessions"
-        sessions_dir.mkdir(parents=True, exist_ok=True)
+        # The two <chat_id> segments below mean different things: the outer one
+        # (chats_root / <chat_id>) is the workspace identifier — it isolates
+        # each Telegram chat's files on disk. The inner one passed to
+        # conversation_dir(<chat_id>) is the conversation identifier inside
+        # that workspace. They happen to be the same string here because each
+        # Telegram chat has exactly one conversation per workspace.
+        sessions_dir = workspace.conversation_dir(str(chat_id))
         return cls(
             chat_id=chat_id,
             workspace=workspace,
@@ -107,7 +112,8 @@ class BridgeRouter:
         ctx = await self._get_context(chat_id)
         async with ctx.lock:
             session_manager = FileSessionManager(
-                session_id=str(chat_id), storage_dir=ctx.sessions_dir
+                session_id=str(chat_id),
+                storage_dir=str(ctx.sessions_dir),
             )
             capture_path = next_capture_path(ctx.workspace.root, str(chat_id))
             outcome = await asyncio.to_thread(

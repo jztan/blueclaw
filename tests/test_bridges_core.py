@@ -73,7 +73,7 @@ def test_chat_context_paths(tmp_path: Path):
     assert ctx.chat_id == 42
     assert ctx.workspace.root == tmp_path / "42"
     assert ctx.workspace.history_path.parent.name == ".blueclaw"
-    sessions_dir = tmp_path / "42" / ".blueclaw" / "sessions"
+    sessions_dir = tmp_path / "42" / ".blueclaw" / "conversations" / "42"
     assert sessions_dir.exists()
 
 
@@ -175,8 +175,8 @@ async def test_router_creates_per_chat_workspace(tmp_path: Path):
 
     assert (tmp_path / "1").is_dir()
     assert (tmp_path / "2").is_dir()
-    assert (tmp_path / "1" / ".blueclaw" / "sessions").is_dir()
-    assert (tmp_path / "2" / ".blueclaw" / "sessions").is_dir()
+    assert (tmp_path / "1" / ".blueclaw" / "conversations" / "1").is_dir()
+    assert (tmp_path / "2" / ".blueclaw" / "conversations" / "2").is_dir()
 
 
 @pytest.mark.asyncio

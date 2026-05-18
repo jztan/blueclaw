@@ -653,6 +653,7 @@ def run_chat_loop(
     import secrets
 
     from blueclaw.runner import (
+        bus_for_turn,
         finalize,
         finalize_error,
         next_capture_path,
@@ -746,59 +747,59 @@ def run_chat_loop(
                     continue
 
                 start_time = datetime.now(timezone.utc)
-                try:
-                    result = ctx.agent(agent_input)
-                    end_time = datetime.now(timezone.utc)
-                    capture_path = next_capture_path(workspace.root, session_id)
-                    outcome = finalize(
-                        ctx,
-                        result,
-                        goal=stripped,
-                        source="terminal",
-                        conversation_id=session_id,
-                        start_time=start_time,
-                        end_time=end_time,
-                        config=config,
-                        capture_path=capture_path,
-                        workspace_root=workspace.root,
-                    )
-                    total_tool_calls += len(outcome.record.tools)
-                    elapsed = (end_time - start_time).total_seconds()
-
+                capture_path = next_capture_path(workspace.root, session_id)
+                with bus_for_turn(ctx.observer, capture_path):
                     try:
-                        write_turn_checkpoint(workspace, stripped, result.message)
-                    except Exception as e:
-                        logger.debug("Failed to write turn checkpoint: %s", e)
+                        result = ctx.agent(agent_input)
+                        end_time = datetime.now(timezone.utc)
+                        outcome = finalize(
+                            ctx,
+                            result,
+                            goal=stripped,
+                            source="terminal",
+                            conversation_id=session_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            config=config,
+                            capture_path=capture_path,
+                            workspace_root=workspace.root,
+                        )
+                        total_tool_calls += len(outcome.record.tools)
+                        elapsed = (end_time - start_time).total_seconds()
 
-                    print_run_summary(outcome, console=console, elapsed=elapsed)
-                    workspace.write_trace(outcome.trace)
-                    workspace.append_history(outcome.record)
+                        try:
+                            write_turn_checkpoint(workspace, stripped, result.message)
+                        except Exception as e:
+                            logger.debug("Failed to write turn checkpoint: %s", e)
 
-                    cm = getattr(ctx.observer, "conversation_manager", None)
-                    if cm is not None and hasattr(cm, "reset_metrics"):
-                        cm.reset_metrics()
-                    ctx.observer.reset()
+                        print_run_summary(outcome, console=console, elapsed=elapsed)
+                        workspace.write_trace(outcome.trace)
+                        workspace.append_history(outcome.record)
 
-                    if updater and (turn_count >= 2 or total_tool_calls > 0):
-                        updater.trigger(ctx.agent)
-                except Exception as exc:
-                    end_time = datetime.now(timezone.utc)
-                    console.print(f"[red]agent error:[/red] {exc}")
-                    capture_path = next_capture_path(workspace.root, session_id)
-                    finalize_error(
-                        ctx,
-                        exc,
-                        goal=stripped,
-                        source="terminal",
-                        conversation_id=session_id,
-                        start_time=start_time,
-                        end_time=end_time,
-                        config=config,
-                        capture_path=capture_path,
-                        workspace_root=workspace.root,
-                    )
-                    turn_count -= 1
-                    continue
+                        cm = getattr(ctx.observer, "conversation_manager", None)
+                        if cm is not None and hasattr(cm, "reset_metrics"):
+                            cm.reset_metrics()
+                        ctx.observer.reset()
+
+                        if updater and (turn_count >= 2 or total_tool_calls > 0):
+                            updater.trigger(ctx.agent)
+                    except Exception as exc:
+                        end_time = datetime.now(timezone.utc)
+                        console.print(f"[red]agent error:[/red] {exc}")
+                        finalize_error(
+                            ctx,
+                            exc,
+                            goal=stripped,
+                            source="terminal",
+                            conversation_id=session_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            config=config,
+                            capture_path=capture_path,
+                            workspace_root=workspace.root,
+                        )
+                        turn_count -= 1
+                        continue
         except Exception as exc:
             console.print(f"[red]session error:[/red] {exc}")
         finally:

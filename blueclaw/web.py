@@ -96,6 +96,51 @@ def _serialize_trace_summary(
     return summary
 
 
+def _aggregate_conversations(traces: list[RunTrace]) -> dict[str, dict]:
+    """Group a flat trace list by conversation_id.
+
+    Returns a mapping of {cid: aggregate_dict}. Traces without a
+    conversation_id are skipped. Cost is summed as float (None → 0.0,
+    counted in turns_with_unknown_cost).
+    """
+    aggs: dict[str, dict] = {}
+    for t in traces:
+        cid = t.conversation_id
+        if not cid:
+            continue
+        if cid not in aggs:
+            aggs[cid] = {
+                "conversation_id": cid,
+                "source": t.source,
+                "turn_count": 0,
+                "first_turn_at": t.start_time,
+                "last_turn_at": t.start_time,
+                "total_tokens": 0,
+                "total_cost": 0.0,
+                "turns_with_unknown_cost": 0,
+                "model_ids": [],
+                "status_counts": {},
+            }
+        agg = aggs[cid]
+        agg["turn_count"] += 1
+        if t.start_time < agg["first_turn_at"]:
+            agg["first_turn_at"] = t.start_time
+        if t.start_time > agg["last_turn_at"]:
+            agg["last_turn_at"] = t.start_time
+            # keep source from the most recent turn
+            agg["source"] = t.source
+        agg["total_tokens"] += t.total_tokens
+        if t.total_cost is None:
+            agg["turns_with_unknown_cost"] += 1
+        else:
+            agg["total_cost"] += t.total_cost
+        if t.model_id and t.model_id not in agg["model_ids"]:
+            agg["model_ids"].append(t.model_id)
+        status = t.status or "unknown"
+        agg["status_counts"][status] = agg["status_counts"].get(status, 0) + 1
+    return aggs
+
+
 def compute_stats(traces: list[RunTrace]) -> dict:
     """Compute aggregate stats from a list of traces.
 
@@ -457,6 +502,55 @@ def create_app(
             status_code=404,
         )
 
+    async def list_conversations(request):
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        since = _parse_since(request)
+
+        # Collect aggregates per workspace, merging by cid (prefer latest
+        # last_turn_at when the same cid appears in multiple workspaces).
+        merged: dict[str, dict] = {}
+        for ws_key, ws in sel:
+            traces = ws.list_traces(limit=500, since=since)
+            per_ws = _aggregate_conversations(traces)
+            for cid, agg in per_ws.items():
+                if cid not in merged:
+                    agg["_source"] = ws_key
+                    merged[cid] = agg
+                else:
+                    existing = merged[cid]
+                    if agg["last_turn_at"] > existing["last_turn_at"]:
+                        agg["_source"] = ws_key
+                        merged[cid] = agg
+                    # else keep existing (it has the later last_turn_at)
+
+        # Serialize datetime fields, sort by last_turn_at desc, apply limit.
+        conversations = []
+        for agg in merged.values():
+            conversations.append(
+                {
+                    "conversation_id": agg["conversation_id"],
+                    "source": agg["source"],
+                    "turn_count": agg["turn_count"],
+                    "first_turn_at": agg["first_turn_at"].isoformat(),
+                    "last_turn_at": agg["last_turn_at"].isoformat(),
+                    "total_tokens": agg["total_tokens"],
+                    "total_cost": round(agg["total_cost"], 6),
+                    "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                    "model_ids": sorted(agg["model_ids"]),
+                    "status_counts": agg["status_counts"],
+                    "_source": agg["_source"],
+                }
+            )
+        conversations.sort(key=lambda c: c["last_turn_at"], reverse=True)
+        total = len(conversations)
+        return JSONResponse({"conversations": conversations[:limit], "total": total})
+
     return Starlette(
         routes=[
             Route("/", index),
@@ -465,6 +559,7 @@ def create_app(
             Route("/api/traces", list_traces),
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),
+            Route("/api/conversations", list_conversations),
             Route("/api/turns/{cid}/{n}/response", get_turn_response),
             Route("/api/turns/{cid}/{n}/messages", get_turn_messages),
         ]

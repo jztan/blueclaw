@@ -27,3 +27,20 @@ def test_close_is_idempotent(tmp_path: Path) -> None:
     bus = EventBus(tmp_path / "events.jsonl")
     bus.close()
     bus.close()  # must not raise
+
+
+def test_caller_cannot_override_seq_or_ts(tmp_path: Path) -> None:
+    """Bus-controlled seq and ts must win over caller-supplied keys."""
+    bus = EventBus(tmp_path / "events.jsonl")
+    # Caller tries to inject seq=99 and ts="bogus" — must be ignored.
+    bus.emit({"type": "tool.before", "seq": 99, "ts": "bogus", "tool_name": "x"})
+    bus.close()
+
+    lines = (tmp_path / "events.jsonl").read_text().splitlines()
+    # schema.version (seq=0), then the emit above (seq=1)
+    assert len(lines) == 2
+    second = json.loads(lines[1])
+    assert second["seq"] == 1  # bus-controlled, NOT the caller's 99
+    assert second["ts"] != "bogus"  # bus-controlled ISO timestamp
+    assert second["type"] == "tool.before"
+    assert second["tool_name"] == "x"  # caller payload preserved

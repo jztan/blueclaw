@@ -58,7 +58,7 @@ class EventBus:
         with self._lock:
             if self._closed:
                 return
-            full = {"seq": self._seq, "ts": _now_iso(), **event}
+            full = {**event, "seq": self._seq, "ts": _now_iso()}
             self._seq += 1
             line = json.dumps(full, default=str) + "\n"
             try:
@@ -79,4 +79,5 @@ class EventBus:
 
     @property
     def failed_writes(self) -> int:
-        return self._failed_writes
+        with self._lock:
+            return self._failed_writes

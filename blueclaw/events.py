@@ -106,7 +106,13 @@ class EventBus:
         """Emit a stream.dropped notice. Goes through the normal emit path,
         which is safe now because the dropped subscriber is already unregistered
         and we're outside the per-event dispatch loop."""
-        self.emit({"type": "stream.dropped", "subscriber_id": sub_id})
+        self.emit(
+            {
+                "type": "stream.dropped",
+                "subscriber_id": sub_id,
+                "dropped_count": 1,
+            }
+        )
 
     def close(self) -> None:
         with self._lock:

@@ -169,6 +169,7 @@ def test_overflow_drops_subscriber_and_emits_stream_dropped(tmp_path: Path) -> N
         assert isinstance(ev["subscriber_id"], int)
         # IDs are small monotonic counter values, not 14-digit memory addresses.
         assert ev["subscriber_id"] < 10_000
+        assert ev["dropped_count"] == 1
 
 
 def test_no_recursive_drop_under_cascading_overflow(tmp_path: Path) -> None:

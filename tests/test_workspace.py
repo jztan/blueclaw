@@ -660,3 +660,103 @@ class TestResolveWorkspaces:
             chats_root=chats_root,
         )
         assert [k for k, _ in result] == ["workspace", "chat:5"]
+
+
+def test_conversation_dir_returns_expected_path(tmp_path):
+    ws = Workspace(tmp_path)
+    p = ws.conversation_dir("abc123")
+    assert p == tmp_path / ".blueclaw" / "conversations" / "abc123"
+
+
+def test_conversation_dir_creates_directory_on_demand(tmp_path):
+    ws = Workspace(tmp_path)
+    p = ws.conversation_dir("abc123")
+    assert p.is_dir()
+
+
+def test_conversation_dir_idempotent(tmp_path):
+    ws = Workspace(tmp_path)
+    p1 = ws.conversation_dir("abc123")
+    p2 = ws.conversation_dir("abc123")
+    assert p1 == p2 and p1.is_dir()
+
+
+def test_migration_writes_sentinel_on_clean_workspace(tmp_path):
+    # No legacy dirs exist → migration runs to completion and writes sentinel.
+    Workspace(tmp_path)
+    assert (tmp_path / ".blueclaw" / ".migrated-v1").is_file()
+    # And no conversations dir is materialised — there was nothing to move.
+    assert not (tmp_path / ".blueclaw" / "conversations").exists()
+
+
+def test_migration_skips_when_sentinel_present(tmp_path):
+    # Pre-create sentinel and a ghost legacy dir
+    (tmp_path / ".blueclaw").mkdir()
+    (tmp_path / ".blueclaw" / ".migrated-v1").write_text("preexisting")
+    legacy = tmp_path / ".blueclaw" / "sessions" / "abc"
+    legacy.mkdir(parents=True)
+    (legacy / "session_abc").mkdir()
+    (legacy / "session_abc" / "session.json").write_text("{}")
+
+    Workspace(tmp_path)
+
+    # Ghost legacy dir must be untouched — proves migration short-circuited
+    assert (legacy / "session_abc" / "session.json").is_file()
+    assert not (tmp_path / ".blueclaw" / "conversations").exists()
+    assert (tmp_path / ".blueclaw" / ".migrated-v1").read_text() == "preexisting"
+
+
+def _populate_legacy(root: Path, cid: str) -> dict[str, Path]:
+    bc = root / ".blueclaw"
+    sess = bc / "sessions" / cid / f"session_{cid}"
+    sess.mkdir(parents=True)
+    (sess / "session.json").write_text('{"session_id":"' + cid + '"}')
+
+    turn = bc / "turns" / cid / "turn-001"
+    turn.mkdir(parents=True)
+    (turn / "response.txt").write_text("hello")
+    (turn / "messages.json").write_text("[]")
+
+    up = bc / "uploads" / cid
+    up.mkdir(parents=True)
+    (up / "file-abc").write_bytes(b"binary")
+    return {"session": sess, "turn": turn, "upload": up / "file-abc"}
+
+
+def test_migration_moves_all_three_subtrees(tmp_path):
+    cid = "conv1"
+    _populate_legacy(tmp_path, cid)
+
+    Workspace(tmp_path)
+
+    new = tmp_path / ".blueclaw" / "conversations" / cid
+    assert (new / f"session_{cid}" / "session.json").is_file()
+    assert (new / "turns" / "turn-001" / "response.txt").read_text() == "hello"
+    assert (new / "turns" / "turn-001" / "messages.json").is_file()
+    assert (new / "uploads" / "file-abc").read_bytes() == b"binary"
+
+    # Legacy parents cleaned up
+    assert not (tmp_path / ".blueclaw" / "sessions").exists()
+    assert not (tmp_path / ".blueclaw" / "turns").exists()
+    assert not (tmp_path / ".blueclaw" / "uploads").exists()
+
+
+def test_migration_moves_tmp_uploads_to_uploads_tmp(tmp_path):
+    bc = tmp_path / ".blueclaw"
+    tmp_dir = bc / "uploads" / "tmp-abc123"
+    tmp_dir.mkdir(parents=True)
+    (tmp_dir / "partial").write_bytes(b"x")
+
+    Workspace(tmp_path)
+
+    assert (bc / "uploads_tmp" / "tmp-abc123" / "partial").is_file()
+    assert not (bc / "uploads").exists()
+
+
+def test_migration_idempotent(tmp_path):
+    _populate_legacy(tmp_path, "conv1")
+    Workspace(tmp_path)
+    # Second construction must not crash and must not move anything (sentinel skip)
+    Workspace(tmp_path)
+    new = tmp_path / ".blueclaw" / "conversations" / "conv1"
+    assert (new / "session_conv1" / "session.json").is_file()

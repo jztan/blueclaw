@@ -12,6 +12,8 @@ from blueclaw.models import RunRecord, RunTrace
 
 logger = logging.getLogger(__name__)
 
+_MIGRATION_SENTINEL = ".migrated-v1"
+
 
 class WorkspaceError(Exception):
     """Raised when a workspace operation violates sandbox rules."""
@@ -41,6 +43,126 @@ class Workspace:
         self.root = path
         path.mkdir(parents=True, exist_ok=True)
         (path / ".blueclaw").mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_layout()
+
+    def conversation_dir(self, cid: str) -> Path:
+        """Return <root>/.blueclaw/conversations/<cid>/, creating it on demand.
+
+        Centralises the per-conversation parent directory. All per-cid subtrees
+        (turns/, uploads/, session_<cid>/) live under this path.
+        """
+        p = self.root / ".blueclaw" / "conversations" / cid
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def _migrate_legacy_layout(self) -> None:
+        """One-shot migration of legacy cid-keyed subtrees.
+
+        Sentinel-gated for cheap re-entry. See
+        docs/superpowers/specs/2026-05-18-unify-cid-keyed-dirs-design.md.
+        """
+        bc = self.root / ".blueclaw"
+        marker = bc / _MIGRATION_SENTINEL
+        if marker.exists():
+            return
+
+        legacy_sessions = bc / "sessions"
+        legacy_turns = bc / "turns"
+        legacy_uploads = bc / "uploads"
+        conversations = bc / "conversations"
+        uploads_tmp = bc / "uploads_tmp"
+
+        any_skip = False
+
+        def _move_cid_contents(src_cid_dir: Path, dst_parent: Path) -> bool:
+            """Move every child of src_cid_dir into dst_parent. Returns True iff
+            every child was moved successfully (no destination collisions)."""
+            dst_parent.mkdir(parents=True, exist_ok=True)
+            all_moved = True
+            for child in list(src_cid_dir.iterdir()):
+                target = dst_parent / child.name
+                if target.exists():
+                    logger.warning(
+                        "blueclaw: migration skipping %s -> %s (destination exists)",
+                        child,
+                        target,
+                    )
+                    all_moved = False
+                    continue
+                shutil.move(str(child), str(target))
+            return all_moved
+
+        def _migrate_dir(legacy_parent: Path, subdir_name: str | None) -> None:
+            nonlocal any_skip
+            if not legacy_parent.exists():
+                return
+            for cid_dir in list(legacy_parent.iterdir()):
+                if not cid_dir.is_dir():
+                    continue
+                # tmp-* staging dirs are not cid-keyed; handled separately below
+                if legacy_parent.name == "uploads" and cid_dir.name.startswith("tmp-"):
+                    continue
+                conv_cid = conversations / cid_dir.name
+                dst = conv_cid / subdir_name if subdir_name else conv_cid
+                ok = _move_cid_contents(cid_dir, dst)
+                if ok:
+                    # Source dir is now empty by construction (we just drained it
+                    # and held the only handle). rmdir failing here would mean a
+                    # concurrent writer touched it, which the design forbids — let
+                    # any such OSError propagate rather than silently flagging skip.
+                    cid_dir.rmdir()
+                else:
+                    any_skip = True
+            # Try to remove the (now-empty) legacy parent
+            try:
+                if any(legacy_parent.iterdir()):
+                    return
+                legacy_parent.rmdir()
+            except OSError:
+                pass
+
+        # Two-phase walk of legacy_uploads: _migrate_dir handles the cid-keyed
+        # subdirs and explicitly skips tmp-* (which are upload staging dirs, not
+        # conversations). The post-pass below picks those tmp-* stragglers up and
+        # relocates them to .blueclaw/uploads_tmp/. The post-pass also re-attempts
+        # rmdir on the legacy parent once the tmp-* are gone.
+        _migrate_dir(legacy_sessions, None)
+        _migrate_dir(legacy_turns, "turns")
+        _migrate_dir(legacy_uploads, "uploads")
+
+        # tmp-* uploads stragglers → uploads_tmp/
+        if legacy_uploads.exists():
+            for entry in list(legacy_uploads.iterdir()):
+                if not entry.name.startswith("tmp-"):
+                    continue
+                uploads_tmp.mkdir(parents=True, exist_ok=True)
+                target = uploads_tmp / entry.name
+                if target.exists():
+                    logger.warning(
+                        "blueclaw: migration skipping %s -> %s (destination exists)",
+                        entry,
+                        target,
+                    )
+                    any_skip = True
+                    continue
+                shutil.move(str(entry), str(target))
+            # Re-attempt parent removal now that tmp-* are gone
+            try:
+                if not any(legacy_uploads.iterdir()):
+                    legacy_uploads.rmdir()
+            except OSError:
+                pass
+
+        if conversations.exists():
+            for cid_dir in conversations.iterdir():
+                logger.info(
+                    "blueclaw: migrated legacy conversation dirs for cid=%s",
+                    cid_dir.name,
+                )
+
+        # Only write sentinel if nothing was skipped — keeps partial migrations safe
+        if not any_skip:
+            marker.write_text(datetime.now(timezone.utc).isoformat())
 
     @property
     def context_path(self) -> Path:

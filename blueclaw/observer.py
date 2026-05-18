@@ -7,7 +7,7 @@ import select
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from strands.hooks import (
@@ -18,6 +18,9 @@ from strands.hooks import (
 )
 
 from blueclaw.models import TraceStep
+
+if TYPE_CHECKING:
+    from blueclaw.events import EventBus
 
 TRUNCATION_LIMIT = 12_000
 HEAD_SIZE = 8_000
@@ -54,6 +57,21 @@ def _summarize_input(tool_input: dict) -> dict:
     return summary
 
 
+def _count_result_chars(result: Any) -> int:
+    """Total text length across all content entries in a tool result.
+
+    Shared by ObserverHooks.after_tool to emit `tool.after.output_chars` and
+    by any future trace-finalization code that needs the same number.
+    """
+    if not isinstance(result, dict):
+        return 0
+    total = 0
+    for entry in result.get("content", []) or []:
+        if isinstance(entry, dict) and "text" in entry:
+            total += len(entry["text"])
+    return total
+
+
 def _summarize_output(result: Any, max_len: int = 200) -> str | None:
     """Extract a short summary from a tool result."""
     if result is None:
@@ -71,9 +89,15 @@ def _summarize_output(result: Any, max_len: int = 200) -> str | None:
 class ObserverHooks(HookProvider):
     """Hook provider for tool tracing, output truncation, and user interrupt."""
 
-    def __init__(self, console: Console, quiet: bool = False) -> None:
+    def __init__(
+        self,
+        console: Console,
+        quiet: bool = False,
+        bus: "EventBus | None" = None,
+    ) -> None:
         self.console = console
         self.quiet = quiet
+        self.bus = bus  # settable per turn by adapters
         self._cancelled = False
         self._last_esc = 0.0
         self.tools_called: list[str] = []
@@ -160,6 +184,16 @@ class ObserverHooks(HookProvider):
         input_summary = _summarize_input(tool_input)
         self._step_starts[tool_id] = (time.time(), step_index, input_summary)
 
+        if self.bus is not None:
+            self.bus.emit(
+                {
+                    "type": "tool.before",
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_id,
+                    "input": input_summary,
+                }
+            )
+
         if not self.quiet:
             input_str = str(tool_input)
             if len(input_str) > 60:
@@ -170,6 +204,7 @@ class ObserverHooks(HookProvider):
         tool_use = event.tool_use
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]
+        output_chars = _count_result_chars(event.result)
 
         start_ts = 0.0
         step_index = len(self.trace_steps) + 1
@@ -202,6 +237,19 @@ class ObserverHooks(HookProvider):
             # Truncate tool result content
             if event.result:
                 truncate_tool_result(event.result)
+
+        if self.bus is not None:
+            self.bus.emit(
+                {
+                    "type": "tool.after",
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_id,
+                    "status": status,
+                    "duration_ms": duration_ms,
+                    "output_chars": output_chars,
+                    "error": error_msg,
+                }
+            )
 
         step = TraceStep(
             index=step_index,

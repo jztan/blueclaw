@@ -724,7 +724,15 @@ def run_chat_loop(
                 prompt_text = cleaned_message
                 try:
                     traces = workspace.list_traces(limit=50)
-                    lessons = build_lessons_block(cleaned_message, traces)
+
+                    def on_lessons_injected(stats: dict) -> None:
+                        b = getattr(ctx.observer, "bus", None)
+                        if b is not None:
+                            b.emit({"type": "lesson.injected", **stats})
+
+                    lessons = build_lessons_block(
+                        cleaned_message, traces, on_injected=on_lessons_injected
+                    )
                     if lessons:
                         prompt_text = f"{lessons}\n\n{cleaned_message}"
                 except Exception:

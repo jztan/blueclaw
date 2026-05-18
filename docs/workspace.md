@@ -22,6 +22,7 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
 <workspace_root>/
 ├── CONTEXT.md                  # persistent agent knowledge (user-editable)
 ├── SOUL.md                     # personality/voice tuning (user-editable, optional)
+├── blueclaw.yaml               # config (only when `blueclaw init` ran from the workspace dir; otherwise lives at project root or via BLUECLAW_CONFIG)
 ├── <files the agent created>   # arbitrary — agent operates inside this root
 └── .blueclaw/                  # bookkeeping; everything below is managed by BlueClaw
     ├── history.jsonl           # append-only run log (RunRecord per line)
@@ -46,6 +47,7 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
 |---|---|---|---|---|
 | `CONTEXT.md` | markdown | session.py at session end; user manually | session.py at session start; user | persistent |
 | `SOUL.md` | markdown | user (optional, created manually) | session.py at session start | persistent |
+| `blueclaw.yaml` | YAML | `blueclaw init` (cwd-anchored — lands here when init ran from inside the workspace) | `cli.py` `_config_path()`; overridable via `BLUECLAW_CONFIG` env | persistent |
 | `.blueclaw/history.jsonl` | JSONL | observer.py per run | `blueclaw history`; lessons.py | append-only, persistent |
 | `.blueclaw/last_turn.md` | markdown | session.py per turn | `blueclaw` startup banner | overwritten per turn |
 | `.blueclaw/traces/<run_id>.json` | JSON | adapter after `finalize` | `blueclaw trace *`; `web.py` (`/api/traces`) | retained until `blueclaw trace purge` |

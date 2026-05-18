@@ -787,6 +787,13 @@ def create_app(
                         yield 'event: end\ndata: {"reason": "turn_finished"}\n\n'
                         return
 
+                    # A new schema.version event signals a fresh turn — reset
+                    # the dedup window.  Each new EventBus restarts seq at 0,
+                    # so without this reset, early events of a new turn would
+                    # be dropped as duplicates of the previous turn's backfill.
+                    if event.get("type") == "schema.version":
+                        last_seq = -1
+
                     # Dedup: skip events already covered by backfill.
                     seq = event.get("seq")
                     if isinstance(seq, int) and seq <= last_seq:

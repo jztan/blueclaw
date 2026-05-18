@@ -1393,6 +1393,7 @@ code, .mono {
   let convSortDir = 'desc';
   let liveMode = false;          // true iff server reported live broker active
   let _activeEventSource = null; // current open EventSource; closed on view exit
+  var _livePollTimer = null;     // setInterval handle for new-turn polling
 
   // ─── DOM Refs ───
   const html = document.documentElement;
@@ -1466,9 +1467,10 @@ code, .mono {
   function route() {
     var parsed = parseHash(location.hash);
 
-    // Close any live EventSource when navigating away from a conversation detail.
+    // Close any live EventSource and stop polling when navigating away from a conversation detail.
     if (!(parsed.route === 'conversations' && parsed.param)) {
       _closeLiveES();
+      _stopLivePolling();
     }
 
     setNavActive(parsed.route);
@@ -2099,6 +2101,38 @@ code, .mono {
     return panel;
   }
 
+  function _stopLivePolling() {
+    if (_livePollTimer != null) {
+      clearInterval(_livePollTimer);
+      _livePollTimer = null;
+    }
+  }
+
+  function _startLivePolling(cid) {
+    _stopLivePolling();
+    if (!liveMode) return;
+
+    _livePollTimer = setInterval(function() {
+      apiFetch('/api/conversations/' + encodeURIComponent(cid))
+        .then(function(data) {
+          var cached = convDetailCache[cid] && convDetailCache[cid].summary;
+          if (!cached) return;
+          var newCount = data.turn_count || 0;
+          var oldCount = cached.turn_count || 0;
+          if (newCount > oldCount) {
+            // New turn appeared — update cache, re-render detail, reopen SSE on new last turn.
+            convDetailCache[cid].summary = data;
+            var container = document.getElementById('conversationContent');
+            if (container) {
+              _renderConvDetailFull(cid, data, container);
+              _maybeStartLive(cid, data);
+            }
+          }
+        })
+        .catch(function() { /* network blip — try again next tick */ });
+    }, 3000);
+  }
+
   // ─── Conversation Detail (UI-5) ───
 
   // Per-cid cache: { summary: {...}, turnMessages: { n: [...] } }
@@ -2118,6 +2152,7 @@ code, .mono {
     if (cache && cache.summary) {
       _renderConvDetailFull(cid, cache.summary, container);
       _maybeStartLive(cid, cache.summary);
+      _startLivePolling(cid);
       return;
     }
 
@@ -2127,6 +2162,7 @@ code, .mono {
         convDetailCache[cid].summary = data;
         _renderConvDetailFull(cid, data, container);
         _maybeStartLive(cid, data);
+        _startLivePolling(cid);
       })
       .catch(function(err) {
         container.innerHTML = '<div class="empty-state"><p>Failed to load conversation: ' + escapeHtml(String(err)) + '</p></div>';

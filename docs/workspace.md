@@ -28,15 +28,16 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
     ├── last_turn.md            # last assistant response (shown on next interactive start)
     ├── traces/
     │   └── <run_id>.json       # RunTrace per agent run (structured timeline)
-    ├── turns/
+    ├── conversations/
     │   └── <cid>/
-    │       └── turn-NNN/
-    │           ├── response.txt    # raw assistant text for this turn
-    │           └── messages.json   # full message list at end of turn
-    ├── sessions/
-    │   └── <cid>/              # Strands FileSessionManager state (HTTP, Telegram)
-    └── uploads/
-        └── <cid>/              # files attached to API requests (HTTP only)
+    │       ├── session_<cid>/  # Strands FileSessionManager state (HTTP, Telegram)
+    │       ├── turns/
+    │       │   └── turn-NNN/
+    │       │       ├── response.txt    # raw assistant text for this turn
+    │       │       └── messages.json   # full message list at end of turn
+    │       └── uploads/        # files attached to API requests (HTTP only)
+    ├── uploads_tmp/            # staging dir for in-progress HTTP uploads (not cid-keyed)
+    └── .migrated-v1            # one-shot migration sentinel (do not delete)
 ```
 
 ## Per-file responsibility
@@ -48,13 +49,15 @@ A "workspace" is just a directory. `~/blueclaw/workspace/` and each `~/blueclaw/
 | `.blueclaw/history.jsonl` | JSONL | observer.py per run | `blueclaw history`; lessons.py | append-only, persistent |
 | `.blueclaw/last_turn.md` | markdown | session.py per turn | `blueclaw` startup banner | overwritten per turn |
 | `.blueclaw/traces/<run_id>.json` | JSON | adapter after `finalize` | `blueclaw trace *`; `web.py` (`/api/traces`) | retained until `blueclaw trace purge` |
-| `.blueclaw/turns/<cid>/turn-NNN/{response,messages}` | text + JSON | `runner._write_capture_artifacts` per turn | `web.py` (`/api/turns/...`); dashboard preview chip | not pruned automatically (operator action only) |
-| `.blueclaw/sessions/<cid>/` | Strands SDK state | `FileSessionManager` per turn | `FileSessionManager` on next turn | retained until `purge_old_sessions` (`trace_retention_days`) |
-| `.blueclaw/uploads/<cid>/` | binary blobs | `server.py` `POST /upload` | `server.py` `_resolve_attachments` | retained per `UploadStore` policy |
+| `.blueclaw/conversations/<cid>/turns/turn-NNN/{response,messages}` | text + JSON | `runner._write_capture_artifacts` per turn | `web.py` (`/api/turns/...`); dashboard preview chip | not pruned automatically (operator action only) |
+| `.blueclaw/conversations/<cid>/session_<cid>/` | Strands SDK state | `FileSessionManager` per turn | `FileSessionManager` on next turn | retained until `purge_old_sessions` (`trace_retention_days`) |
+| `.blueclaw/conversations/<cid>/uploads/` | binary blobs | `server.py` `POST /upload` | `server.py` `_resolve_attachments` | retained per `UploadStore` policy |
+| `.blueclaw/uploads_tmp/` | binary blobs (staging) | `server.py` during upload | `server.py` on finalize | ephemeral; cleared after upload completes or fails |
+| `.blueclaw/.migrated-v1` | sentinel file | `workspace.py` migration | `workspace.py` on load (skip if present) | persistent; do not delete |
 
 ## What `<cid>` means per adapter
 
-The `<cid>` segment in `turns/<cid>/`, `sessions/<cid>/`, and `uploads/<cid>/` is the conversation/session identifier. Format varies per adapter:
+The `<cid>` segment in `conversations/<cid>/` is the conversation/session identifier. All per-conversation state (session, turns, uploads) lives inside this single directory. Format varies per adapter:
 
 | Adapter | `<cid>` format | Example |
 |---|---|---|
@@ -69,9 +72,10 @@ Telegram's case produces a cosmetically redundant path (the chat ID appears both
 - **`CONTEXT.md`, `SOUL.md`, `history.jsonl`** — never auto-deleted; persistent across runs.
 - **`last_turn.md`** — overwritten every turn; not really retained, just refreshed.
 - **`traces/`** — purged by `purge_old_traces(trace_retention_days)` (default 30 days, configurable in `blueclaw.yaml`). Called automatically on `blueclaw serve` startup and on `blueclaw trace purge`.
-- **`sessions/`** — purged by `purge_old_sessions(trace_retention_days)` on the same schedule.
-- **`turns/`** — **no automatic retention.** Operators delete `.blueclaw/turns/<cid>/` manually to reclaim disk. The dashboard renders a "captures pruned" badge when a trace's `capture_path` points at a directory that no longer exists.
-- **`uploads/`** — retention managed by `UploadStore`.
+- **`conversations/<cid>/session_<cid>/`** — purged by `purge_old_sessions(trace_retention_days)` on the same schedule.
+- **`conversations/<cid>/turns/`** — **no automatic retention.** Operators delete `.blueclaw/conversations/<cid>/` manually to reclaim disk. The dashboard renders a "captures pruned" badge when a trace's `capture_path` points at a directory that no longer exists.
+- **`conversations/<cid>/uploads/`** — retention managed by `UploadStore`.
+- **`uploads_tmp/`** — ephemeral; cleaned up by the server after each upload completes or fails.
 
 ## Eval scratch (`~/blueclaw/test-runs/`)
 

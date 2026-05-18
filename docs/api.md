@@ -132,7 +132,7 @@ When `conversation_id` is rejected (path-traversal characters, whitespace/contro
 
 ## Per-turn capture
 
-Every API turn writes `response.txt` and `messages.json` to `<workspace>/.blueclaw/turns/<conversation_id>/turn-NNN/` (numbering is filesystem-derived per `conversation_id`). Requests without a `conversation_id` are not captured. Capture is best-effort: write failures log to stderr but never fail the request.
+Every API turn writes `response.txt` and `messages.json` to `<workspace>/.blueclaw/conversations/<conversation_id>/turns/turn-NNN/` (numbering is filesystem-derived per `conversation_id`). Requests without a `conversation_id` are not captured. Capture is best-effort: write failures log to stderr but never fail the request.
 
 The trace JSON stored alongside (`.blueclaw/traces/<run_id>.json`) carries a `capture_path` field pointing at the per-turn directory, so dashboards and external tools can link a trace to its raw artifacts.
 

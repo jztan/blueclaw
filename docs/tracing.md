@@ -130,7 +130,7 @@ Browser-based dashboard with 4 views: trace list with search/filter, trace detai
 
 ### Per-turn captures in the trace list
 
-Rows that have an associated per-turn capture (terminal/HTTP/Telegram) render a "Captures" cell with an inline preview chip — the first line of `response.txt`, truncated to 200 chars. Click the chip to expand and reveal "view response" / "view messages" links that open the raw artifacts in a new tab (served by `/api/turns/<cid>/<n>/{response,messages}`). Rows whose capture directory has been pruned (operator deleted `.blueclaw/turns/<cid>/`) show a "captures pruned" badge in place of the chip. Pre-feature traces with no `capture_path` show an empty cell.
+Rows that have an associated per-turn capture (terminal/HTTP/Telegram) render a "Captures" cell with an inline preview chip — the first line of `response.txt`, truncated to 200 chars. Click the chip to expand and reveal "view response" / "view messages" links that open the raw artifacts in a new tab (served by `/api/turns/<cid>/<n>/{response,messages}`). Rows whose capture directory has been pruned (operator deleted `.blueclaw/conversations/<cid>/`) show a "captures pruned" badge in place of the chip. Pre-feature traces with no `capture_path` show an empty cell.
 
 ### Multi-workspace mode
 

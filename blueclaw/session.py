@@ -724,22 +724,6 @@ def run_chat_loop(
 
                 prompt_text = cleaned_message
                 try:
-                    traces = workspace.list_traces(limit=50)
-
-                    def on_lessons_injected(stats: dict) -> None:
-                        b = getattr(ctx.observer, "bus", None)
-                        if b is not None:
-                            b.emit({"type": "lesson.injected", **stats})
-
-                    lessons = build_lessons_block(
-                        cleaned_message, traces, on_injected=on_lessons_injected
-                    )
-                    if lessons:
-                        prompt_text = f"{lessons}\n\n{cleaned_message}"
-                except Exception:
-                    pass
-
-                try:
                     agent_input = build_agent_input(attachments, prompt_text)
                 except UploadError as exc:
                     console.print(f"[yellow]could not attach:[/yellow] {exc}")
@@ -750,6 +734,27 @@ def run_chat_loop(
                 capture_path = next_capture_path(workspace.root, session_id)
                 with bus_for_turn(ctx.observer, capture_path):
                     try:
+                        try:
+                            traces = workspace.list_traces(limit=50)
+
+                            def on_lessons_injected(stats: dict) -> None:
+                                b = getattr(ctx.observer, "bus", None)
+                                if b is not None:
+                                    b.emit({"type": "lesson.injected", **stats})
+
+                            lessons = build_lessons_block(
+                                cleaned_message,
+                                traces,
+                                on_injected=on_lessons_injected,
+                            )
+                            if lessons:
+                                prompt_text = f"{lessons}\n\n{cleaned_message}"
+                                agent_input = build_agent_input(
+                                    attachments, prompt_text
+                                )
+                        except Exception:
+                            pass
+
                         result = ctx.agent(agent_input)
                         end_time = datetime.now(timezone.utc)
                         outcome = finalize(

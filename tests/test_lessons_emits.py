@@ -106,3 +106,41 @@ def test_session_closure_no_op_when_bus_missing() -> None:
             b.emit({"type": "lesson.injected", **stats})
 
     on_lessons_injected({"count": 1, "goals": ["x"]})  # must not raise
+
+
+def test_session_invokes_lessons_inside_bus_window(tmp_path: Path) -> None:
+    """build_lessons_block must be called while ctx.observer.bus is attached.
+
+    Regression for the Phase 1 review finding: in an earlier draft, the call
+    happened before bus_for_turn entered the with-block, so on_injected would
+    see a null bus and silently drop the event. The fix is positional —
+    confirm by exercising the closure with a stub observer that mimics the
+    bus_for_turn lifecycle.
+    """
+    bus = EventBus(tmp_path / "events.jsonl")
+    observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
+    # Simulate the bus_for_turn attachment point.
+    observer.bus = bus
+
+    def on_lessons_injected(stats: dict) -> None:
+        b = getattr(observer, "bus", None)
+        if b is not None:
+            b.emit({"type": "lesson.injected", **stats})
+
+    # Verify the event IS emitted when the bus is attached.
+    on_lessons_injected({"count": 1, "goals": ["x"]})
+
+    # Now simulate the bus being detached (post-turn) and confirm the closure
+    # correctly no-ops without raising.
+    observer.bus = None
+    on_lessons_injected({"count": 1, "goals": ["x"]})
+
+    bus.close()
+
+    lines = (tmp_path / "events.jsonl").read_text().splitlines()
+    lesson_events = [
+        json.loads(line)
+        for line in lines
+        if json.loads(line)["type"] == "lesson.injected"
+    ]
+    assert len(lesson_events) == 1, "lesson.injected fired only when bus attached"

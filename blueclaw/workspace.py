@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import shutil
 from datetime import datetime, timedelta, timezone
@@ -13,6 +15,18 @@ from blueclaw.models import RunRecord, RunTrace
 logger = logging.getLogger(__name__)
 
 _MIGRATION_SENTINEL = ".migrated-v1"
+
+_LEGACY_CAPTURE_PATH_RE = re.compile(
+    r"^\.blueclaw/turns/(?P<cid>[^/]+)/(?P<rest>turn-\d+.*)$"
+)
+
+
+def _rewrite_legacy_capture_path(value: str) -> str | None:
+    """Return the rewritten path, or None if no rewrite is needed."""
+    m = _LEGACY_CAPTURE_PATH_RE.match(value)
+    if not m:
+        return None
+    return f".blueclaw/conversations/{m['cid']}/turns/{m['rest']}"
 
 
 class WorkspaceError(Exception):
@@ -159,6 +173,41 @@ class Workspace:
                     "blueclaw: migrated legacy conversation dirs for cid=%s",
                     cid_dir.name,
                 )
+
+        # Trace-JSON rewrite (atomic per-file)
+        traces_dir = bc / "traces"
+        rewritten = 0
+        if traces_dir.is_dir():
+            for f in traces_dir.glob("*.json"):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.warning(
+                        "blueclaw: skipping malformed trace JSON %s: %s", f, exc
+                    )
+                    continue
+                cp = data.get("capture_path")
+                if not isinstance(cp, str):
+                    continue
+                new_cp = _rewrite_legacy_capture_path(cp)
+                if new_cp is None:
+                    continue
+                data["capture_path"] = new_cp
+                tmp = f.with_suffix(f.suffix + ".tmp")
+                try:
+                    tmp.write_text(json.dumps(data), encoding="utf-8")
+                    os.replace(tmp, f)
+                    rewritten += 1
+                except OSError as exc:
+                    logger.warning("blueclaw: failed to rewrite %s: %s", f, exc)
+                    if tmp.exists():
+                        try:
+                            tmp.unlink()
+                        except OSError:
+                            pass
+                    continue
+        if rewritten:
+            logger.info("blueclaw: rewrote capture_path in %d trace files", rewritten)
 
         # Only write sentinel if nothing was skipped — keeps partial migrations safe
         if not any_skip:

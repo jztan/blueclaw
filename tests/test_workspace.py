@@ -1,5 +1,6 @@
 """Tests for blueclaw.workspace — sandbox enforcement, context/history ops."""
 
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -826,3 +827,97 @@ def test_migration_retry_completes_after_collision_cleared(tmp_path):
 
     assert (colliding / "response.txt").read_text() == "hello"
     assert (tmp_path / ".blueclaw" / ".migrated-v1").exists()
+
+
+def test_migration_rewrites_capture_path_in_trace_json(tmp_path):
+    bc = tmp_path / ".blueclaw"
+    traces = bc / "traces"
+    traces.mkdir(parents=True)
+    record = {
+        "run_id": "20260518-0001",
+        "capture_path": ".blueclaw/turns/conv1/turn-001",
+        "other": "value",
+    }
+    (traces / "20260518-0001.json").write_text(json.dumps(record))
+
+    Workspace(tmp_path)
+
+    updated = json.loads((traces / "20260518-0001.json").read_text())
+    assert updated["capture_path"] == ".blueclaw/conversations/conv1/turns/turn-001"
+    assert updated["other"] == "value"
+
+
+def test_migration_skips_trace_json_without_legacy_capture_path(tmp_path):
+    bc = tmp_path / ".blueclaw"
+    traces = bc / "traces"
+    traces.mkdir(parents=True)
+    record = {"run_id": "x", "capture_path": None}
+    src = traces / "x.json"
+    src.write_text(json.dumps(record))
+    mtime_before = src.stat().st_mtime_ns
+
+    # Force a 1-tick gap so we can detect rewrites if they happen
+    import time
+
+    time.sleep(0.01)
+
+    Workspace(tmp_path)
+
+    assert src.stat().st_mtime_ns == mtime_before  # file untouched
+
+
+def test_migration_skips_malformed_trace_json(tmp_path, caplog):
+    bc = tmp_path / ".blueclaw"
+    traces = bc / "traces"
+    traces.mkdir(parents=True)
+    src = traces / "malformed.json"
+    src.write_text("{not valid json")
+
+    Workspace(tmp_path)  # must not raise
+
+    assert src.read_text() == "{not valid json"
+
+
+def test_migration_trace_rewrite_is_atomic(tmp_path, monkeypatch):
+    """Simulate a crash between writing <file>.tmp and os.replace, scoped so
+    the patch can only fire during the JSON-rewrite phase. The directory-move
+    phase uses shutil.move which on some platforms falls through to
+    os.replace; we sidestep that by pre-asserting that no legacy dirs exist
+    in the fixture (so the dir-move phase is a no-op)."""
+    import os as _os
+
+    bc = tmp_path / ".blueclaw"
+    traces = bc / "traces"
+    traces.mkdir(parents=True)
+    record = {"capture_path": ".blueclaw/turns/conv1/turn-001"}
+    src = traces / "t.json"
+    src.write_text(json.dumps(record))
+
+    # Guard the test's preconditions: no legacy cid-keyed dirs in this fixture.
+    assert not (bc / "sessions").exists()
+    assert not (bc / "turns").exists()
+    assert not (bc / "uploads").exists()
+
+    real_replace = _os.replace
+    calls = {"replace": 0}
+
+    def boom(src_path, dst_path):
+        # Only intercept *.json.tmp → *.json replaces (the rewrite step).
+        # Anything else (defensive — shouldn't fire given guard above) is real.
+        if str(src_path).endswith(".tmp") and str(dst_path).endswith(".json"):
+            calls["replace"] += 1
+            raise OSError("simulated crash mid-replace")
+        return real_replace(src_path, dst_path)
+
+    monkeypatch.setattr("os.replace", boom)
+
+    # Workspace must still init; the per-file rewrite swallows OSError and logs
+    Workspace(tmp_path)
+
+    # Original file MUST still be parseable and unchanged
+    monkeypatch.setattr("os.replace", real_replace)
+    assert calls["replace"] >= 1  # we actually exercised the rewrite path
+    parsed = json.loads(src.read_text())
+    assert parsed["capture_path"] == ".blueclaw/turns/conv1/turn-001"
+    # No half-written .tmp left dangling
+    assert not (traces / "t.json.tmp").exists()

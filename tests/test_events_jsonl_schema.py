@@ -5,6 +5,7 @@ This is a regression guard: future event-type additions must not skip
 the base shape. The dashboard depends on these three fields for sort,
 display, and dedup.
 """
+
 from __future__ import annotations
 
 import json

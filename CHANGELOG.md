@@ -4,6 +4,32 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- **Capture layer (trace UI Phase 1):** every turn now writes a per-turn
+  `events.jsonl` alongside `response.txt` / `messages.json`. Captures tool
+  invocations (`tool.before` / `tool.after`), model invocations
+  (`model.before` / `model.after`), message additions (`message.added`),
+  observation masking (`context.mask`), and lesson injection
+  (`lesson.injected`). Events carry monotonic `seq` for ordering and a
+  `schema.version` header.
+- `ObserverHooks.bus` and `ObservationMaskingManager.bus` are now public
+  settable attributes (default `None`). Adapters never set them directly —
+  use `runner.bus_for_turn(observer, capture_path)`, which fans out to every
+  bus-aware component reachable from the observer.
+
+### Notes
+- **Phase 1 ships independently.** This release adds capture only; no UI
+  consumes `events.jsonl` yet. Reading these files is the job of Phase 2
+  (conversation-first persistence) and Phase 3 (dashboard). `blueclaw trace
+  ui` is unchanged.
+- **Orphan events on mid-turn crash.** If a turn crashes after
+  `events.jsonl` has been written but before `RunTrace` finalization
+  completes, the events file remains on disk while the trace is missing.
+  This is an accepted Phase 1 state — Phase 2 extends `blueclaw trace purge
+  --older-than N` to clean orphan events. Until then, orphan events are
+  harmless (no reader); inspect manually with `find ~/blueclaw -name
+  events.jsonl -newer <date>` if needed.
+
+### Added
 - **`http_request`: Cloudflare-aware fetch + article extraction.**
   Replaced `urllib.urlopen` with `curl_cffi` using Chrome 124 TLS
   impersonation, so blueclaw can fetch pages behind Cloudflare's bot

@@ -14,7 +14,7 @@ from blueclaw.models import RunRecord, RunTrace
 
 logger = logging.getLogger(__name__)
 
-_MIGRATION_SENTINEL = ".migrated-v1"
+_MIGRATION_SENTINEL = ".migrated-v2"
 
 _LEGACY_CAPTURE_PATH_RE = re.compile(
     r"^\.blueclaw/turns/(?P<cid>[^/]+)/(?P<rest>turn-\d+.*)$"
@@ -135,12 +135,57 @@ class Workspace:
             except OSError:
                 pass
 
+        def _migrate_session_dirs(parent: Path) -> None:
+            """Move Strands ``session_<cid>/`` directories from ``parent`` into
+            ``conversations/<cid>/session_<cid>/``. Handles two source shapes:
+
+            - **Fresh legacy** (parent = ``.blueclaw/sessions/``): the old
+              `FileSessionManager(storage_dir=<bc>/sessions/, session_id=cid)`
+              wrote directly to ``sessions/session_<cid>/`` with no per-cid
+              wrapper.
+            - **Post-v1-bug correction** (parent = ``.blueclaw/conversations/``):
+              the v1 migration mistakenly moved ``session_<cid>/`` contents up
+              into ``conversations/session_<cid>/`` instead of nesting them in
+              a per-cid parent. v2 corrects that.
+            """
+            nonlocal any_skip
+            if not parent.exists():
+                return
+            for entry in list(parent.iterdir()):
+                if not entry.is_dir() or not entry.name.startswith("session_"):
+                    continue
+                cid = entry.name[len("session_") :]
+                # Defensive: skip empty cid or doubly-prefixed names.
+                if not cid or cid.startswith("session_"):
+                    continue
+                dst = conversations / cid / entry.name
+                if dst.exists():
+                    logger.warning(
+                        "blueclaw: migration skipping %s -> %s (destination exists)",
+                        entry,
+                        dst,
+                    )
+                    any_skip = True
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(entry), str(dst))
+
+        # Sessions: legacy shape is sessions/session_<cid>/ (Strands' own dir
+        # layout). Also handle the v1-bug remnant at conversations/session_<cid>/.
+        _migrate_session_dirs(legacy_sessions)
+        _migrate_session_dirs(conversations)
+        if legacy_sessions.exists():
+            try:
+                if not any(legacy_sessions.iterdir()):
+                    legacy_sessions.rmdir()
+            except OSError:
+                pass
+
         # Two-phase walk of legacy_uploads: _migrate_dir handles the cid-keyed
         # subdirs and explicitly skips tmp-* (which are upload staging dirs, not
         # conversations). The post-pass below picks those tmp-* stragglers up and
         # relocates them to .blueclaw/uploads_tmp/. The post-pass also re-attempts
         # rmdir on the legacy parent once the tmp-* are gone.
-        _migrate_dir(legacy_sessions, None)
         _migrate_dir(legacy_turns, "turns")
         _migrate_dir(legacy_uploads, "uploads")
 

@@ -657,7 +657,7 @@ def test_conversation_dir_idempotent(tmp_path):
 def test_migration_writes_sentinel_on_clean_workspace(tmp_path):
     # No legacy dirs exist → migration runs to completion and writes sentinel.
     Workspace(tmp_path)
-    assert (tmp_path / ".blueclaw" / ".migrated-v1").is_file()
+    assert (tmp_path / ".blueclaw" / ".migrated-v2").is_file()
     # And no conversations dir is materialised — there was nothing to move.
     assert not (tmp_path / ".blueclaw" / "conversations").exists()
 
@@ -665,7 +665,7 @@ def test_migration_writes_sentinel_on_clean_workspace(tmp_path):
 def test_migration_skips_when_sentinel_present(tmp_path):
     # Pre-create sentinel and a ghost legacy dir
     (tmp_path / ".blueclaw").mkdir()
-    (tmp_path / ".blueclaw" / ".migrated-v1").write_text("preexisting")
+    (tmp_path / ".blueclaw" / ".migrated-v2").write_text("preexisting")
     legacy = tmp_path / ".blueclaw" / "sessions" / "abc"
     legacy.mkdir(parents=True)
     (legacy / "session_abc").mkdir()
@@ -676,12 +676,15 @@ def test_migration_skips_when_sentinel_present(tmp_path):
     # Ghost legacy dir must be untouched — proves migration short-circuited
     assert (legacy / "session_abc" / "session.json").is_file()
     assert not (tmp_path / ".blueclaw" / "conversations").exists()
-    assert (tmp_path / ".blueclaw" / ".migrated-v1").read_text() == "preexisting"
+    assert (tmp_path / ".blueclaw" / ".migrated-v2").read_text() == "preexisting"
 
 
 def _populate_legacy(root: Path, cid: str) -> dict[str, Path]:
     bc = root / ".blueclaw"
-    sess = bc / "sessions" / cid / f"session_{cid}"
+    # Real legacy shape: Strands writes <storage_dir>/session_<id>/ directly,
+    # and the old adapters passed storage_dir=<bc>/sessions/ — so the on-disk
+    # layout is sessions/session_<cid>/, NOT sessions/<cid>/session_<cid>/.
+    sess = bc / "sessions" / f"session_{cid}"
     sess.mkdir(parents=True)
     (sess / "session.json").write_text('{"session_id":"' + cid + '"}')
 
@@ -694,6 +697,50 @@ def _populate_legacy(root: Path, cid: str) -> dict[str, Path]:
     up.mkdir(parents=True)
     (up / "file-abc").write_bytes(b"binary")
     return {"session": sess, "turn": turn, "upload": up / "file-abc"}
+
+
+def test_migration_corrects_v1_bug_session_dirs(tmp_path):
+    """v1 migration mistakenly moved sessions/session_<cid>/* into
+    conversations/session_<cid>/*. v2 must move conversations/session_<cid>/
+    to conversations/<cid>/session_<cid>/.
+    """
+    bc = tmp_path / ".blueclaw"
+    bc.mkdir()
+    # Simulate post-v1 state: only the (former) v1 sentinel and a mis-placed
+    # session dir at the wrong nesting depth.
+    (bc / ".migrated-v1").write_text("from broken v1")
+    misplaced = bc / "conversations" / "session_conv1"
+    misplaced.mkdir(parents=True)
+    (misplaced / "session.json").write_text('{"session_id":"conv1"}')
+    (misplaced / "agents").mkdir()
+    (misplaced / "agents" / "agent_default").mkdir()
+
+    Workspace(tmp_path)
+
+    # The mis-placed dir is moved to the correct nested location
+    new = bc / "conversations" / "conv1" / "session_conv1"
+    assert (new / "session.json").read_text() == '{"session_id":"conv1"}'
+    assert (new / "agents" / "agent_default").is_dir()
+    # The old top-level mis-placed dir is gone
+    assert not misplaced.exists()
+    # v2 sentinel written; v1 sentinel preserved as historical record
+    assert (bc / ".migrated-v2").is_file()
+    assert (bc / ".migrated-v1").read_text() == "from broken v1"
+
+
+def test_migration_v1_sentinel_does_not_skip_v2(tmp_path):
+    """A workspace that ran v1 (sentinel present) must still re-migrate under
+    v2 — the v2 skip-check looks for .migrated-v2 specifically."""
+    bc = tmp_path / ".blueclaw"
+    bc.mkdir()
+    (bc / ".migrated-v1").write_text("ran v1")
+    (bc / "sessions" / "session_conv1").mkdir(parents=True)
+    (bc / "sessions" / "session_conv1" / "session.json").write_text("{}")
+
+    Workspace(tmp_path)
+
+    assert (bc / "conversations" / "conv1" / "session_conv1" / "session.json").is_file()
+    assert (bc / ".migrated-v2").is_file()
 
 
 def test_migration_moves_all_three_subtrees(tmp_path):
@@ -779,7 +826,7 @@ def test_migration_collision_skips_individual_move_and_withholds_sentinel(tmp_pa
     # Legacy turn source remains for retry
     assert (tmp_path / ".blueclaw" / "turns" / cid / "turn-001").exists()
     # Sentinel NOT written (any_skip=True path)
-    assert not (tmp_path / ".blueclaw" / ".migrated-v1").exists()
+    assert not (tmp_path / ".blueclaw" / ".migrated-v2").exists()
 
 
 def test_migration_retry_completes_after_collision_cleared(tmp_path):
@@ -797,7 +844,7 @@ def test_migration_retry_completes_after_collision_cleared(tmp_path):
     Workspace(tmp_path)  # retry
 
     assert (colliding / "response.txt").read_text() == "hello"
-    assert (tmp_path / ".blueclaw" / ".migrated-v1").exists()
+    assert (tmp_path / ".blueclaw" / ".migrated-v2").exists()
 
 
 def test_migration_rewrites_capture_path_in_trace_json(tmp_path):

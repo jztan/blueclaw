@@ -211,6 +211,7 @@ def finalize(
     end_time: datetime,
     config: SessionConfig,
     capture_path: Path | None = None,
+    workspace_root: Path | None = None,
     run_id: str | None = None,
 ) -> RunOutcome:
     """Build trace + record from a completed agent run, optionally write capture.
@@ -235,6 +236,11 @@ def finalize(
         source=source,
         conversation_id=conversation_id,
     )
+
+    if capture_path is not None and workspace_root is not None:
+        # Pure path arithmetic — ValueError if capture_path is not under
+        # workspace_root, which would indicate an adapter bug worth surfacing.
+        trace.capture_path = str(capture_path.relative_to(workspace_root))
 
     capture_errors: list[dict] = []
     if capture_path is not None:
@@ -266,6 +272,7 @@ def finalize_error(
     end_time: datetime,
     config: SessionConfig,
     capture_path: Path | None = None,
+    workspace_root: Path | None = None,
     run_id: str | None = None,
 ) -> RunOutcome:
     """Build a RunOutcome when the adapter caught the exception itself.
@@ -286,6 +293,12 @@ def finalize_error(
     if run_id is None:
         run_id = _mint_run_id(start_time)
     del run_id  # not surfaced yet (no record); reserved for partial records later
+
+    if capture_path is not None and workspace_root is not None:
+        # Symmetry with finalize: validate the relationship even though no
+        # trace exists yet to carry the relativized path. Surfaces adapter
+        # bugs (capture outside workspace) consistently across success/error.
+        capture_path.relative_to(workspace_root)
 
     capture_errors: list[dict] = []
     if capture_path is not None:

@@ -1,6 +1,6 @@
 [project]
 name = "blueclaw"
-version = "2.5.0"
+version = "3.0.0"
 description = "Terminal AI agent with built-in execution tracing and observability"
 readme = "README.md"
 license = {text = "MIT"}

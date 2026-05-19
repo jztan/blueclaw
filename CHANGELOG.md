@@ -2,7 +2,7 @@
 
 All notable changes to blueclaw will be documented in this file.
 
-## [Unreleased]
+## [3.0.0] - 2026-05-19
 ### Added
 #### Trace UI: conversation-first observability + live streaming
 - **Capture layer.** Every turn writes a per-turn `events.jsonl` alongside

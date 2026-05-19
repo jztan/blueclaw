@@ -1,0 +1,42 @@
+[
+  {
+    "site": "Medium",
+    "url": "https://medium.com/@nikhilanandnj/the-real-reason-startups-are-falling-behind-on-ai-9b6cf9d4b1d0",
+    "raw_tokens": 28506,
+    "extracted_tokens": 339,
+    "reduction": 0.9881077667859398
+  },
+  {
+    "site": "Substack (ACX)",
+    "url": "https://astralcodexten.substack.com/p/your-book-review-the-pale-king",
+    "raw_tokens": 63722,
+    "extracted_tokens": 8358,
+    "reduction": 0.8688365085841625
+  },
+  {
+    "site": "NYTimes (article)",
+    "url": "https://www.nytimes.com/2025/01/15/technology/biden-ai-executive-order.html",
+    "error": "HTTP 403"
+  },
+  {
+    "site": "NYTimes (homepage)",
+    "url": "https://www.nytimes.com/",
+    "raw_tokens": 477556,
+    "extracted_tokens": 638,
+    "reduction": 0.9986640310246337
+  },
+  {
+    "site": "IEEE Spectrum",
+    "url": "https://spectrum.ieee.org/quantum-error-correction",
+    "raw_tokens": 147706,
+    "extracted_tokens": 4134,
+    "reduction": 0.9720119697236402
+  },
+  {
+    "site": "Indie blog (Simon Willison)",
+    "url": "https://simonwillison.net/2024/Dec/31/llms-in-2024/",
+    "raw_tokens": 22525,
+    "extracted_tokens": 9000,
+    "reduction": 0.6004439511653719
+  }
+]

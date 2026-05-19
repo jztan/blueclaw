@@ -1207,10 +1207,20 @@ class TestTraceUiLiveFlag:
     """CLI: blueclaw trace ui --live flag registration."""
 
     def test_trace_ui_has_live_flag(self):
+        import re
+
         result = runner.invoke(app, ["trace", "ui", "--help"])
         assert result.exit_code == 0
-        assert "--live" in result.output
-        assert "Enable live event streaming" in result.output
+        # Strip ANSI escape codes and collapse whitespace — Rich renders
+        # help in a bordered table that wraps long flag names across
+        # columns, so direct substring match on raw output fails on CI
+        # where the terminal width differs from local. Same pattern as
+        # the --stub-tools fix in CHANGELOG 1.4.1.
+        ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+        plain = ansi_re.sub("", result.output)
+        plain = re.sub(r"\s+", " ", plain)
+        assert "--live" in plain
+        assert "Enable live event streaming" in plain
 
 
 class TestServeCommand:

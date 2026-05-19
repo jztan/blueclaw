@@ -1,8 +1,8 @@
 # BlueClaw Roadmap
 
-> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → sandbox hardening → subagents → multi-channel runtime.
+> Observable agent runtime → trace analytics → smart context management → agent testing → trace web UI → API gateway → stateful conversations → sandbox hardening → conversation-first observability → subagents → multi-channel runtime.
 
-**Current:** v2.5 complete. v2.6 next.
+**Current:** v2.5 released on `master`. v3 staged on `develop` (conversation-first trace UI + live streaming) — awaiting tag. Future work pooled below; versions assigned on shipment.
 
 ---
 
@@ -62,15 +62,31 @@ Multi-modal input for the API and CLI. `POST /upload` (multipart, 25 MB cap) acc
 
 Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) following the [AgentSkills.io](https://agentskills.io) standard, loaded at runtime via the Strands `AgentSkills` plugin (1.30+). The `blueclaw skill` CLI installs from local paths, git URLs (with optional `#subdir`), or direct HTTPS to raw `SKILL.md`; `uninstall`, `list`, and `show` round out management. User-global skills live under `~/blueclaw/skills/`; per-project skills under `<project>/.blueclaw/skills/` shadow the global scope on name collision. Skills in v2.4 are pure prompt + metadata — Python tools and MCP refs are deferred to a later release.
 
-## v2.5 — Docker Sandbox
+## v2.5 — Docker Sandbox ✅
 
 Optional whole-agent container isolation. A new `sandbox: docker` mode in `blueclaw.yaml` runs the entire `blueclaw` process inside a short-lived container with the workspace bind-mounted read-write and the rest of the host filesystem invisible — every tool call, shell or otherwise, inherits the same boundary. Configurable resource caps (CPU, memory, pid limit, wall-clock timeout) and a network mode toggle (`bridge` | `none`; `proxy` reserved for v3) replace the app-level deny-list as the primary security boundary. Falls back transparently to the in-process sandbox when Docker is unavailable, so dev loops stay fast. Sets the foundation for network-level domain isolation (egress proxy enforcing the allowlist instead of trust-the-tool).
 
-## v2.6 — Subagent support
+## v3 — Conversation-first Observability + Live Streaming
+
+Trace UI v2: the dashboard is conversation-first instead of trace-first, every turn captures a structured event stream, and a Unix-socket broker lets a running agent stream events into the dashboard live. Staged on `develop` (commit range `master..develop`); not yet tagged.
+
+- **Capture layer.** Every turn now writes a per-turn `events.jsonl` alongside `response.txt` / `messages.json`. Captures tool calls, model invocations, message additions, observation masking, and lesson injection with monotonic `seq` and a `schema.version` header. `runner.bus_for_turn(observer, capture_path)` is the single chokepoint that wires the bus into every adapter (terminal, HTTP, Telegram, eval) and fans out to bus-aware components reachable from the observer.
+- **Conversation-first dashboard.** New `#/conversations` and `#/conversations/<cid>` views. Per-turn transcript with user → tool → assistant inline; tool use and tool result fold into one bordered tool card with full args, full result, and show-more for long output. Deep details panel combines `RunTrace.steps` (tool bars) with model invocations from `events.jsonl` (purple bars) in a single waterfall, plus a virtualized color-coded raw events stream with per-type formatted summaries.
+- **Backend conversation API.** `GET /api/conversations`, `/api/conversations/<cid>`, `/api/conversations/<cid>/turns/<n>/events` expose per-cid aggregates and per-turn streams — computed at query time from existing trace files, no new persistence files.
+- **Live event streaming.** `blueclaw trace ui --live` opens a Unix-socket broker at `~/.blueclaw/live.sock`. Any blueclaw process started afterward detects the socket and forwards every captured event. The dashboard subscribes via SSE at `/api/conversations/<cid>/turns/<n>/events/live` with a gap-safe backfill + dedup-by-seq handshake, plus a 3-second poll for new turns so live updates survive across producer lifetimes. Off by default; opt in with `--live`.
+
+---
+
+## Planned (unversioned)
+
+Candidates for the next release cycle. Versions are assigned when scope and ship date solidify.
+
+### Subagent support
 
 `Subagent` protocol for hierarchical agent structures. Subagents are lightweight agents invoked by a parent agent to handle specific tasks or domains, with their own tools and memory but no direct channel access. The parent agent can delegate to subagents via a new `invoke_subagent` tool, passing arguments and receiving structured results. This enables modular agent design and separation of concerns without the overhead of full API calls. With v2.5's container sandbox in place, subagent-spawned shell work runs inside the same isolation boundary.
 
-## v3 — Multi-Channel Runtime
+### Multi-Channel Runtime
+
 Channel routing layer: `ChannelAdapter` protocol and `ChannelRegistry` for dispatching messages by source, plus sender auth and SQLite-backed conversation persistence. Channel adapters for Slack and Discord ship as thin skill files on top of this core. The Telegram bridge has landed early (see `docs/bridges/telegram.md`) — allowlist-enforced, per-chat workspaces, long-polling default — and will be retrofitted onto the `ChannelAdapter` protocol when it lands.
 
 ---

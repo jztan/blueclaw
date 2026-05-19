@@ -136,7 +136,9 @@ Every API turn writes `response.txt` and `messages.json` to `<workspace>/.bluecl
 
 The trace JSON stored alongside (`.blueclaw/traces/<run_id>.json`) carries a `capture_path` field pointing at the per-turn directory, so dashboards and external tools can link a trace to its raw artifacts.
 
-The captured artifacts are surfaced inline in `blueclaw trace ui` (preview chip + "view full" links per row) via dashboard-only routes `GET /api/turns/<cid>/<n>/{response,messages}`. **These routes are not part of the `blueclaw serve` HTTP API** — only the `blueclaw trace ui` dashboard exposes them. If you need to fetch captures programmatically over the gateway API, read the files directly from the workspace path above, or file a request for serve-side parity (tracked as backlog item #9).
+The captured artifacts are surfaced inline in `blueclaw trace ui` (preview chip + "view full" links per row) via dashboard-only routes `GET /api/turns/<cid>/<n>/{response,messages}` plus the `/api/conversations*` route family. **These routes are not part of the `blueclaw serve` HTTP API** — only the `blueclaw trace ui` dashboard exposes them. See [docs/tracing.md — Dashboard-only routes](tracing.md#dashboard-only-routes) for the full list. If you need to fetch captures programmatically over the gateway API, read the files directly from the workspace path above, or file a request for serve-side parity (tracked as backlog item #9).
+
+Each turn also writes an `events.jsonl` alongside the artifacts above, capturing tool calls, model invocations, message additions, context masking, and lesson injection with monotonic `seq` numbers and a `schema.version` header. See [docs/tracing.md](tracing.md#conversation-timeline-view).
 
 ## CORS
 

@@ -69,7 +69,7 @@ blueclaw run "'/Users/me/notes.pdf' summarize this"
 
 ### Tracing & Observability — [docs/tracing.md](docs/tracing.md)
 
-Every run produces a structured JSON trace. Ten CLI commands let you inspect, compare, and replay runs without a hosted dashboard.
+Every turn produces a structured JSON trace plus a per-turn `events.jsonl` capturing tool calls, model invocations, message additions, context masking, and lesson injection. Ten CLI commands let you inspect, compare, and replay runs from the terminal; `blueclaw trace ui` opens a conversation-first browser dashboard (with optional live streaming) on top of the same data.
 
 ```
 $ blueclaw trace graph 20260315-054426
@@ -81,6 +81,8 @@ search for Python 3.13 new features
 ```
 
 `trace list` · `trace show` · `trace graph` · `trace timeline` · `trace diff` · `trace explain` · `trace replay` · `trace stats` · `trace ui` · `trace purge`
+
+`blueclaw trace ui` is a vanilla-JS SPA (no build step) showing a conversation timeline per chat: user prompt → tool card (full args + duration + full result inline) → assistant reply. A "Deep details" panel exposes a waterfall combining tool steps with model invocations, plus a color-coded raw events stream. With `--live`, it opens a local Unix-socket broker — any blueclaw process started afterward streams events to the open dashboard in real time via SSE.
 
 All ten readers also accept `--chat <id>` (target one Telegram chat) and, where union makes sense, `--all-chats` (default + every chat). See the [Telegram bridge](#telegram-bridge--docsbridgestelegrammd) section.
 
@@ -261,6 +263,7 @@ Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contr
 - [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — The story behind blueclaw's design: why we built structured tracing into the terminal instead of a hosted service
 - [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/) — Benchmarks behind blueclaw's `ObservationMaskingManager`: why replacing stale tool outputs with placeholders beats LLM summarization on cost and speed
 - [How I Debug AI Agents Like Code (Not Guesswork)](https://blog.jztan.com/debug-ai-agents-like-code/) — A walkthrough of blueclaw's 10 `trace` CLI commands: `trace list` → `show` → `timeline` → `diff` turns "re-run and guess" debugging into actual inspection in under a minute
+- [I Built CI for My AI Agent (It Catches What You Miss)](https://blog.jztan.com/i-built-ci-for-ai-agents/) — Why behavioral contracts beat LLM-as-a-judge for agent CI: blueclaw's 12 deterministic assertions plus Wilson-CI three-verdict gates caught four regressions (tool substitution, step bloat, cost creep, ordering violations) that spot-checks missed
 
 ## License
 

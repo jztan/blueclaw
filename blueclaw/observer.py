@@ -7,17 +7,23 @@ import select
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from strands.hooks import (
+    AfterModelCallEvent,
     AfterToolCallEvent,
+    BeforeModelCallEvent,
     BeforeToolCallEvent,
     HookProvider,
     HookRegistry,
+    MessageAddedEvent,
 )
 
 from blueclaw.models import TraceStep
+
+if TYPE_CHECKING:
+    from blueclaw.events import EventBus
 
 TRUNCATION_LIMIT = 12_000
 HEAD_SIZE = 8_000
@@ -54,6 +60,21 @@ def _summarize_input(tool_input: dict) -> dict:
     return summary
 
 
+def _count_result_chars(result: Any) -> int:
+    """Total text length across all content entries in a tool result.
+
+    Shared by ObserverHooks.after_tool to emit `tool.after.output_chars` and
+    by any future trace-finalization code that needs the same number.
+    """
+    if not isinstance(result, dict):
+        return 0
+    total = 0
+    for entry in result.get("content", []) or []:
+        if isinstance(entry, dict) and "text" in entry:
+            total += len(entry["text"])
+    return total
+
+
 def _summarize_output(result: Any, max_len: int = 200) -> str | None:
     """Extract a short summary from a tool result."""
     if result is None:
@@ -71,9 +92,15 @@ def _summarize_output(result: Any, max_len: int = 200) -> str | None:
 class ObserverHooks(HookProvider):
     """Hook provider for tool tracing, output truncation, and user interrupt."""
 
-    def __init__(self, console: Console, quiet: bool = False) -> None:
+    def __init__(
+        self,
+        console: Console,
+        quiet: bool = False,
+        bus: "EventBus | None" = None,
+    ) -> None:
         self.console = console
         self.quiet = quiet
+        self.bus = bus  # settable per turn by adapters
         self._cancelled = False
         self._last_esc = 0.0
         self.tools_called: list[str] = []
@@ -84,6 +111,9 @@ class ObserverHooks(HookProvider):
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         registry.add_callback(BeforeToolCallEvent, self.before_tool)
         registry.add_callback(AfterToolCallEvent, self.after_tool)
+        registry.add_callback(BeforeModelCallEvent, self.before_model)
+        registry.add_callback(AfterModelCallEvent, self.after_model)
+        registry.add_callback(MessageAddedEvent, self.on_message_added)
 
     # --- Escape detection ---
 
@@ -160,6 +190,16 @@ class ObserverHooks(HookProvider):
         input_summary = _summarize_input(tool_input)
         self._step_starts[tool_id] = (time.time(), step_index, input_summary)
 
+        if self.bus is not None:
+            self.bus.emit(
+                {
+                    "type": "tool.before",
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_id,
+                    "input": input_summary,
+                }
+            )
+
         if not self.quiet:
             input_str = str(tool_input)
             if len(input_str) > 60:
@@ -170,6 +210,7 @@ class ObserverHooks(HookProvider):
         tool_use = event.tool_use
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]
+        output_chars = _count_result_chars(event.result)
 
         start_ts = 0.0
         step_index = len(self.trace_steps) + 1
@@ -203,6 +244,19 @@ class ObserverHooks(HookProvider):
             if event.result:
                 truncate_tool_result(event.result)
 
+        if self.bus is not None:
+            self.bus.emit(
+                {
+                    "type": "tool.after",
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_id,
+                    "status": status,
+                    "duration_ms": duration_ms,
+                    "output_chars": output_chars,
+                    "error": error_msg,
+                }
+            )
+
         step = TraceStep(
             index=step_index,
             tool_name=tool_name,
@@ -217,6 +271,131 @@ class ObserverHooks(HookProvider):
         )
         self.trace_steps.append(step)
         self.tools_called.append(tool_name)
+
+    def before_model(self, event: BeforeModelCallEvent) -> None:
+        """Emit model.before event with agent context snapshot."""
+        if self.bus is None:
+            return
+        try:
+            agent = event.agent
+            model_id = ""
+            try:
+                model_id = str(getattr(agent.model, "config", {}).get("model_id", ""))
+            except (AttributeError, TypeError):
+                pass
+
+            prompt_messages = 0
+            try:
+                prompt_messages = len(agent.messages)
+            except (AttributeError, TypeError):
+                pass
+
+            system_prompt_chars = 0
+            try:
+                sp = agent.system_prompt
+                system_prompt_chars = len(sp) if sp else 0
+            except (AttributeError, TypeError):
+                pass
+
+            tools_provided: list[str] = []
+            try:
+                tools_provided = list(agent.tool_names)
+            except (AttributeError, TypeError):
+                pass
+
+            self.bus.emit(
+                {
+                    "type": "model.before",
+                    "model_id": model_id,
+                    "prompt_messages": prompt_messages,
+                    "system_prompt_chars": system_prompt_chars,
+                    "tools_provided": tools_provided,
+                }
+            )
+        except Exception:
+            pass
+
+    def after_model(self, event: AfterModelCallEvent) -> None:
+        """Emit model.after event with usage and timing metrics."""
+        if self.bus is None:
+            return
+        try:
+            duration_ms = 0
+            input_tokens = 0
+            output_tokens = 0
+            cache_read = 0
+            cache_creation = 0
+            stop_reason: str | None = None
+
+            sr = event.stop_response
+            if sr is not None:
+                try:
+                    stop_reason = sr.stop_reason
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    metadata = sr.message.get("metadata", {}) or {}
+                    usage = metadata.get("usage", {}) or {}
+                    metrics = metadata.get("metrics", {}) or {}
+                    input_tokens = int(usage.get("inputTokens", 0) or 0)
+                    output_tokens = int(usage.get("outputTokens", 0) or 0)
+                    cache_read = int(usage.get("cacheReadInputTokens", 0) or 0)
+                    cache_creation = int(usage.get("cacheWriteInputTokens", 0) or 0)
+                    duration_ms = int(metrics.get("latencyMs", 0) or 0)
+                except (AttributeError, TypeError, KeyError):
+                    pass
+
+            self.bus.emit(
+                {
+                    "type": "model.after",
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cache_read": cache_read,
+                    "cache_creation": cache_creation,
+                    "stop_reason": stop_reason,
+                }
+            )
+        except Exception:
+            pass
+
+    def on_message_added(self, event: MessageAddedEvent) -> None:
+        """Emit message.added event with role and content statistics."""
+        if self.bus is None:
+            return
+        try:
+            message = event.message
+            role = ""
+            text_chars = 0
+            tool_uses = 0
+
+            try:
+                role = str(message.get("role", "") or "")
+            except (AttributeError, TypeError):
+                pass
+
+            try:
+                content = message.get("content", []) or []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if "text" in block:
+                        text_chars += len(block["text"] or "")
+                    if "toolUse" in block:
+                        tool_uses += 1
+            except (AttributeError, TypeError):
+                pass
+
+            self.bus.emit(
+                {
+                    "type": "message.added",
+                    "role": role,
+                    "text_chars": text_chars,
+                    "tool_uses": tool_uses,
+                }
+            )
+        except Exception:
+            pass
 
     def reset(self) -> None:
         """Clear accumulated state between agent turns."""

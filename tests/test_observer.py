@@ -20,12 +20,13 @@ from blueclaw.observer import (
 
 
 class TestObserverConstruction:
-    def test_observer_hooks_registers_two_callbacks(self):
+    def test_observer_hooks_registers_callbacks(self):
         console = Console(file=StringIO())
         obs = ObserverHooks(console=console)
         registry = Mock()
         obs.register_hooks(registry)
-        assert registry.add_callback.call_count == 2
+        # tool.before, tool.after, model.before, model.after, message.added
+        assert registry.add_callback.call_count == 5
 
     def test_observer_initial_state(self):
         console = Console(file=StringIO())

@@ -65,3 +65,39 @@ def test_adapters_pass_workspace_root_to_finalize():
         "the trace to its captured artifacts. Missing in:\n"
         + "\n".join(f"  {p}" for p in missing)
     )
+
+
+def test_bus_for_turn_helper_exists():
+    """Phase 1 contract: adapters reach EventBus only via bus_for_turn."""
+    from blueclaw.runner import bus_for_turn
+
+    assert callable(bus_for_turn)
+
+
+def test_adapters_do_not_construct_eventbus_directly():
+    """Adapters must use bus_for_turn — no direct EventBus(...) calls.
+
+    Static check via source grep. The bus lifecycle is the runner's job;
+    direct construction in an adapter bypasses the observer attachment
+    contract and leaks the file handle on the unhappy path.
+    """
+    import ast
+    import pathlib
+
+    adapter_files = [
+        pathlib.Path("blueclaw/session.py"),
+        pathlib.Path("blueclaw/server.py"),
+        pathlib.Path("blueclaw/testing.py"),
+        pathlib.Path("blueclaw/bridges/core.py"),
+        pathlib.Path("blueclaw/bridges/telegram.py"),
+    ]
+    for f in adapter_files:
+        if not f.exists():
+            continue
+        tree = ast.parse(f.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id != "EventBus", (
+                    f"{f}: direct EventBus(...) call — use "
+                    f"bus_for_turn(observer, capture_path) instead"
+                )

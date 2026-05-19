@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import queue
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.routing import Route
 
 from blueclaw.models import RunTrace, classify_error
 from blueclaw.workspace import Workspace
+
+if TYPE_CHECKING:
+    from blueclaw.live_broker import LiveBroker
 
 
 def _count_trace_files(workspace: Workspace) -> int:
@@ -94,6 +107,80 @@ def _serialize_trace_summary(
         elif preview is not None:
             summary["capture_preview"] = preview
     return summary
+
+
+def _serialize_turn_summary(trace: RunTrace, workspace_root: Path) -> dict:
+    """Convert a RunTrace to a per-turn summary dict for the conversation view."""
+    elapsed = (trace.end_time - trace.start_time).total_seconds()
+    # Derive turn_n from capture_path "turn-NNN" segment; caller fills in fallback.
+    turn_n: int | None = None
+    if trace.capture_path is not None:
+        # e.g. ".blueclaw/conversations/A/turns/turn-001"
+        segment = Path(trace.capture_path).name
+        if segment.startswith("turn-") and segment[5:].isdigit():
+            turn_n = int(segment[5:])
+    # Check events.jsonl existence
+    has_events = False
+    if trace.capture_path is not None:
+        has_events = (workspace_root / trace.capture_path / "events.jsonl").exists()
+    return {
+        "turn_n": turn_n,  # may be None; caller replaces with index+1 if so
+        "run_id": trace.run_id,
+        "goal": trace.goal,
+        "status": trace.status,
+        "model_id": trace.model_id,
+        "start_time": trace.start_time.isoformat(),
+        "duration_s": round(elapsed, 1),
+        "tokens": trace.total_tokens,
+        "cost": trace.total_cost,
+        "capture_path": trace.capture_path,
+        "has_events_jsonl": has_events,
+    }
+
+
+def _aggregate_conversations(traces: list[RunTrace]) -> dict[str, dict]:
+    """Group a flat trace list by conversation_id.
+
+    Returns a mapping of {cid: aggregate_dict}. Traces without a
+    conversation_id are skipped. Cost is summed as float (None → 0.0,
+    counted in turns_with_unknown_cost).
+    """
+    aggs: dict[str, dict] = {}
+    for t in traces:
+        cid = t.conversation_id
+        if not cid:
+            continue
+        if cid not in aggs:
+            aggs[cid] = {
+                "conversation_id": cid,
+                "source": t.source,
+                "turn_count": 0,
+                "first_turn_at": t.start_time,
+                "last_turn_at": t.start_time,
+                "total_tokens": 0,
+                "total_cost": 0.0,
+                "turns_with_unknown_cost": 0,
+                "model_ids": [],
+                "status_counts": {},
+            }
+        agg = aggs[cid]
+        agg["turn_count"] += 1
+        if t.start_time < agg["first_turn_at"]:
+            agg["first_turn_at"] = t.start_time
+        if t.start_time > agg["last_turn_at"]:
+            agg["last_turn_at"] = t.start_time
+            # keep source from the most recent turn
+            agg["source"] = t.source
+        agg["total_tokens"] += t.total_tokens
+        if t.total_cost is None:
+            agg["turns_with_unknown_cost"] += 1
+        else:
+            agg["total_cost"] += t.total_cost
+        if t.model_id and t.model_id not in agg["model_ids"]:
+            agg["model_ids"].append(t.model_id)
+        status = t.status or "unknown"
+        agg["status_counts"][status] = agg["status_counts"].get(status, 0) + 1
+    return aggs
 
 
 def compute_stats(traces: list[RunTrace]) -> dict:
@@ -262,6 +349,8 @@ def _parse_since(request) -> datetime | None:
 
 def create_app(
     workspaces: "list[tuple[str, Workspace]] | Workspace",
+    *,
+    live_broker: "LiveBroker | None" = None,
 ) -> Starlette:
     """Create the Starlette app with trace API routes.
 
@@ -457,15 +546,294 @@ def create_app(
             status_code=404,
         )
 
+    async def stream_events(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # expected_path is safe to echo: cid and n are validated above.
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/events.jsonl"
+        for _key, ws in sel:
+            f = ws.root / rel
+            if f.exists():
+
+                def file_iter(path=f):
+                    with open(path, "rb") as fh:
+                        while True:
+                            chunk = fh.read(8192)
+                            if not chunk:
+                                return
+                            yield chunk
+
+                return StreamingResponse(
+                    file_iter(),
+                    media_type="application/x-ndjson",
+                    headers={"Content-Disposition": "inline"},
+                )
+        return JSONResponse(
+            {"error": "not found", "expected_path": rel},
+            status_code=404,
+        )
+
+    async def get_conversation(request):
+        from blueclaw.runner import validate_session_id
+
+        cid = request.path_params["cid"]
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid conversation_id"}, status_code=400)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # Collect all traces matching cid across selected workspaces.
+        matching_traces: list[tuple[str, RunTrace, Path]] = []
+        for ws_key, ws in sel:
+            traces = ws.list_traces(limit=500)
+            for t in traces:
+                if t.conversation_id == cid:
+                    matching_traces.append((ws_key, t, ws.root))
+
+        if not matching_traces:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Build aggregate via reused helper.
+        all_traces = [t for _, t, _ in matching_traces]
+        agg = _aggregate_conversations(all_traces).get(cid)
+        if agg is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Serialize turn list sorted by start_time ascending.
+        turn_dicts = []
+        for _, t, ws_root in matching_traces:
+            turn_dicts.append(_serialize_turn_summary(t, ws_root))
+        turn_dicts.sort(key=lambda d: d["start_time"])
+
+        # Fill in turn_n for any turns that could not derive it from capture_path.
+        for i, td in enumerate(turn_dicts):
+            if td["turn_n"] is None:
+                td["turn_n"] = i + 1
+
+        return JSONResponse(
+            {
+                "conversation_id": agg["conversation_id"],
+                "source": agg["source"],
+                "turn_count": agg["turn_count"],
+                "first_turn_at": agg["first_turn_at"].isoformat(),
+                "last_turn_at": agg["last_turn_at"].isoformat(),
+                "total_tokens": agg["total_tokens"],
+                "total_cost": round(agg["total_cost"], 6),
+                "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                "model_ids": sorted(agg["model_ids"]),
+                "status_counts": agg["status_counts"],
+                "turns": turn_dicts,
+            }
+        )
+
+    async def list_conversations(request):
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        since = _parse_since(request)
+
+        # Collect aggregates per workspace, merging by cid (prefer latest
+        # last_turn_at when the same cid appears in multiple workspaces).
+        merged: dict[str, dict] = {}
+        for ws_key, ws in sel:
+            traces = ws.list_traces(limit=500, since=since)
+            per_ws = _aggregate_conversations(traces)
+            for cid, agg in per_ws.items():
+                if cid not in merged:
+                    agg["_source"] = ws_key
+                    merged[cid] = agg
+                else:
+                    existing = merged[cid]
+                    if agg["last_turn_at"] > existing["last_turn_at"]:
+                        agg["_source"] = ws_key
+                        merged[cid] = agg
+                    # else keep existing (it has the later last_turn_at)
+
+        # Serialize datetime fields, sort by last_turn_at desc, apply limit.
+        conversations = []
+        for agg in merged.values():
+            conversations.append(
+                {
+                    "conversation_id": agg["conversation_id"],
+                    "source": agg["source"],
+                    "turn_count": agg["turn_count"],
+                    "first_turn_at": agg["first_turn_at"].isoformat(),
+                    "last_turn_at": agg["last_turn_at"].isoformat(),
+                    "total_tokens": agg["total_tokens"],
+                    "total_cost": round(agg["total_cost"], 6),
+                    "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                    "model_ids": sorted(agg["model_ids"]),
+                    "status_counts": agg["status_counts"],
+                    "_source": agg["_source"],
+                }
+            )
+        conversations.sort(key=lambda c: c["last_turn_at"], reverse=True)
+        total = len(conversations)
+        return JSONResponse({"conversations": conversations[:limit], "total": total})
+
+    async def live_status(request):
+        return JSONResponse({"live": live_broker is not None})
+
+    async def stream_events_live(request):
+        from blueclaw.runner import validate_session_id
+
+        # Return 503 immediately if live mode is not enabled.
+        if live_broker is None:
+            return JSONResponse({"error": "live mode not enabled"}, status_code=503)
+
+        cid = request.path_params["cid"]
+        n_raw = request.path_params["n"]
+
+        try:
+            validate_session_id(cid)
+        except ValueError:
+            return JSONResponse({"error": "invalid cid"}, status_code=400)
+        if not re.match(r"^[1-9]\d{0,4}$", n_raw):
+            return JSONResponse({"error": "invalid turn number"}, status_code=400)
+        n = int(n_raw)
+
+        sel = _select(request.query_params.get("workspace"))
+        if sel is None:
+            return JSONResponse({"error": "unknown workspace"}, status_code=404)
+
+        # Locate the events.jsonl file.
+        rel = f".blueclaw/conversations/{cid}/turns/turn-{n:03d}/events.jsonl"
+        events_file: Path | None = None
+        for _key, ws in sel:
+            candidate = ws.root / rel
+            if candidate.exists():
+                events_file = candidate
+                break
+
+        async def sse_generator():
+            # ----------------------------------------------------------------
+            # Gap-safe handshake:
+            # 1. Subscribe FIRST so in-flight events are buffered immediately.
+            # 2. Read disk; record last_seq from on-disk events.
+            # 3. Emit backfill frame.
+            # 4. Drain queue, dedup by seq (drop seq <= last_seq).
+            # 5. Continue until stream.end arrives.
+            # ----------------------------------------------------------------
+
+            # Yield the SSE retry directive as the very first bytes.
+            yield "retry: 3000\n\n"
+
+            # Step 1: subscribe before reading disk.
+            q = live_broker.subscribe(cid)
+
+            try:
+                # Step 2: read disk events.
+                disk_events: list[dict] = []
+                last_seq: int = -1
+                if events_file is not None:
+                    try:
+                        raw = events_file.read_text(encoding="utf-8", errors="replace")
+                        for line in raw.splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                evt = json.loads(line)
+                                disk_events.append(evt)
+                                seq = evt.get("seq")
+                                if isinstance(seq, int) and seq > last_seq:
+                                    last_seq = seq
+                            except json.JSONDecodeError:
+                                pass
+                    except OSError:
+                        pass
+
+                # Step 3: emit backfill frame.
+                backfill_payload = json.dumps(
+                    {"events": disk_events, "last_seq": last_seq}
+                )
+                yield f"event: backfill\ndata: {backfill_payload}\n\n"
+
+                # Steps 4 & 5: drain queue forever until stream.end.
+                # Poll the queue without blocking the event loop: try
+                # get_nowait() and sleep briefly on empty.
+                while True:
+                    try:
+                        event = q.get_nowait()
+                    except queue.Empty:
+                        await asyncio.sleep(0.05)
+                        continue
+
+                    # End sentinel — emit and close.
+                    if event.get("type") == "stream.end":
+                        yield 'event: end\ndata: {"reason": "turn_finished"}\n\n'
+                        return
+
+                    # A new schema.version event signals a fresh turn — reset
+                    # the dedup window.  Each new EventBus restarts seq at 0,
+                    # so without this reset, early events of a new turn would
+                    # be dropped as duplicates of the previous turn's backfill.
+                    if event.get("type") == "schema.version":
+                        last_seq = -1
+
+                    # Dedup: skip events already covered by backfill.
+                    seq = event.get("seq")
+                    if isinstance(seq, int) and seq <= last_seq:
+                        continue
+
+                    append_payload = json.dumps(event)
+                    yield f"event: append\ndata: {append_payload}\n\n"
+
+            finally:
+                live_broker.unsubscribe(cid, q)
+
+        return StreamingResponse(
+            sse_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return Starlette(
         routes=[
             Route("/", index),
             Route("/blueclaw-crab.png", crab_png),
             Route("/api/workspaces", list_workspaces),
+            Route("/api/live/status", live_status),
             Route("/api/traces", list_traces),
             Route("/api/traces/{run_id}", get_trace),
             Route("/api/stats", get_stats),
+            Route("/api/conversations", list_conversations),
+            Route("/api/conversations/{cid}", get_conversation),
             Route("/api/turns/{cid}/{n}/response", get_turn_response),
             Route("/api/turns/{cid}/{n}/messages", get_turn_messages),
+            Route(
+                "/api/conversations/{cid}/turns/{n}/events",
+                stream_events,
+            ),
+            Route(
+                "/api/conversations/{cid}/turns/{n}/events/live",
+                stream_events_live,
+            ),
         ]
     )

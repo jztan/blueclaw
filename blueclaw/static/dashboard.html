@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BlueClaw Trace Dashboard</title>
+<title>BlueClaw Dashboard</title>
 <style>
 /* ─── Reset ─── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -299,6 +299,13 @@ code, .mono {
   white-space: nowrap;
 }
 
+/* ─── Live pill ─── */
+.live-pill { display: none; padding: 2px 8px; border-radius: 12px; font-size: 12px; background: var(--bg-hover); color: var(--text-2); white-space: nowrap; }
+.live-pill.idle { display: inline-block; }
+.live-pill.pulsing { display: inline-block; background: rgba(46,160,67,0.13); color: #56d364; }
+.live-pill.pulsing::before { content: '●'; animation: bcpulse 1.4s infinite; margin-right: 4px; }
+@keyframes bcpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
 .cost-cell { color: var(--yellow); font-weight: 500; }
 .duration-cell { color: var(--text-3); }
 
@@ -461,6 +468,8 @@ code, .mono {
 .waterfall-bar.http_request { background: var(--yellow); }
 .waterfall-bar.shell_command { background: var(--green); }
 .waterfall-bar.other { background: var(--text-3); }
+.waterfall-bar.model { background: #9b59b6; }
+[data-theme="dark"] .waterfall-bar.model { background: #d2a8ff; }
 
 .waterfall-duration {
   width: 60px;
@@ -776,6 +785,13 @@ code, .mono {
   font-size: 11px;
 }
 
+/* ─── Conversations table sort indicators ─── */
+.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.sortable:hover { color: var(--text-1); }
+.sort-indicator::after { content: ''; }
+.sortable.sort-asc .sort-indicator::after { content: ' ▲'; }
+.sortable.sort-desc .sort-indicator::after { content: ' ▼'; }
+
 /* ─── Utilities ─── */
 .section-title {
   font-size: 20px;
@@ -784,6 +800,395 @@ code, .mono {
 }
 
 .hidden { display: none !important; }
+
+/* ─── Conversation Detail (UI-5) ─── */
+.conv-detail-header {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.conv-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.conv-detail-title h2 {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  margin: 0;
+}
+
+.conv-detail-meta {
+  font-size: 13px;
+  color: var(--text-2);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.conv-detail-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Turn cards */
+.turn-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.turn-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.turn-card-head:hover { background: var(--bg-hover); }
+
+.turn-card.collapsed .turn-card-head { border-bottom: none; }
+
+.turn-card-head .turn-num {
+  font-weight: 600;
+  min-width: 56px;
+  color: var(--text-1);
+}
+
+.turn-card-head .turn-ts { color: var(--text-3); font-size: 12px; }
+
+.turn-card-head .turn-model {
+  color: #a855f7;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+[data-theme="dark"] .turn-card-head .turn-model { color: #d2a8ff; }
+
+.turn-card-head .turn-tokens {
+  color: var(--blue);
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.turn-card-head .turn-status {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.turn-card-head .turn-status.success { color: var(--green); }
+.turn-card-head .turn-status.error { color: var(--red); }
+.turn-card-head .turn-status.unknown { color: var(--text-3); }
+
+.turn-card-head .turn-caret {
+  color: var(--text-3);
+  font-size: 12px;
+  margin-left: 4px;
+  transition: transform 0.15s;
+}
+
+/* Turn body */
+.turn-card-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.turn-card.collapsed .turn-card-body { display: none; }
+
+/* Loading state inside a turn */
+.turn-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* Message rows in transcript */
+.turn-msg {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.turn-msg:last-of-type { border-bottom: none; }
+
+.turn-msg-icon {
+  flex: 0 0 24px;
+  font-size: 16px;
+  text-align: center;
+  line-height: 1.4;
+  padding-top: 1px;
+}
+
+.turn-msg-body { flex: 1; min-width: 0; }
+
+.turn-msg.user .turn-msg-body { color: var(--text-1); }
+.turn-msg.assistant .turn-msg-body { color: var(--text-2); }
+
+.turn-msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Inline tool card */
+.tool-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-card-name {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.tool-card-args {
+  color: var(--text-3);
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.tool-card-dur {
+  color: var(--text-3);
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Tool result inside tool card (replaces standalone .tool-result rows) */
+.tool-card-result {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.tool-card-toggle {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.tool-card-toggle:hover { text-decoration: underline; }
+
+/* Legacy standalone tool-result rows (kept for orphaned toolResults) */
+.tool-result {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  color: var(--text-2);
+}
+
+.tool-result-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.tool-result-preview:hover { color: var(--text-1); }
+
+.tool-result-full {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.tool-result-toggle {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 11px;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.tool-result-toggle:hover { text-decoration: underline; }
+
+/* Deep details footer */
+.turn-deep-footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+
+.turn-deep-link {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  margin-right: 14px;
+}
+
+.turn-deep-link::before { content: '▸ '; color: var(--text-3); }
+.turn-deep-link.open::before { content: '▾ '; color: var(--text-3); }
+
+.turn-deep-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* Deep sub-panel sections */
+.deep-subpanel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin: 0 0 6px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deep-waterfall {
+  margin-bottom: 14px;
+}
+
+.deep-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* Events stream */
+.bc-events {
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+  max-height: 360px;
+}
+
+.bc-events-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 8px;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bc-events-row:hover { background: var(--bg-hover); }
+.bc-events-row:last-child { border-bottom: none; }
+
+.bc-events-row .ev-seq {
+  color: var(--text-3);
+  min-width: 26px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.bc-events-row .ev-ts {
+  color: var(--text-3);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.bc-events-row .ev-type {
+  min-width: 120px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.bc-events-row .ev-summary {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* Event type color coding */
+.ev-type-tool    { color: var(--blue); }
+.ev-type-model   { color: #9b59b6; }
+.ev-type-message { color: var(--green); }
+.ev-type-context { color: #e67e22; }
+.ev-type-lesson  { color: var(--yellow); }
+.ev-type-dropped { color: var(--red); }
+.ev-type-schema  { color: var(--text-3); }
+.ev-type-default { color: var(--text-2); }
+
+[data-theme="dark"] .ev-type-model { color: #c77dff; }
+[data-theme="dark"] .ev-type-context { color: #f39c12; }
+
+.bc-events-expand {
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.bc-events-expand pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 11px;
+  color: var(--text-1);
+}
+
+.bc-events-cap-notice {
+  padding: 4px 8px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.bc-events-footer {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0 2px 0;
+  font-size: 11px;
+}
+
+.bc-events-footer a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.bc-events-footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -811,19 +1216,19 @@ code, .mono {
       </button>
     </div>
     <nav class="sidebar-nav">
-      <div class="nav-item active" data-view="list">
+      <div class="nav-item" data-hash="#/conversations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        <span>Conversations</span>
+      </div>
+      <div class="nav-item" data-hash="#/traces">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
         <span>Traces</span>
       </div>
-      <div class="nav-item" data-view="detail">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-        <span>Detail</span>
-      </div>
-      <div class="nav-item" data-view="compare">
+      <div class="nav-item" data-hash="#/compare">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
         <span>Compare</span>
       </div>
-      <div class="nav-item" data-view="stats">
+      <div class="nav-item" data-hash="#/stats">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>
         <span>Stats</span>
       </div>
@@ -833,6 +1238,7 @@ code, .mono {
         <label for="workspaceSelect" style="display:block; font-size:11px; opacity:0.7; margin-bottom:2px;">Workspace</label>
         <select id="workspaceSelect" style="width:100%; padding:2px 4px; font-size:12px;"></select>
       </div>
+      <div>Conversations: <span class="trace-count" id="sidebarConvCount">--</span></div>
       <div>Traces: <span class="trace-count" id="sidebarTraceCount">--</span></div>
       <div style="margin-top:4px;">{{VERSION}}</div>
     </div>
@@ -840,6 +1246,46 @@ code, .mono {
 
   <!-- ─── Main Content ─── -->
   <main class="main">
+
+    <!-- ── Conversations List View ── -->
+    <div class="view" id="viewConversations">
+      <h2 class="section-title">Conversations</h2>
+      <div id="convTableContainer">
+        <table class="trace-table" id="convTable">
+          <thead>
+            <tr>
+              <th class="conv-col-cid sortable" data-col="conversation_id">Conversation ID <span class="sort-indicator"></span></th>
+              <th class="conv-col-turns sortable" data-col="turn_count">Turns <span class="sort-indicator"></span></th>
+              <th class="conv-col-tokens sortable" data-col="total_tokens">Tokens <span class="sort-indicator"></span></th>
+              <th class="conv-col-cost sortable" data-col="total_cost">Cost <span class="sort-indicator"></span></th>
+              <th class="conv-col-last sortable" data-col="last_turn_at">Last Activity <span class="sort-indicator"></span></th>
+              <th class="conv-col-source">Source</th>
+              <th class="conv-col-models">Models</th>
+            </tr>
+          </thead>
+          <tbody id="convTableBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state hidden" id="convEmpty">
+        <div class="empty-icon">
+          <img src="/blueclaw-crab.png" alt="" style="width:48px;height:48px;object-fit:contain;opacity:0.35;">
+        </div>
+        <p>No conversations yet — run <code>blueclaw</code> to start.</p>
+      </div>
+    </div>
+
+    <!-- ── Single Conversation View (UI-5) ── -->
+    <div class="view" id="viewConversation">
+      <button class="back-btn" id="backToConversations">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        Back to conversations
+      </button>
+      <div id="conversationContent">
+        <div class="empty-state">
+          <p id="conversationPlaceholder">Loading conversation…</p>
+        </div>
+      </div>
+    </div>
 
     <!-- ── Trace List View ── -->
     <div class="view active" id="viewList">
@@ -882,7 +1328,7 @@ code, .mono {
     </div>
 
     <!-- ── Trace Detail View ── -->
-    <div class="view" id="viewDetail">
+    <div class="view" id="viewTraceDetail">
       <button class="back-btn" id="backToList">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
         Back to traces
@@ -933,6 +1379,7 @@ code, .mono {
 
   // ─── State ───
   let allTraces = [];
+  let allConversations = [];
   let currentFilter = 'all';
   let searchQuery = '';
   let selectedRunIds = new Set();
@@ -942,6 +1389,11 @@ code, .mono {
   let statsData = null;
   let statsDaysFilter = 7;
   let refreshTimer = null;
+  let convSortCol = 'last_turn_at';
+  let convSortDir = 'desc';
+  let liveMode = false;          // true iff server reported live broker active
+  let _activeEventSource = null; // current open EventSource; closed on view exit
+  var _livePollTimer = null;     // setInterval handle for new-turn polling
 
   // ─── DOM Refs ───
   const html = document.documentElement;
@@ -955,7 +1407,9 @@ code, .mono {
   const listEmpty = document.getElementById('listEmpty');
   const traceTableContainer = document.getElementById('traceTableContainer');
   const sidebarTraceCount = document.getElementById('sidebarTraceCount');
+  const sidebarConvCount = document.getElementById('sidebarConvCount');
   const backToList = document.getElementById('backToList');
+  const backToConversations = document.getElementById('backToConversations');
   const detailContent = document.getElementById('detailContent');
   const compareContent = document.getElementById('compareContent');
   const statsContent = document.getElementById('statsContent');
@@ -977,31 +1431,94 @@ code, .mono {
     localStorage.setItem('blueclaw-theme', next);
   });
 
-  // ─── Navigation ───
-  function switchView(viewName) {
-    navItems.forEach(function(n) {
-      n.classList.toggle('active', n.getAttribute('data-view') === viewName);
-    });
-    views.forEach(function(v) {
-      v.classList.toggle('active', v.id === 'view' + viewName.charAt(0).toUpperCase() + viewName.slice(1));
-    });
+  // ─── Hash Router ───
+  // Maps a hash string to a { view, param } descriptor.
+  function parseHash(hash) {
+    var h = (hash || '').replace(/^#\/?/, '');
+    if (!h || h === '/') return { route: 'conversations', param: null };
+    var parts = h.split('/');
+    var section = parts[0];
+    var param = parts[1] ? decodeURIComponent(parts[1]) : null;
+    if (section === 'conversations') return { route: 'conversations', param: param };
+    if (section === 'traces') return { route: 'traces', param: param };
+    if (section === 'stats') return { route: 'stats', param: null };
+    if (section === 'compare') return { route: 'compare', param: null };
+    // fallback
+    return { route: 'conversations', param: null };
+  }
 
-    if (viewName === 'stats') {
-      loadStats();
+  // Activate a named view element (by id) and deactivate all others.
+  function activateView(viewId) {
+    views.forEach(function(v) {
+      v.classList.toggle('active', v.id === viewId);
+    });
+  }
+
+  // Update nav-item active state based on the top-level route.
+  function setNavActive(route) {
+    navItems.forEach(function(n) {
+      var targetHash = n.getAttribute('data-hash') || '';
+      var targetRoute = targetHash.replace(/^#\//, '').split('/')[0];
+      n.classList.toggle('active', targetRoute === route);
+    });
+  }
+
+  // The main router — called on every hashchange and on init.
+  function route() {
+    var parsed = parseHash(location.hash);
+
+    // Close any live EventSource and stop polling when navigating away from a conversation detail.
+    if (!(parsed.route === 'conversations' && parsed.param)) {
+      _closeLiveES();
+      _stopLivePolling();
     }
-    if (viewName === 'compare') {
+
+    setNavActive(parsed.route);
+
+    if (parsed.route === 'conversations') {
+      if (parsed.param) {
+        activateView('viewConversation');
+        renderConversationDetail(parsed.param);
+      } else {
+        activateView('viewConversations');
+        loadConversations();
+      }
+    } else if (parsed.route === 'traces') {
+      if (parsed.param) {
+        activateView('viewTraceDetail');
+        openDetailById(parsed.param);
+      } else {
+        activateView('viewList');
+      }
+    } else if (parsed.route === 'stats') {
+      activateView('viewStats');
+      loadStats();
+    } else if (parsed.route === 'compare') {
+      activateView('viewCompare');
       renderCompare();
+    } else {
+      // Unknown — redirect to conversations
+      location.hash = '#/conversations';
     }
   }
 
+  window.addEventListener('hashchange', route);
+
+  // Wire up sidebar nav items to update hash (hash change triggers route()).
   navItems.forEach(function(item) {
     item.addEventListener('click', function() {
-      switchView(item.getAttribute('data-view'));
+      var h = item.getAttribute('data-hash');
+      if (h) location.hash = h;
     });
   });
 
+  // Back buttons: change hash, let router handle the rest.
   backToList.addEventListener('click', function() {
-    switchView('list');
+    location.hash = '#/traces';
+  });
+
+  backToConversations.addEventListener('click', function() {
+    location.hash = '#/conversations';
   });
 
   // ─── Filter Chips ───
@@ -1225,11 +1742,14 @@ code, .mono {
     });
   }
 
-  // ─── Open Trace Detail ───
+  // ─── Open Trace Detail (via hash) ───
   function openDetail(runId) {
-    currentDetailRunId = runId;
-    switchView('detail');
+    location.hash = '#/traces/' + encodeURIComponent(runId);
+  }
 
+  // Internal: load and render detail for a given runId (called by router).
+  function openDetailById(runId) {
+    currentDetailRunId = runId;
     detailContent.innerHTML = '<div class="empty-state"><p>Loading trace...</p></div>';
 
     apiFetch('/api/traces/' + encodeURIComponent(runId)).then(function(trace) {
@@ -1359,6 +1879,989 @@ code, .mono {
       });
     });
   }
+
+  // ─── Conversations ───
+  function relativeTime(isoStr) {
+    if (!isoStr) return '--';
+    var d = new Date(isoStr);
+    var now = new Date();
+    var diff = now - d; // ms
+    if (isNaN(diff)) return '--';
+    var sec = Math.floor(diff / 1000);
+    if (sec < 60) return sec + 's ago';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    var days = Math.floor(hr / 24);
+    if (days === 1) return 'yesterday';
+    if (days < 7) return days + ' days ago';
+    return d.toLocaleDateString();
+  }
+
+  function formatConvCost(conv) {
+    if (conv.turns_with_unknown_cost > 0 && conv.total_cost === 0) {
+      return '$0.00 (' + conv.turns_with_unknown_cost + ' unknown)';
+    }
+    var s = '$' + conv.total_cost.toFixed(2);
+    if (conv.turns_with_unknown_cost > 0) {
+      s += ' (' + conv.turns_with_unknown_cost + ' unknown)';
+    }
+    return s;
+  }
+
+  function convSortValue(conv, col) {
+    if (col === 'conversation_id') return (conv.conversation_id || '').toLowerCase();
+    if (col === 'turn_count') return conv.turn_count || 0;
+    if (col === 'total_tokens') return conv.total_tokens || 0;
+    if (col === 'total_cost') return conv.total_cost || 0;
+    if (col === 'last_turn_at') return conv.last_turn_at || '';
+    return '';
+  }
+
+  function loadConversations() {
+    apiFetch('/api/conversations').then(function(data) {
+      allConversations = data.conversations || [];
+      if (sidebarConvCount) sidebarConvCount.textContent = data.total != null ? data.total : allConversations.length;
+      renderConversationTable();
+    }).catch(function(err) {
+      console.error('Failed to load conversations:', err);
+      allConversations = [];
+      renderConversationTable();
+    });
+  }
+
+  function renderConversationTable() {
+    var convTableContainer = document.getElementById('convTableContainer');
+    var convEmpty = document.getElementById('convEmpty');
+    var convTableBody = document.getElementById('convTableBody');
+
+    if (allConversations.length === 0) {
+      convTableContainer.classList.add('hidden');
+      convEmpty.classList.remove('hidden');
+      return;
+    }
+
+    convTableContainer.classList.remove('hidden');
+    convEmpty.classList.add('hidden');
+
+    // Sort
+    var sorted = allConversations.slice().sort(function(a, b) {
+      var va = convSortValue(a, convSortCol);
+      var vb = convSortValue(b, convSortCol);
+      if (va < vb) return convSortDir === 'asc' ? -1 : 1;
+      if (va > vb) return convSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Update sort indicators on headers
+    var ths = document.querySelectorAll('#convTable th.sortable');
+    ths.forEach(function(th) {
+      var col = th.getAttribute('data-col');
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (col === convSortCol) {
+        th.classList.add(convSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    });
+
+    var h = '';
+    sorted.forEach(function(conv) {
+      var cid = conv.conversation_id || '';
+      var models = (conv.model_ids || []);
+      var modelBadges = models.map(function(m) {
+        return '<span class="pill" style="margin-right:3px;">' + escapeHtml(m) + '</span>';
+      }).join('');
+      if (!modelBadges) modelBadges = '<span style="color:var(--text-3)">--</span>';
+
+      var sourceBadge = conv._source
+        ? '<span class="pill">' + escapeHtml(conv._source) + '</span>'
+        : '<span style="color:var(--text-3)">--</span>';
+
+      h += '<tr data-cid="' + escapeHtml(cid) + '">';
+      h += '<td><span class="run-id-link mono">' + escapeHtml(cid) + '</span></td>';
+      h += '<td>' + (conv.turn_count != null ? conv.turn_count : '--') + '</td>';
+      h += '<td>' + formatTokens(conv.total_tokens) + '</td>';
+      h += '<td class="cost-cell">' + escapeHtml(formatConvCost(conv)) + '</td>';
+      h += '<td class="duration-cell" title="' + escapeHtml(conv.last_turn_at || '') + '">' + relativeTime(conv.last_turn_at) + '</td>';
+      h += '<td>' + sourceBadge + '</td>';
+      h += '<td>' + modelBadges + '</td>';
+      h += '</tr>';
+    });
+
+    convTableBody.innerHTML = h;
+
+    // Row click: navigate via hash
+    convTableBody.querySelectorAll('tr').forEach(function(row) {
+      row.addEventListener('click', function() {
+        var cid = row.getAttribute('data-cid');
+        if (cid) location.hash = '#/conversations/' + encodeURIComponent(cid);
+      });
+    });
+  }
+
+  // Wire sortable headers on the conversations table (delegation — headers are
+  // static so we can bind directly, but convTableBody rows are rebuilt on each
+  // render so we bind row clicks inside renderConversationTable above).
+  document.querySelectorAll('#convTable th.sortable').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var col = th.getAttribute('data-col');
+      if (convSortCol === col) {
+        convSortDir = convSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        convSortCol = col;
+        convSortDir = col === 'last_turn_at' ? 'desc' : 'asc';
+      }
+      renderConversationTable();
+    });
+  });
+
+  // ─── Live SSE client ───
+
+  function _closeLiveES() {
+    if (_activeEventSource) {
+      _activeEventSource.close();
+      _activeEventSource = null;
+    }
+    var pill = document.getElementById('conv-live-pill');
+    if (pill) { pill.className = 'live-pill'; }
+  }
+
+  function _openLiveES(cid, n) {
+    _closeLiveES();
+    var pill = document.getElementById('conv-live-pill');
+    if (pill) { pill.className = 'live-pill idle'; }
+
+    var url = '/api/conversations/' + encodeURIComponent(cid) +
+              '/turns/' + encodeURIComponent(String(n)) + '/events/live';
+    var es = new EventSource(url);
+    _activeEventSource = es;
+
+    es.addEventListener('backfill', function() {
+      // Backfill confirms live mode is connected; pill stays idle until first append.
+    });
+
+    es.addEventListener('append', function(e) {
+      if (pill) { pill.className = 'live-pill pulsing'; }
+      var evt;
+      try { evt = JSON.parse(e.data); } catch(_) { return; }
+
+      // Update transcript: re-fetch messages when a message.added event arrives.
+      if (evt.type === 'message.added' && evt.role === 'assistant') {
+        var card = _lastTurnCard();
+        if (card) {
+          var body = card.querySelector('.turn-card-body');
+          var cardN = card.getAttribute('data-n');
+          var cardCid = card.getAttribute('data-cid');
+          if (body && cardCid && cardN) {
+            // Invalidate cache so re-fetch picks up the new message.
+            if (convDetailCache[cardCid] && convDetailCache[cardCid].turnMessages) {
+              delete convDetailCache[cardCid].turnMessages[cardN];
+            }
+            _loadTurnMessages(cardCid, cardN, body);
+          }
+        }
+      }
+
+      // Append row to deep events panel if it is currently open.
+      var deepPanel = _lastTurnOpenDeepPanel();
+      if (deepPanel) {
+        var row = document.createElement('div');
+        row.className = 'event-row event-row-live';
+        row.style.cssText = 'padding:2px 0;font-size:12px;color:var(--text-2);';
+        var seq = (evt.seq != null) ? String(evt.seq) : '?';
+        var typ = evt.type || 'unknown';
+        row.textContent = '#' + seq + '  ' + typ;
+        deepPanel.appendChild(row);
+        deepPanel.scrollTop = deepPanel.scrollHeight;
+      }
+    });
+
+    es.addEventListener('end', function() {
+      if (pill) { pill.className = 'live-pill idle'; }
+    });
+
+    es.onerror = function() {
+      // EventSource auto-reconnects per the retry directive; pill stays idle on gap.
+      if (pill) { pill.className = 'live-pill idle'; }
+    };
+  }
+
+  function _lastTurnCard() {
+    var list = document.getElementById('conv-turn-list');
+    if (!list) return null;
+    var cards = list.querySelectorAll('.turn-card');
+    return cards.length ? cards[cards.length - 1] : null;
+  }
+
+  function _lastTurnOpenDeepPanel() {
+    var card = _lastTurnCard();
+    if (!card) return null;
+    var panel = card.querySelector('.turn-deep-panel');
+    if (!panel || panel.style.display === 'none') return null;
+    return panel;
+  }
+
+  function _stopLivePolling() {
+    if (_livePollTimer != null) {
+      clearInterval(_livePollTimer);
+      _livePollTimer = null;
+    }
+  }
+
+  function _startLivePolling(cid) {
+    _stopLivePolling();
+    if (!liveMode) return;
+
+    _livePollTimer = setInterval(function() {
+      apiFetch('/api/conversations/' + encodeURIComponent(cid))
+        .then(function(data) {
+          var cached = convDetailCache[cid] && convDetailCache[cid].summary;
+          if (!cached) return;
+          var newCount = data.turn_count || 0;
+          var oldCount = cached.turn_count || 0;
+          if (newCount > oldCount) {
+            // New turn appeared — update cache, re-render detail, reopen SSE on new last turn.
+            convDetailCache[cid].summary = data;
+            var container = document.getElementById('conversationContent');
+            if (container) {
+              _renderConvDetailFull(cid, data, container);
+              _maybeStartLive(cid, data);
+            }
+          }
+        })
+        .catch(function() { /* network blip — try again next tick */ });
+    }, 3000);
+  }
+
+  // ─── Conversation Detail (UI-5) ───
+
+  // Per-cid cache: { summary: {...}, turnMessages: { n: [...] } }
+  var convDetailCache = {};
+
+  function renderConversationDetail(cid) {
+    var container = document.getElementById('conversationContent');
+    if (!container) return;
+
+    // Close any open EventSource from a prior view.
+    _closeLiveES();
+
+    // Show loading state immediately.
+    container.innerHTML = '<div class="empty-state"><p>Loading conversation ' + escapeHtml(cid) + '…</p></div>';
+
+    var cache = convDetailCache[cid];
+    if (cache && cache.summary) {
+      _renderConvDetailFull(cid, cache.summary, container);
+      _maybeStartLive(cid, cache.summary);
+      _startLivePolling(cid);
+      return;
+    }
+
+    apiFetch('/api/conversations/' + encodeURIComponent(cid))
+      .then(function(data) {
+        if (!convDetailCache[cid]) convDetailCache[cid] = { turnMessages: {} };
+        convDetailCache[cid].summary = data;
+        _renderConvDetailFull(cid, data, container);
+        _maybeStartLive(cid, data);
+        _startLivePolling(cid);
+      })
+      .catch(function(err) {
+        container.innerHTML = '<div class="empty-state"><p>Failed to load conversation: ' + escapeHtml(String(err)) + '</p></div>';
+      });
+  }
+
+  function _maybeStartLive(cid, data) {
+    if (!liveMode) return;
+    var turns = data.turns || [];
+    if (!turns.length) return;
+    var lastTurn = turns[turns.length - 1];
+    var n = lastTurn.turn_n;
+    if (!n) return;
+    _openLiveES(cid, n);
+  }
+
+  function _renderConvDetailFull(cid, data, container) {
+    var turns = data.turns || [];
+    var autoExpand = turns.length <= 10;
+
+    // Header HTML.
+    var sources = [];
+    if (data.source) sources.push(data.source);
+    var sourceBadges = sources.map(function(s) {
+      return '<span class="pill">' + escapeHtml(s) + '</span>';
+    }).join('');
+
+    var models = (data.model_ids || []);
+    var modelBadges = models.map(function(m) {
+      return '<span class="pill">' + escapeHtml(m) + '</span>';
+    }).join('');
+
+    var costStr = '';
+    if (data.turns_with_unknown_cost > 0 && data.total_cost === 0) {
+      costStr = '$0.00 (' + data.turns_with_unknown_cost + ' unknown)';
+    } else {
+      costStr = '$' + (data.total_cost || 0).toFixed(4);
+      if (data.turns_with_unknown_cost > 0) {
+        costStr += ' (' + data.turns_with_unknown_cost + ' unknown)';
+      }
+    }
+
+    var firstSeen = data.first_turn_at ? relativeTime(data.first_turn_at) : '--';
+    var lastActive = data.last_turn_at ? relativeTime(data.last_turn_at) : '--';
+
+    var html = '';
+    html += '<div class="conv-detail-header">';
+    html += '<div class="conv-detail-title">';
+    html += '<h2>' + escapeHtml(cid) + '</h2>';
+    html += sourceBadges;
+    html += modelBadges;
+    // Live pill — shown/pulsed by SSE client when liveMode is on.
+    html += '<span class="live-pill" id="conv-live-pill">Live</span>';
+    html += '</div>';
+    html += '<div class="conv-detail-meta">';
+    html += '<span>' + (data.turn_count || 0) + ' turns</span>';
+    html += '<span>' + formatTokens(data.total_tokens) + ' tokens</span>';
+    html += '<span class="cost-cell">' + escapeHtml(costStr) + '</span>';
+    html += '<span title="' + escapeHtml(data.first_turn_at || '') + '">first seen ' + firstSeen + '</span>';
+    html += '<span title="' + escapeHtml(data.last_turn_at || '') + '">last active ' + lastActive + '</span>';
+    html += '</div>';
+    html += '</div>';
+
+    // Turn timeline.
+    html += '<div id="conv-turn-list">';
+
+    turns.forEach(function(turn) {
+      var n = turn.turn_n || turn.n || '?';
+      var ts = turn.start_time ? new Date(turn.start_time).toLocaleString() : '--';
+      var model = turn.model_id || '--';
+      var tokens = turn.total_tokens != null ? formatTokens(turn.total_tokens) + ' tok' : '';
+      var status = turn.status || 'unknown';
+      var statusClass = (status === 'success' || status === 'ok') ? 'success' : (status === 'error' ? 'error' : 'unknown');
+      var statusLabel = statusClass === 'success' ? 'success' : (statusClass === 'error' ? 'error' : status);
+      var expanded = autoExpand;
+      var cardId = 'turn-card-' + escapeHtml(String(n));
+
+      var runId = turn.run_id || '';
+      var hasEvents = turn.has_events_jsonl ? '1' : '0';
+      html += '<div class="turn-card' + (expanded ? '' : ' collapsed') + '" id="' + cardId + '" data-cid="' + escapeHtml(cid) + '" data-n="' + escapeHtml(String(n)) + '" data-run-id="' + escapeHtml(runId) + '" data-has-events="' + hasEvents + '">';
+      html += '<div class="turn-card-head">';
+      html += '<span class="turn-num">Turn ' + escapeHtml(String(n)) + '</span>';
+      html += '<span class="turn-ts">' + escapeHtml(ts) + '</span>';
+      html += '<span class="turn-model">' + escapeHtml(model) + '</span>';
+      if (tokens) html += '<span class="turn-tokens">' + escapeHtml(tokens) + '</span>';
+      html += '<span class="turn-status ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>';
+      html += '<span class="turn-caret">' + (expanded ? '▾' : '▸') + '</span>';
+      html += '</div>';
+      html += '<div class="turn-card-body">';
+      if (expanded) {
+        html += '<div class="turn-loading" data-n="' + escapeHtml(String(n)) + '">Loading…</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+
+    container.innerHTML = html;
+
+    // Wire click handlers on turn heads.
+    var list = document.getElementById('conv-turn-list');
+    if (!list) return;
+
+    list.querySelectorAll('.turn-card-head').forEach(function(head) {
+      head.addEventListener('click', function() {
+        var card = head.parentElement;
+        var isCollapsed = card.classList.contains('collapsed');
+        var caret = head.querySelector('.turn-caret');
+        var n = card.getAttribute('data-n');
+
+        if (isCollapsed) {
+          card.classList.remove('collapsed');
+          if (caret) caret.textContent = '▾';
+          var body = card.querySelector('.turn-card-body');
+          if (body) {
+            // Lazy-load messages if not yet fetched.
+            var already = body.querySelector('.turn-msg, .turn-transcript-loaded');
+            if (!already) {
+              _loadTurnMessages(cid, n, body);
+            }
+          }
+        } else {
+          card.classList.add('collapsed');
+          if (caret) caret.textContent = '▸';
+        }
+      });
+    });
+
+    // Kick off lazy fetches for auto-expanded turns.
+    if (autoExpand) {
+      list.querySelectorAll('.turn-card:not(.collapsed)').forEach(function(card) {
+        var n = card.getAttribute('data-n');
+        var body = card.querySelector('.turn-card-body');
+        if (body && n) {
+          _loadTurnMessages(cid, n, body);
+        }
+      });
+    }
+  }
+
+  function _loadTurnMessages(cid, n, body) {
+    // Use cache if available.
+    var cache = convDetailCache[cid];
+    if (cache && cache.turnMessages && cache.turnMessages[n]) {
+      _renderTurnTranscript(cache.turnMessages[n], body);
+      return;
+    }
+
+    body.innerHTML = '<div class="turn-loading">Loading messages…</div>';
+
+    apiFetch('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/messages')
+      .then(function(messages) {
+        if (!convDetailCache[cid]) convDetailCache[cid] = { turnMessages: {} };
+        convDetailCache[cid].turnMessages[n] = messages;
+        _renderTurnTranscript(messages, body);
+      })
+      .catch(function(err) {
+        body.innerHTML = '<div class="turn-loading">Failed to load: ' + escapeHtml(String(err)) + '</div>';
+      });
+  }
+
+  // Slice a full messages.json array (which contains the entire conversation history)
+  // down to just the current turn's exchange. Walk backwards to find the last user
+  // message that has at least one real text block (not a synthetic toolResult-only
+  // message that Strands inserts between assistant tool calls). Slice from there to
+  // the end. If no such message is found (e.g., Turn 1 with only an assistant
+  // greeting), return the full array unchanged.
+  function _sliceToCurrentTurn(messages) {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var msg = messages[i];
+      if ((msg.role || '') !== 'user') continue;
+      var content = msg.content;
+      if (typeof content === 'string' && content.trim()) {
+        return messages.slice(i);
+      }
+      if (Array.isArray(content)) {
+        var hasUserText = content.some(function(block) {
+          return 'text' in block && typeof block.text === 'string' && block.text.trim();
+        });
+        if (hasUserText) {
+          return messages.slice(i);
+        }
+      }
+    }
+    return messages;
+  }
+
+  function _renderTurnTranscript(messages, body) {
+    var turnMessages = _sliceToCurrentTurn(messages || []);
+    var html = '<div class="turn-transcript-loaded">';
+
+    // Pass 1: collect toolUseId → result text mapping from user toolResult blocks.
+    // Strands content blocks have no `type` field — discriminate by which key is present.
+    // toolResult blocks: { toolResult: { toolUseId, content: [{text}...], status } }
+    var toolResultMap = {};  // toolUseId → result text
+    turnMessages.forEach(function(msg) {
+      if ((msg.role || '') !== 'user') return;
+      var content = msg.content;
+      if (!Array.isArray(content)) return;
+      content.forEach(function(block) {
+        if (!('toolResult' in block) || !block.toolResult) return;
+        var tr = block.toolResult;
+        var tid = tr.toolUseId || '';
+        if (!tid) return;
+        var rawContent = tr.content;
+        var text = '';
+        if (typeof rawContent === 'string') {
+          text = rawContent;
+        } else if (Array.isArray(rawContent)) {
+          text = rawContent.map(function(c) { return (c && c.text) || ''; }).join('\n');
+        }
+        toolResultMap[tid] = text;
+      });
+    });
+
+    // Pass 2: render in order.
+    // Duration lookup: not available in this render path (messages.json has no timing).
+    // Duration is shown in the Deep details waterfall panel instead. See backlog item for
+    // wiring durations into the tool card (requires fetching /api/traces alongside messages).
+    // Strands block shapes:
+    //   text block:       { text: "..." }
+    //   toolUse block:    { toolUse: { name, toolUseId, input } }
+    //   toolResult block: { toolResult: { toolUseId, content: [{text}...], status } }
+    turnMessages.forEach(function(msg) {
+      var role = msg.role || 'unknown';
+      var content = msg.content;
+
+      if (typeof content === 'string') {
+        if (role === 'user') html += _renderUserTextMsg(content);
+        else if (role === 'assistant') html += _renderAssistantTextMsg(content);
+        return;
+      }
+      if (!Array.isArray(content)) return;
+
+      content.forEach(function(block) {
+        if ('text' in block && typeof block.text === 'string') {
+          if (role === 'user') html += _renderUserTextMsg(block.text);
+          else if (role === 'assistant') html += _renderAssistantTextMsg(block.text);
+        } else if ('toolUse' in block && block.toolUse) {
+          var tu = block.toolUse;
+          var tid = tu.toolUseId || '';
+          var resultText = (tid && toolResultMap[tid] !== undefined) ? toolResultMap[tid] : null;
+          // Pass the toolUse sub-object so _renderToolCard reads .name / .input directly.
+          html += _renderToolCard(tu, resultText, null);
+        }
+        // toolResult blocks under role=user are skipped — folded into the matching tool card.
+      });
+    });
+
+    html += '</div>';
+
+    // Deep details footer — data attributes read from parent .turn-card at wire time.
+    html += '<div class="turn-deep-footer">';
+    html += '<span class="turn-deep-link">Deep details</span>';
+    html += '<div class="turn-deep-panel" style="display:none;"></div>';
+    html += '</div>';
+
+    body.innerHTML = html;
+
+    // Wire the Deep details click handler after DOM insertion.
+    var footer = body.querySelector('.turn-deep-footer');
+    if (footer) {
+      // Resolve cid/n/runId from the ancestor .turn-card (set during _renderConvDetailFull).
+      var card = body.closest('.turn-card');
+      var deepCid = card ? (card.getAttribute('data-cid') || '') : '';
+      var deepN = card ? (card.getAttribute('data-n') || '') : '';
+      var deepRunId = card ? (card.getAttribute('data-run-id') || '') : '';
+      var deepHasEvents = card ? (card.getAttribute('data-has-events') === '1') : false;
+      wireDeepFooter(footer, deepCid, deepN, deepRunId, deepHasEvents);
+    }
+  }
+
+  function _renderUserTextMsg(text) {
+    if (!text || !text.trim()) return '';
+    return '<div class="turn-msg user">' +
+      '<div class="turn-msg-icon">👤</div>' +
+      '<div class="turn-msg-body"><div class="turn-msg-text">' + escapeHtml(text) + '</div></div>' +
+      '</div>';
+  }
+
+  function _renderAssistantTextMsg(text) {
+    if (!text || !text.trim()) return '';
+    return '<div class="turn-msg assistant">' +
+      '<div class="turn-msg-icon">🤖</div>' +
+      '<div class="turn-msg-body"><div class="turn-msg-text">' + escapeHtml(text) + '</div></div>' +
+      '</div>';
+  }
+
+  // _renderToolCard: combines toolUse + matching toolResult into one bordered card.
+  // resultText: the extracted result string (null if no matching result yet — mid-turn live state).
+  // durationMs: ms number or null (omitted for now; durations are shown in the waterfall panel).
+  function _renderToolCard(block, resultText, durationMs) {
+    var name = block.name || 'unknown_tool';
+    var input = block.input || {};
+    var argsStr = '';
+    try {
+      argsStr = JSON.stringify(input);
+    } catch(e) { argsStr = String(input); }
+
+    var durLabel = (typeof durationMs === 'number' && durationMs >= 0)
+      ? (durationMs < 1000 ? durationMs + 'ms' : (durationMs / 1000).toFixed(1) + 's')
+      : '';
+
+    var resultHtml = '';
+    if (resultText !== null && resultText !== undefined) {
+      var cap = 1200;
+      var capped = resultText.length > cap;
+      var preview = capped ? resultText.substring(0, cap) + '…' : resultText;
+      var uid = 'tc-' + Math.random().toString(36).substring(2, 8);
+      resultHtml =
+        '<div class="tool-card-result" id="' + uid + '-preview">' + escapeHtml(preview) + '</div>';
+      if (capped) {
+        resultHtml +=
+          '<div class="tool-card-result" id="' + uid + '-full" style="display:none;">' + escapeHtml(resultText) + '</div>' +
+          '<span class="tool-card-toggle" onclick="_toggleToolResultCard(\'' + uid + '\')" id="' + uid + '-tog">Show full (' + resultText.length + ' chars)</span>';
+      }
+    }
+
+    return '<div class="turn-msg assistant">' +
+      '<div class="turn-msg-icon">🛠</div>' +
+      '<div class="turn-msg-body">' +
+      '<div class="tool-card">' +
+      '<div class="tool-card-header">' +
+      '<span class="tool-card-name">' + escapeHtml(name) + '</span>' +
+      '<span class="tool-card-args">' + escapeHtml(argsStr) + '</span>' +
+      (durLabel ? '<span class="tool-card-dur">' + escapeHtml(durLabel) + '</span>' : '') +
+      '</div>' +
+      resultHtml +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  window._toggleToolResultCard = function(uid) {
+    var preview = document.getElementById(uid + '-preview');
+    var full = document.getElementById(uid + '-full');
+    var tog = document.getElementById(uid + '-tog');
+    if (!preview || !full || !tog) return;
+    if (full.style.display === 'none') {
+      preview.style.display = 'none';
+      full.style.display = 'block';
+      tog.textContent = 'Show less';
+    } else {
+      preview.style.display = 'block';
+      full.style.display = 'none';
+      tog.textContent = 'Show full';
+    }
+  };
+
+  // _renderToolResultBlock: kept as legacy fallback for orphaned toolResult blocks
+  // that have no matching toolUse in the assistant messages. Shouldn't occur in practice.
+  function _renderToolResultBlock(block) {
+    var content = block.content || '';
+    var text = '';
+    if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content.map(function(c) { return c.text || ''; }).join('\n');
+    }
+
+    var preview = text.length > 200 ? text.substring(0, 200) + '…' : text;
+    var hasMore = text.length > 200;
+    var uid = 'tr-' + Math.random().toString(36).substring(2, 8);
+
+    var full = hasMore
+      ? '<div class="tool-result-full" id="' + uid + '-full" style="display:none;">' + escapeHtml(text) + '</div>' +
+        '<span class="tool-result-toggle" onclick="_toggleToolResult(\'' + uid + '\')" id="' + uid + '-tog">Show full (' + text.length + ' chars)</span>'
+      : '';
+
+    return '<div class="turn-msg user">' +
+      '<div class="turn-msg-icon">📥</div>' +
+      '<div class="turn-msg-body">' +
+      '<div class="tool-result">' +
+      '<div class="tool-result-preview">' + escapeHtml(preview) + '</div>' +
+      full +
+      '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  // ─── Deep details panel ───
+
+  var _deepPanelCache = {};  // keyed by cid + ':' + n
+
+  function wireDeepFooter(footer, cid, n, runId, hasEvents) {
+    var link = footer.querySelector('.turn-deep-link');
+    var panel = footer.querySelector('.turn-deep-panel');
+    if (!link || !panel) return;
+
+    link.addEventListener('click', function() {
+      var isOpen = panel.style.display !== 'none';
+      if (isOpen) {
+        panel.style.display = 'none';
+        link.classList.remove('open');
+        return;
+      }
+      panel.style.display = 'block';
+      link.classList.add('open');
+
+      // Only render once.
+      var cacheKey = cid + ':' + n;
+      if (_deepPanelCache[cacheKey]) {
+        panel.innerHTML = _deepPanelCache[cacheKey];
+        _wireEventRowClicks(panel);
+        return;
+      }
+
+      panel.innerHTML = '<div style="color:var(--text-3);font-size:12px;padding:6px 0;">Loading deep details…</div>';
+      renderDeepPanel(cid, n, runId, hasEvents, panel);
+    });
+  }
+
+  function renderDeepPanel(cid, n, runId, hasEvents, container) {
+    var cacheKey = cid + ':' + n;
+    var eventsUrl = '/api/conversations/' + encodeURIComponent(cid) + '/turns/' + encodeURIComponent(n) + '/events';
+    var traceFetch = runId
+      ? apiFetch('/api/traces/' + encodeURIComponent(runId))
+      : Promise.resolve(null);
+    var eventsFetch = hasEvents
+      ? fetch(wsAppend(eventsUrl)).then(function(r) {
+          if (!r.ok) return '';
+          return r.text();
+        }).catch(function() { return ''; })
+      : Promise.resolve('');
+
+    Promise.all([traceFetch, eventsFetch]).then(function(results) {
+      var trace = results[0];
+      var eventsText = results[1] || '';
+
+      // Parse events.jsonl once — used by both waterfall and raw-events panel.
+      var parsedEvents = [];
+      if (eventsText) {
+        eventsText.trim().split('\n').forEach(function(line) {
+          if (!line.trim()) return;
+          try { parsedEvents.push(JSON.parse(line)); } catch(e) {}
+        });
+      }
+
+      var html = '';
+
+      // ── Sub-panel A: Waterfall ──
+      // Build rows from BOTH model invocations (events.jsonl) and tool calls (trace.steps).
+      // Sort by start time; compute total wall time from min(starts) to max(ends).
+      html += '<div class="deep-waterfall">';
+
+      // Collect model invocation rows from model.before / model.after pairs.
+      var modelRows = [];
+      var pendingModelBefore = null;
+      parsedEvents.forEach(function(ev) {
+        if (ev.type === 'model.before') {
+          pendingModelBefore = ev;
+        } else if (ev.type === 'model.after' && pendingModelBefore) {
+          var startMs = new Date(pendingModelBefore.ts).getTime();
+          var durMs = ev.duration_ms || 0;
+          var endMs = durMs > 0 ? (startMs + durMs) : new Date(ev.ts).getTime();
+          if (!isNaN(startMs)) {
+            modelRows.push({ kind: 'model', name: 'model.invoke', startMs: startMs, endMs: endMs, durMs: endMs - startMs });
+          }
+          pendingModelBefore = null;
+        }
+      });
+
+      // Collect tool call rows from trace.steps.
+      var toolRows = [];
+      if (trace && trace.steps) {
+        trace.steps.forEach(function(step) {
+          var startMs = step.start_time ? new Date(step.start_time).getTime() : NaN;
+          var durMs = step.duration_ms || 0;
+          var endMs = step.end_time ? new Date(step.end_time).getTime() : (startMs + durMs);
+          if (!isNaN(startMs)) {
+            toolRows.push({ kind: 'tool', name: step.tool_name || 'unknown', startMs: startMs, endMs: endMs, durMs: durMs });
+          }
+        });
+      }
+
+      var allRows = modelRows.concat(toolRows);
+      // Sort by startMs; use seq order (index in array) as tiebreaker — already preserved.
+      allRows.sort(function(a, b) { return a.startMs - b.startMs; });
+
+      if (allRows.length > 0) {
+        var wallStartMs = allRows[0].startMs;
+        var wallEndMs = allRows.reduce(function(m, r) { return Math.max(m, r.endMs); }, allRows[0].endMs);
+        var wallTotalMs = wallEndMs - wallStartMs;
+        if (wallTotalMs <= 0) wallTotalMs = 1;
+
+        var totalToolMs = toolRows.reduce(function(s, r) { return s + r.durMs; }, 0);
+        var totalModelMs = modelRows.reduce(function(s, r) { return s + r.durMs; }, 0);
+
+        var fmtS = function(ms) { return (ms / 1000).toFixed(1) + 's'; };
+        html += '<div class="deep-subpanel-title">Waterfall — ' + fmtS(wallTotalMs) + ' wall, ' + fmtS(totalToolMs) + ' tool, ' + fmtS(totalModelMs) + ' model</div>';
+        html += '<div class="waterfall">';
+        allRows.forEach(function(row) {
+          var barClass = 'other';
+          if (row.kind === 'model') {
+            barClass = 'model';
+          } else if (row.name === 'web_search') barClass = 'web_search';
+          else if (row.name === 'http_request') barClass = 'http_request';
+          else if (row.name === 'shell_command') barClass = 'shell_command';
+
+          var leftPct = (row.startMs - wallStartMs) / wallTotalMs * 100;
+          var widthPct = row.durMs / wallTotalMs * 100;
+          if (leftPct < 0) leftPct = 0;
+          if (leftPct > 100) leftPct = 100;
+          if (widthPct < 0.5) widthPct = 0.5;
+          if (leftPct + widthPct > 100) widthPct = 100 - leftPct;
+
+          html += '<div class="waterfall-row">';
+          html += '<span class="waterfall-tool">' + escapeHtml(row.name) + '</span>';
+          html += '<div class="waterfall-bar-container">';
+          html += '<div class="waterfall-bar ' + barClass + '" style="left:' + leftPct.toFixed(1) + '%;width:' + widthPct.toFixed(1) + '%"></div>';
+          html += '</div>';
+          html += '<span class="waterfall-duration">' + row.durMs + 'ms</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      } else if (!runId && !hasEvents) {
+        html += '<div class="deep-subpanel-title">Waterfall</div>';
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No trace ID linked to this turn.</div>';
+      } else {
+        html += '<div class="deep-subpanel-title">Waterfall</div>';
+        html += '<div class="deep-empty">No tool calls or model invocations recorded for this turn.</div>';
+      }
+      html += '</div>';
+
+      // ── Sub-panel B: Raw events stream ──
+      html += '<div class="deep-subpanel-title" style="margin-top:10px;">Raw Events</div>';
+
+      if (!hasEvents) {
+        html += '<div style="color:var(--text-3);font-style:italic;padding:4px 0;">No events.jsonl captured for this turn.</div>';
+      } else {
+        // Re-read raw lines (we need line text for unparseable rows).
+        var rawLines = eventsText ? eventsText.trim().split('\n').filter(function(l) { return l.trim(); }) : [];
+        var MAX_ROWS = 1000;
+        var capped = rawLines.length > MAX_ROWS;
+        var visibleLines = capped ? rawLines.slice(0, MAX_ROWS) : rawLines;
+
+        html += '<div class="bc-events">';
+
+        if (visibleLines.length === 0) {
+          html += '<div class="bc-events-cap-notice">No events found.</div>';
+        } else {
+          // Track model depth for optional indentation.
+          var modelDepth = 0;
+
+          visibleLines.forEach(function(line, idx) {
+            var ev = null;
+            try { ev = JSON.parse(line); } catch(e) {}
+            if (!ev) {
+              html += '<div class="bc-events-row" data-raw="' + escapeHtml(line) + '">';
+              html += '<span class="ev-seq">' + (idx + 1) + '</span>';
+              html += '<span class="ev-ts"></span>';
+              html += '<span class="ev-type ev-type-default">?</span>';
+              html += '<span class="ev-summary">' + escapeHtml(line.substring(0, 200)) + '</span>';
+              html += '</div>';
+              return;
+            }
+
+            var evType = ev.type || ev.event || '';
+            var evSeq = ev.seq != null ? ev.seq : (idx + 1);
+
+            // Bug 2 fix: ev.ts is an ISO 8601 string, not a Unix timestamp.
+            var evTs = '';
+            if (ev.ts) {
+              var d = new Date(ev.ts);
+              if (!isNaN(d.getTime())) {
+                evTs = d.toISOString().substring(11, 23);  // HH:MM:SS.mmm
+              }
+            }
+
+            // Depth tracking for indentation (model.before opens, model.after closes).
+            var indent = 0;
+            if (evType === 'model.before') {
+              indent = modelDepth;  // before increment
+              modelDepth++;
+            } else if (evType === 'model.after') {
+              modelDepth = Math.max(0, modelDepth - 1);
+              indent = modelDepth;  // after decrement
+            } else {
+              indent = modelDepth;
+            }
+
+            // Color class by prefix
+            var typeClass = 'ev-type-default';
+            if (evType.indexOf('tool.') === 0) typeClass = 'ev-type-tool';
+            else if (evType.indexOf('model.') === 0) typeClass = 'ev-type-model';
+            else if (evType.indexOf('message.') === 0) typeClass = 'ev-type-message';
+            else if (evType.indexOf('context.') === 0) typeClass = 'ev-type-context';
+            else if (evType.indexOf('lesson.') === 0) typeClass = 'ev-type-lesson';
+            else if (evType.indexOf('stream.') === 0) typeClass = 'ev-type-dropped';
+            else if (evType === 'schema.version') typeClass = 'ev-type-schema';
+
+            // Bug 3 fix: per-type summary formats.
+            var summary = '';
+            if (evType === 'schema.version') {
+              summary = 'v=' + (ev.v != null ? ev.v : '') + ' blueclaw=' + (ev.blueclaw_version || '');
+            } else if (evType === 'model.before') {
+              var toolCount = Array.isArray(ev.tools_provided) ? ev.tools_provided.length : (ev.tools_provided != null ? ev.tools_provided : '?');
+              summary = (ev.model_id || '') + '  prompt_msgs=' + (ev.prompt_messages != null ? ev.prompt_messages : '?') +
+                        ' sys_chars=' + (ev.system_prompt_chars != null ? ev.system_prompt_chars : '?') +
+                        ' tools=' + toolCount;
+            } else if (evType === 'model.after') {
+              summary = 'dur=' + (ev.duration_ms != null ? ev.duration_ms : '?') + 'ms' +
+                        ' in_tok=' + (ev.input_tokens != null ? ev.input_tokens : '?') +
+                        ' out_tok=' + (ev.output_tokens != null ? ev.output_tokens : '?') +
+                        ' stop=' + (ev.stop_reason || '?');
+            } else if (evType === 'tool.before') {
+              var inputStr = '';
+              try { inputStr = JSON.stringify(ev.input); } catch(e) { inputStr = String(ev.input); }
+              if (inputStr.length > 60) inputStr = inputStr.substring(0, 57) + '...';
+              summary = (ev.tool_name || '') + '  id=' + (ev.tool_use_id || '?') + ' input=' + inputStr;
+            } else if (evType === 'tool.after') {
+              summary = (ev.tool_name || '') + '  id=' + (ev.tool_use_id || '?') +
+                        ' status=' + (ev.status || '?') +
+                        ' dur=' + (ev.duration_ms != null ? ev.duration_ms : '?') + 'ms' +
+                        ' out_chars=' + (ev.output_chars != null ? ev.output_chars : '?');
+            } else if (evType === 'message.added') {
+              summary = 'role=' + (ev.role || '?') +
+                        ' text_chars=' + (ev.text_chars != null ? ev.text_chars : '?') +
+                        ' tool_uses=' + (ev.tool_uses != null ? ev.tool_uses : '?');
+            } else if (evType === 'context.mask') {
+              summary = 'masked_chars=' + (ev.masked_chars != null ? ev.masked_chars : '?') +
+                        ' replaced_steps=' + (ev.replaced_steps != null ? ev.replaced_steps : '?') +
+                        ' strategy=' + (ev.strategy || '?');
+            } else if (evType === 'lesson.injected') {
+              var goals = Array.isArray(ev.goals) ? ev.goals.join(', ') : (ev.goals || '');
+              summary = 'count=' + (ev.count != null ? ev.count : '?') + ' goals=' + goals;
+            } else if (evType === 'stream.dropped') {
+              summary = 'subscriber_id=' + (ev.subscriber_id != null ? ev.subscriber_id : '?') +
+                        ' dropped_count=' + (ev.dropped_count != null ? ev.dropped_count : '?');
+            } else {
+              // Generic fallback: top-level keys except type/event/seq/ts
+              var keys = Object.keys(ev).filter(function(k) { return k !== 'type' && k !== 'event' && k !== 'seq' && k !== 'ts'; });
+              summary = keys.slice(0, 4).map(function(k) { return k + '=' + String(ev[k]).substring(0, 30); }).join(' ');
+            }
+
+            var paddingLeft = indent * 14;
+            html += '<div class="bc-events-row" data-raw="' + escapeHtml(JSON.stringify(ev)) + '"' +
+                    (paddingLeft > 0 ? ' style="padding-left:' + (8 + paddingLeft) + 'px"' : '') + '>';
+            html += '<span class="ev-seq">' + escapeHtml(String(evSeq)) + '</span>';
+            html += '<span class="ev-ts">' + escapeHtml(evTs) + '</span>';
+            html += '<span class="ev-type ' + typeClass + '">' + escapeHtml(evType || '?') + '</span>';
+            html += '<span class="ev-summary">' + escapeHtml(summary.substring(0, 200)) + '</span>';
+            html += '</div>';
+          });
+
+          if (capped) {
+            html += '<div class="bc-events-cap-notice">Showing first ' + MAX_ROWS + ' of ' + rawLines.length + ' events. ';
+            html += '<a href="' + escapeHtml(wsAppend(eventsUrl)) + '" target="_blank" rel="noopener">Download full file</a>.';
+            html += '</div>';
+          }
+        }
+        html += '</div>';
+
+        // Footer links
+        html += '<div class="bc-events-footer">';
+        html += '<a href="' + escapeHtml(wsAppend(eventsUrl)) + '" target="_blank" rel="noopener">events.jsonl</a>';
+        html += '<a href="' + escapeHtml(wsAppend('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/messages')) + '" target="_blank" rel="noopener">messages.json</a>';
+        html += '<a href="' + escapeHtml(wsAppend('/api/turns/' + encodeURIComponent(cid) + '/' + encodeURIComponent(n) + '/response')) + '" target="_blank" rel="noopener">response.txt</a>';
+        html += '</div>';
+      }
+
+      _deepPanelCache[cacheKey] = html;
+      container.innerHTML = html;
+      _wireEventRowClicks(container);
+    }).catch(function(err) {
+      container.innerHTML = '<div style="color:var(--red);font-size:12px;">Failed to load deep details: ' + escapeHtml(String(err)) + '</div>';
+    });
+  }
+
+  function _wireEventRowClicks(container) {
+    container.querySelectorAll('.bc-events-row').forEach(function(row) {
+      row.addEventListener('click', function(e) {
+        // Toggle an expand block after this row.
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('bc-events-expand')) {
+          next.parentNode.removeChild(next);
+          return;
+        }
+        var raw = row.getAttribute('data-raw') || '';
+        var pretty = '';
+        try { pretty = JSON.stringify(JSON.parse(raw), null, 2); } catch(ex) { pretty = raw; }
+        var expDiv = document.createElement('div');
+        expDiv.className = 'bc-events-expand';
+        expDiv.innerHTML = '<pre>' + escapeHtml(pretty) + '</pre>';
+        row.parentNode.insertBefore(expDiv, row.nextSibling);
+      });
+    });
+  }
+
+  function _toggleToolResult(uid) {
+    var fullEl = document.getElementById(uid + '-full');
+    var togEl = document.getElementById(uid + '-tog');
+    if (!fullEl || !togEl) return;
+    var showing = fullEl.style.display !== 'none';
+    fullEl.style.display = showing ? 'none' : 'block';
+    togEl.textContent = showing ? 'Show full (' + fullEl.textContent.length + ' chars)' : 'Collapse';
+  }
+  window._toggleToolResult = _toggleToolResult;
 
   // ─── Compare ───
   function renderCompare() {
@@ -1632,7 +3135,7 @@ code, .mono {
         currentWorkspace = sel.value;
         loadTraces();
         // Stats view refresh if it's currently visible
-        if (document.querySelector('.nav-item.active[data-view="stats"]')) {
+        if (document.getElementById('viewStats').classList.contains('active')) {
           if (typeof loadStats === 'function') loadStats();
         }
       });
@@ -1652,10 +3155,26 @@ code, .mono {
   window.apiFetch = apiFetch;
 
   // ─── Init ───
-  populateWorkspaceSelect().then(function() {
-    loadTraces();
-    startAutoRefresh();
-  });
+  // Check live mode status; then boot the app.
+  fetch('/api/live/status')
+    .then(function(r) { return r.ok ? r.json() : { live: false }; })
+    .catch(function() { return { live: false }; })
+    .then(function(status) {
+      liveMode = !!(status && status.live);
+    })
+    .finally(function() {
+      populateWorkspaceSelect().then(function() {
+        loadTraces();
+        startAutoRefresh();
+        // If no hash or hash is just '#', redirect to conversations (default view).
+        var h = location.hash;
+        if (!h || h === '#' || h === '#/') {
+          location.hash = '#/conversations';
+        } else {
+          route();
+        }
+      });
+    });
 
 })();
 </script>

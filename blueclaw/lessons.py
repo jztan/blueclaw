@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from blueclaw.models import RunTrace, classify_error
 
 MAX_LESSONS = 3
@@ -129,8 +131,18 @@ def _extract_hints(trace: RunTrace) -> list[str]:
     return hints
 
 
-def build_lessons_block(goal: str, traces: list[RunTrace]) -> str | None:
-    """Build a lessons block for the system prompt. Returns None if no lessons."""
+def build_lessons_block(
+    goal: str,
+    traces: list[RunTrace],
+    *,
+    on_injected: Callable[[dict], None] | None = None,
+) -> str | None:
+    """Build a lessons block for the system prompt. Returns None if no lessons.
+
+    If on_injected is provided, called once with {"count": N, "goals": [...]}
+    when a non-empty block is returned. Used to emit a lesson.injected event
+    from the adapter without making this module bus-aware.
+    """
     # Filter to recent problematic traces with similar goals
     candidates: list[tuple[float, RunTrace]] = []
     for trace in traces[:MAX_TRACES]:
@@ -161,6 +173,14 @@ def build_lessons_block(goal: str, traces: list[RunTrace]) -> str | None:
 
     if not lessons:
         return None
+
+    if on_injected is not None:
+        on_injected(
+            {
+                "count": len(lessons),
+                "goals": [t.goal for t in traces if t.goal][:5],
+            }
+        )
 
     lines = ["## Trace Lessons\n"]
     for lesson in lessons:

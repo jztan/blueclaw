@@ -4,146 +4,149 @@ All notable changes to blueclaw will be documented in this file.
 
 ## [Unreleased]
 ### Added
-- **Capture layer (trace UI Phase 1):** every turn now writes a per-turn
-  `events.jsonl` alongside `response.txt` / `messages.json`. Captures tool
-  invocations (`tool.before` / `tool.after`), model invocations
-  (`model.before` / `model.after`), message additions (`message.added`),
-  observation masking (`context.mask`), and lesson injection
-  (`lesson.injected`). Events carry monotonic `seq` for ordering and a
-  `schema.version` header.
-- `ObserverHooks.bus` and `ObservationMaskingManager.bus` are now public
-  settable attributes (default `None`). Adapters never set them directly —
-  use `runner.bus_for_turn(observer, capture_path)`, which fans out to every
-  bus-aware component reachable from the observer.
-- **`http_request`: Cloudflare-aware fetch + article extraction.**
-  Replaced `urllib.urlopen` with `curl_cffi` using Chrome 124 TLS
-  impersonation, so blueclaw can fetch pages behind Cloudflare's bot
-  challenge (Medium, Substack, many news sites) that previously returned
-  403. HTML responses are then run through `trafilatura` to strip
-  boilerplate and return article title + main body text — typical
-  reduction from ~80k tokens of DOM to ~2–8k tokens of prose, which
-  lets smaller local models (Ollama gemma/qwen) actually read the
-  result instead of choking on tag soup. New `SessionConfig.http_extract_main`
-  YAML flag (default `true`) toggles extraction; set `false` when an
-  agent legitimately needs raw HTML or non-article content. New runtime
-  deps: `curl-cffi>=0.7`, `trafilatura>=1.12`.
-- **Eval response capture.** `blueclaw test` now persists the final assistant
-  response text (`response.txt`) and the full `agent.messages` structure
-  (`messages.json`) per run to `~/blueclaw/test-runs/<invocation-ts>/case-<N>/run-<N>/`,
-  plus an `invocation.json` summarizing the eval (model, blueclaw version,
-  argv, summary counts, capture failures). Decoupled from `--keep-workspace`:
-  artifacts persist regardless of workspace cleanup. The TAP formatter
-  appends an `artifacts:` breadcrumb to failure records so triage paths are
-  inline, and a final `Artifacts: <path>` line goes to stderr on completion.
-  Capture is best-effort — write failures log to stderr and are recorded in
-  `invocation.json:capture_failures` but never fail the eval. Override the
-  default root via `BLUECLAW_ARTIFACTS_ROOT` env var or
-  `run_spec(..., artifacts_root=)`.
-- **`forbidden_output_regex` test-case assertion.** New optional field on
-  `TestCase` in test-spec YAMLs. Mirrors `output_regex` but inverts the
-  semantics — fails the test if the regex matches the response. Lets eval
-  specs assert on reworded refusal phrasings and other anti-patterns that a
-  single `forbidden_output_contains` substring would miss.
-- **Behavioral system-prompt rules (tool-knowledge, partial-refusal,
-  correction acknowledgment, cosmetic-compensation).** Four new rules in the
-  shared `**Rules:**` block of `build_system_prompt` (both terminal and api
-  channels) targeting failure modes surfaced by an external eval: declining
-  requests without attempting available tools, silently dropping parts of a
-  request, ignoring user corrections, and reaching for formatting to mask
-  thin substance.
-- **api-channel "constraint carry-forward" rule.** Replaces the previous
-  "Answer ONLY what the user just asked" instruction in the api/Telegram
-  tone block. Preserves the original anti-recap intent while explicitly
-  requiring the model to carry forward earlier turns' constraints,
-  deliverables, and corrections — closes a loophole where the model would
-  treat prior-turn commitments (e.g., "3-course menu") as stale and drop them.
-- **`tests/eval/multi_turn_constraints.yaml`.** New behavioral regression
-  spec, pinned to Sonnet 4.6 (~$1-2 per full run, ~10-15 min wall clock).
-  Manual run only. **Scope reduced after first triage:** single-turn
-  proxies that fabricated prior conversation turns ("Earlier in this
-  conversation you said...") were structurally incompatible with
-  honesty-trained models, which refused the premise. Tests 2 and 4
-  rewritten to use instruction framing instead. Consequence: Rule D
-  (api-channel constraint carry-forward) is no longer covered by
-  automated tests in this file; real multi-turn fixtures are needed
-  for that and are tracked as a follow-up.
-- `blueclaw/runner.py` exposes `runner_session` (context manager), `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__` runs `cleanup_mcp_clients` unconditionally — adapters can no longer forget it.
-- `tests/test_no_direct_create_agent.py` durability guard: any module outside `blueclaw/runner.py` / `blueclaw/session.py` matching `\bcreate_agent\b` fails the test. With HTTP migrated, `ALLOWLIST_PENDING_MIGRATION` is empty — the set declaration is kept in place so future adapters have a documented place to land if they ever need temporary exemption.
-- `tests/test_server.py::TestStreamingWorkspaceErrorCleanup`: structural regression test asserting that when `workspace.write_trace` raises mid-stream, the SSE `error` event emits AND `cleanup_mcp_clients` runs via `runner_session.__exit__`. Defends the streaming carve-out's cleanup ordering.
-- Per-turn capture for terminal, HTTP, and Telegram adapters. Each turn's
-  `response.txt` and `messages.json` are written to
-  `<workspace>/.blueclaw/conversations/<id>/turns/turn-NNN/`. `<id>` is the
-  conversation ID for HTTP, the chat ID for Telegram, and a per-process
-  `YYYYMMDD-HHMMSS-xxxx` timestamp for terminal sessions.
-- `blueclaw.runner.next_capture_path` helper and pure
-  `blueclaw.runner.validate_session_id` validator. IDs are rejected if
-  they contain `/`, `\`, `\x00`, whitespace, control characters, are `.`
-  or `..`, are empty, or exceed 128 characters.
-- Trace ↔ capture link: every `RunTrace` now records a `capture_path`
-  field (relative to `workspace.root`) pointing to the per-turn capture
-  directory. Pre-feature traces and runs without a captured turn store
-  `None`.
-- `GET /api/turns/<cid>/<n>/response` and `GET /api/turns/<cid>/<n>/messages`
-  routes serve captured artifacts. Honor `?workspace=<key>` for multi-
-  workspace dashboards. Return a 404 with the expected path + a hint
-  when the capture has been pruned.
-- `blueclaw trace ui` dashboard renders an inline preview chip (first
-  line of `response.txt`, truncated to 200 chars) per trace row with a
-  "view full" link. Rows whose captures have been pruned show a "captures
-  pruned" badge instead.
-- **Conversation-first trace UI:** new `#/conversations` and
-  `#/conversations/<cid>` views in the dashboard. Per-turn transcript with
-  user / tool / assistant inline; Deep details panel exposes the waterfall
-  (from RunTrace.steps) and a virtualized raw events stream (from
-  `events.jsonl`). The flat traces view is preserved as a secondary tab.
-- **Backend conversation API:** `GET /api/conversations`,
+#### Trace UI: conversation-first observability + live streaming
+- **Capture layer.** Every turn writes a per-turn `events.jsonl` alongside
+  `response.txt` / `messages.json`. Captures tool invocations
+  (`tool.before` / `tool.after`), model invocations (`model.before` /
+  `model.after`), message additions (`message.added`), observation masking
+  (`context.mask`), and lesson injection (`lesson.injected`). Events carry
+  monotonic `seq` and a `schema.version` header. `ObserverHooks.bus` and
+  `ObservationMaskingManager.bus` are public settable attributes (default
+  `None`); adapters use `runner.bus_for_turn(observer, capture_path)` which
+  fans out to every bus-aware component reachable from the observer.
+- **Per-turn capture** for terminal, HTTP, and Telegram. `response.txt` and
+  `messages.json` land in `<workspace>/.blueclaw/conversations/<id>/turns/
+  turn-NNN/`. `<id>` is the HTTP `conversation_id`, the Telegram chat ID, or
+  a per-process `YYYYMMDD-HHMMSS-xxxx` timestamp for terminal. Helpers:
+  `blueclaw.runner.next_capture_path` plus a pure `validate_session_id` that
+  rejects `/`, `\`, `\x00`, whitespace, control chars, `.`/`..`, empty, or
+  >128 chars. `RunTrace` gains a `capture_path` field (relative to
+  `workspace.root`); `None` for pre-feature traces.
+- **Backend conversation API.** `GET /api/conversations`,
   `/api/conversations/<cid>`, `/api/conversations/<cid>/turns/<n>/events`
-  expose per-cid aggregates and per-turn event streams. Aggregates are
-  computed at query time from existing trace files — no new persistence.
-- **Live event streaming:** `blueclaw trace ui --live` starts a Unix-socket
+  expose per-cid aggregates and per-turn event streams. Aggregates computed
+  at query time from existing traces — no new persistence files.
+- **Conversation-first dashboard.** New `#/conversations` and
+  `#/conversations/<cid>` views. Per-turn transcript renders user / tool /
+  assistant inline (tool use + tool result fold into a single bordered card
+  with full args, full result, and show-more for long output). Deep details
+  panel shows a waterfall combining tool steps with model invocation bars
+  and a virtualized raw events stream. Flat traces view preserved as a
+  secondary tab. Each row also shows an inline preview chip (first line of
+  `response.txt`, ≤200 chars) with a "view full" link;
+  `GET /api/turns/<cid>/<n>/response` and `/api/turns/<cid>/<n>/messages`
+  serve the captured artifacts (404 with expected path + hint when pruned).
+- **Live event streaming.** `blueclaw trace ui --live` starts a Unix-socket
   broker at `~/.blueclaw/live.sock`. Any blueclaw process started afterward
   detects the socket and forwards every event in real time. The dashboard
-  subscribes via SSE at `/api/conversations/<cid>/turns/<n>/events/live`
-  and renders new tool calls / assistant text / model events incrementally.
-  Backfill + dedup-by-seq handshake ensures no events are missed on
-  reconnect. Off by default; opt in with `--live`.
+  subscribes via SSE at `/api/conversations/<cid>/turns/<n>/events/live`,
+  polls `/api/conversations/<cid>` every 3 s to detect new turns, and
+  reopens the EventSource when `turn_count` increases. Backfill + dedup-
+  by-seq handshake (with reset on a fresh `schema.version` event) ensures
+  no events missed across turns or reconnects. Off by default; opt in with
+  `--live`.
+
+#### Unified agent runner
+- `blueclaw/runner.py` exposes `runner_session` (context manager),
+  `finalize`, `finalize_error`, and `run_turn`. `runner_session.__exit__`
+  runs `cleanup_mcp_clients` unconditionally — adapters can no longer
+  forget it.
+- `tests/test_no_direct_create_agent.py` durability guard: any module
+  outside `blueclaw/runner.py` / `blueclaw/session.py` matching
+  `\bcreate_agent\b` fails the test. With HTTP migrated,
+  `ALLOWLIST_PENDING_MIGRATION` is empty.
+- `tests/test_server.py::TestStreamingWorkspaceErrorCleanup`: structural
+  regression test asserting that when `workspace.write_trace` raises mid-
+  stream, the SSE `error` event emits AND `cleanup_mcp_clients` runs via
+  `runner_session.__exit__`.
+
+#### Tools
+- **`http_request`: Cloudflare-aware fetch + article extraction.** Replaced
+  `urllib.urlopen` with `curl_cffi` using Chrome 124 TLS impersonation so
+  blueclaw can fetch pages behind Cloudflare's bot challenge (Medium,
+  Substack, many news sites) that previously returned 403. HTML responses
+  run through `trafilatura` to strip boilerplate and return article title +
+  main body — typical reduction ~80k → 2–8k tokens, which lets smaller
+  local models (Ollama gemma/qwen) actually read the result.
+  `SessionConfig.http_extract_main` YAML flag (default `true`) toggles
+  extraction. New runtime deps: `curl-cffi>=0.7`, `trafilatura>=1.12`.
+
+#### Eval / test infrastructure
+- **Eval response capture.** `blueclaw test` persists `response.txt`,
+  `messages.json`, and `invocation.json` per run to
+  `~/blueclaw/test-runs/<invocation-ts>/case-<N>/run-<N>/`. Decoupled from
+  `--keep-workspace` — artifacts persist regardless of workspace cleanup.
+  TAP formatter appends an `artifacts:` breadcrumb to failure records and
+  prints a final `Artifacts: <path>` line to stderr. Capture is best-
+  effort: write failures log to stderr and are recorded in
+  `invocation.json:capture_failures` but never fail the eval. Override
+  the root via `BLUECLAW_ARTIFACTS_ROOT` or `run_spec(..., artifacts_root=)`.
+- **`forbidden_output_regex` test assertion.** Inverse of `output_regex`
+  — fails the test if the regex matches. Lets specs assert on reworded
+  refusal phrasings that a single substring would miss.
+- **`tests/eval/multi_turn_constraints.yaml`** behavioral regression spec,
+  pinned to Sonnet 4.6 (~$1–2 per full run, ~10–15 min, manual run only).
+  Scope reduced after triage: single-turn proxies fabricating prior turns
+  were rejected by honesty-trained models; tests 2 and 4 rewritten with
+  instruction framing. Rule D (api-channel constraint carry-forward) is
+  no longer covered by automated tests here — real multi-turn fixtures
+  tracked as a follow-up.
+
+#### System prompt
+- **Behavioral rules** (tool-knowledge, partial-refusal, correction-
+  acknowledgment, cosmetic-compensation). Four new rules in the shared
+  `**Rules:**` block of `build_system_prompt` (both terminal and api
+  channels) targeting failure modes from an external eval: declining
+  without trying available tools, silently dropping parts of a request,
+  ignoring user corrections, reaching for formatting to mask thin
+  substance.
+- **api-channel "constraint carry-forward" rule.** Replaces "Answer ONLY
+  what the user just asked" in the api/Telegram tone block — preserves
+  anti-recap intent while requiring the model to carry forward earlier
+  turns' constraints, deliverables, and corrections.
 
 ### Notes
-- **Phase 1 ships independently.** This release adds capture only; no UI
-  consumes `events.jsonl` yet. Reading these files is the job of Phase 2
-  (conversation-first persistence) and Phase 3 (dashboard). `blueclaw trace
-  ui` is unchanged.
 - **Orphan events on mid-turn crash.** If a turn crashes after
-  `events.jsonl` has been written but before `RunTrace` finalization
-  completes, the events file remains on disk while the trace is missing.
-  This is an accepted Phase 1 state — Phase 2 extends `blueclaw trace purge
-  --older-than N` to clean orphan events. Until then, orphan events are
-  harmless (no reader); inspect manually with `find ~/blueclaw -name
-  events.jsonl -newer <date>` if needed.
+  `events.jsonl` is written but before `RunTrace` finalization completes,
+  the events file remains on disk while the trace is missing. No automatic
+  cleanup yet — inspect manually with `find ~/blueclaw -name events.jsonl
+  -newer <date>`. A future release will extend `blueclaw trace purge
+  --older-than N` to cover orphans.
 
 ### Changed
-- Terminal sessions now carry a `conversation_id` (the timestamp-based
-  per-process session ID) on trace and history records. Previously this
-  was `None` for terminal-sourced runs; downstream tooling that grouped
-  records by `conversation_id` should account for the new value.
-- `/api/traces` summaries now include `capture_path`, plus either
-  `capture_preview` (if the file exists) or `captures_pruned: true` (if
-  the directory was deleted). Both fields are absent when the trace has
-  no associated capture.
-- `runner.finalize` and `runner.finalize_error` accept a new optional
-  `workspace_root: Path | None` kwarg. When set together with
-  `capture_path`, the runner stores the relativized path on the trace.
+- Terminal sessions now carry a `conversation_id` (timestamp-based per-
+  process session ID) on trace and history records. Previously `None` for
+  terminal-sourced runs; downstream tooling that grouped by
+  `conversation_id` should account for the new value.
+- `/api/traces` summaries include `capture_path`, plus either
+  `capture_preview` (file exists) or `captures_pruned: true` (directory
+  deleted). Both fields absent when no capture exists.
+- `runner.finalize` / `runner.finalize_error` accept an optional
+  `workspace_root: Path | None` kwarg; combined with `capture_path` it
+  stores the relativized path on the trace.
 
 ### Security
-- HTTP `POST /message` and `POST /message/stream` now validate the
-  client-supplied `conversation_id` against path-traversal characters and
-  unsafe values. Invalid IDs receive a generic
-  `{"error": "invalid conversation_id"}` 400 response that does not echo
-  the rejected value (the validation error is logged server-side only).
+- HTTP `POST /message` and `POST /message/stream` validate the client-
+  supplied `conversation_id` against path-traversal characters and unsafe
+  values. Invalid IDs receive a generic `{"error": "invalid
+  conversation_id"}` 400 that does not echo the rejected value (logged
+  server-side only).
 
 ### Fixed
-- `runner_session.__exit__` enforces `cleanup_mcp_clients` for any adapter that uses the runner, closing a class of bug structurally. The `BridgeRouter.handle_message` (Telegram) cleanup miss was the proof case that motivated this work — adapters that build agents outside the runner can silently skip MCP teardown. The Telegram migration to the runner (also in this release) realizes the fix for that specific call site.
-- `blueclaw run "..."` now exits non-zero with an error message when the agent raises (previously regressed to silent exit 0 during the terminal migration; restored before merge).
+- `runner_session.__exit__` enforces `cleanup_mcp_clients` for any adapter
+  that uses the runner — closing a class of bug structurally. The
+  `BridgeRouter.handle_message` (Telegram) cleanup miss was the proof case;
+  the Telegram migration to the runner (also in this release) realizes the
+  fix for that call site.
+- `blueclaw run "..."` exits non-zero with an error message when the agent
+  raises (previously regressed to silent exit 0 during the terminal
+  migration; restored before merge).
+- `EventBus.emit` no longer lets callers shadow bus-controlled `seq` / `ts`
+  by including those keys in the event payload — spread order swapped so
+  bus fields always win.
+- `_drop_subscriber` no longer recurses unbounded when multiple subscribers
+  overflow during the same emit. Drops are collected during fan-out and
+  the synthetic `stream.dropped` notices fire after the loop completes.
 
 ## [2.5.0] - 2026-05-16
 ### Added

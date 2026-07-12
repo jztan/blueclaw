@@ -29,16 +29,12 @@
 
 ---
 
-- **Structured traces** — every run writes a structured JSON trace, queryable from the terminal with no external service
-- **Regression testing** — define expected behavior in YAML; run as CI with TAP or JUnit output and Wilson CI scoring
+- **Structured traces** — every run writes a queryable JSON trace plus a per-turn event stream, all from the terminal
+- **Regression testing** — define expected behavior in YAML and run it as CI (TAP/JUnit, Wilson CI scoring)
 - **Context management** — observation masking keeps token cost low across long sessions without losing quality
-- **Trace replay & diff** — step through any recorded run interactively, or compare steps, tokens, and cost between two runs
-- **HTTP API + stateful conversations** — `blueclaw serve` exposes the agent over HTTP with bearer auth, SSE streaming, a concurrency cap, per-`conversation_id` history persisted via `FileSessionManager`, plus `POST /upload` for attaching files (PDF, text, images, csv, json, zip) to a conversation
-- **Talk to blueclaw from your phone** — `blueclaw telegram` exposes the agent over Telegram with per-chat workspaces (each chat gets its own `CONTEXT.md` and `history.jsonl`), allowlist-enforced authorization, and Strands-backed conversation continuity. Long-polling by default (no public URL needed), webhook mode opt-in. Install with `pip install -e ".[telegram]"`. See `docs/bridges/telegram.md`
-- **File attachments with native vision** — drop `@<path>` (or just paste a bare/quoted absolute path) into any CLI prompt; PNG/JPEG/GIF/WEBP attachments reach vision-capable models as Strands `image` blocks, while PDFs and text reuse the shell/pdf-mcp tools. Works the same way over HTTP via `POST /upload` + `file_ids`
-- **Built-in playground** — `GET /playground` ships a single-page chat UI with `blueclaw serve` for manual stateful + streaming testing, including paperclip + drag-drop file attachments
-- **Skills** — package agent behavior as `SKILL.md` directories (AgentSkills.io standard). Install from a local path, a git URL (with optional `#subdir`), or a direct HTTPS URL pointing at raw SKILL.md. Project skills under `<project>/.blueclaw/skills/` shadow user-global skills under `~/blueclaw/skills/`
-- **Agent identity via `SOUL.md`** — drop a `SOUL.md` into your workspace to define the agent's persona, values, and communication style. Separate from `CONTEXT.md` (factual memory): one is *who the agent is*, the other is *what the agent knows*. `blueclaw init` writes a default template; edits are picked up live on the next turn
+- **HTTP API** — `blueclaw serve` exposes the agent with bearer auth, SSE streaming, stateful conversations, and file uploads
+- **Telegram bridge** — talk to the agent from your phone; per-chat workspaces, allowlist-enforced
+- **Extensible & model-agnostic** — package behavior as `SKILL.md` directories, isolate the whole process in Docker, run Claude / Ollama / OpenAI / Gemini
 
 ## Quickstart
 
@@ -69,7 +65,7 @@ blueclaw run "'/Users/me/notes.pdf' summarize this"
 
 ### Tracing & Observability — [docs/tracing.md](docs/tracing.md)
 
-Every turn produces a structured JSON trace plus a per-turn `events.jsonl` capturing tool calls, model invocations, message additions, context masking, and lesson injection. Ten CLI commands let you inspect, compare, and replay runs from the terminal; `blueclaw trace ui` opens a conversation-first browser dashboard (with optional live streaming) on top of the same data.
+Every turn produces a structured JSON trace plus a per-turn `events.jsonl` (tool calls, model invocations, context masking, lesson injection). Ten CLI commands inspect, compare, and replay runs; `blueclaw trace ui` opens a conversation-first browser dashboard (with optional `--live` streaming) on the same data.
 
 ```
 $ blueclaw trace graph 20260315-054426
@@ -80,22 +76,16 @@ search for Python 3.13 new features
 └── http_request (366ms) ✓  url: https://docs.python.org/3.13/whatsnew/3.13.html
 ```
 
-`trace list` · `trace show` · `trace graph` · `trace timeline` · `trace diff` · `trace explain` · `trace replay` · `trace stats` · `trace ui` · `trace purge`
-
-`blueclaw trace ui` is a vanilla-JS SPA (no build step) showing a conversation timeline per chat: user prompt → tool card (full args + duration + full result inline) → assistant reply. A "Deep details" panel exposes a waterfall combining tool steps with model invocations, plus a color-coded raw events stream. With `--live`, it opens a local Unix-socket broker — any blueclaw process started afterward streams events to the open dashboard in real time via SSE.
-
-All ten readers also accept `--chat <id>` (target one Telegram chat) and, where union makes sense, `--all-chats` (default + every chat). See the [Telegram bridge](#telegram-bridge--docsbridgestelegrammd) section.
+`trace list` · `show` · `graph` · `timeline` · `diff` · `explain` · `replay` · `stats` · `ui` · `purge`. All accept `--chat <id>` to target one Telegram chat, and (where union makes sense) `--all-chats`.
 
 ### Regression Testing — [docs/testing.md](docs/testing.md)
 
-Define expected behavior in YAML, run as a CI test suite with TAP or JUnit output. Multi-run Wilson CI scoring handles non-determinism.
+Define expected behavior in YAML, run it as a CI test suite with TAP or JUnit output; multi-run Wilson CI scoring handles non-determinism. 11 deterministic assertions cover tools called, output content, file existence, cost, step count, duration, and tool order.
 
 ```bash
 blueclaw test spec.yaml
 blueclaw test spec.yaml --format junit -o results.xml
 ```
-
-11 deterministic assertions: tools called, output content, file existence, cost, step count, duration, tool order.
 
 ### Context Management
 
@@ -103,77 +93,45 @@ Tool outputs from older turns are automatically masked to keep token cost low ac
 
 ### HTTP API — [docs/api.md](docs/api.md)
 
-Expose the agent over HTTP for programmatic access or tool integration.
+`blueclaw serve` exposes the agent over HTTP with bearer auth (`BLUECLAW_API_KEY`), body/timeout caps, and a configurable concurrency semaphore. `POST /message` returns a reply; `POST /message/stream` emits SSE token deltas; `POST /upload` attaches files (PDF, text, images with native vision) referenced by `file_id`. Per-`conversation_id` history persists via `FileSessionManager`, and every request writes a trace. A single-page chat UI ships at `GET /playground`.
 
 ```bash
 blueclaw serve                          # http://127.0.0.1:8420
 curl -X POST http://127.0.0.1:8420/message \
   -d '{"message": "what is in the workspace?"}' | jq .
-
-# Stream tokens as they're generated:
-curl -N -X POST http://127.0.0.1:8420/message/stream \
-  -d '{"message": "what is in the workspace?"}'
-
-# Attach a file, then reference its file_id in /message:
-FID=$(curl -s -X POST http://127.0.0.1:8420/upload \
-  -F "file=@photo.jpg" -F "conversation_id=c-1" | jq -r .file_id)
-curl -X POST http://127.0.0.1:8420/message \
-  -d "{\"message\":\"describe this\",\"conversation_id\":\"c-1\",\"file_ids\":[\"$FID\"]}"
 ```
-
-Bearer token auth (`BLUECLAW_API_KEY`), 1 MB body cap on JSON, 25 MB on `/upload`, 300 s timeout, CORS for localhost. A shared `asyncio.Semaphore` (default 4, configurable via `--max-concurrent`) caps simultaneous agent runs. Every API request writes a trace visible in `blueclaw trace ui`.
 
 ### Telegram Bridge — [docs/bridges/telegram.md](docs/bridges/telegram.md)
 
-Talk to blueclaw from your phone. Allowlist-enforced; each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` with its own `CONTEXT.md` and `history.jsonl`. Long-polling by default (no public URL needed); webhook mode opt-in for production.
+Talk to blueclaw from your phone. Allowlist-enforced; each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` with its own `CONTEXT.md` and `history.jsonl`. Long-polling by default (no public URL needed); webhook mode opt-in.
 
 ```bash
 pip install -e ".[telegram]"
 export TELEGRAM_BOT_TOKEN=123456:abc...
 blueclaw telegram                       # starts long-polling
 blueclaw telegram --echo --allow 12345  # smoke test, no model calls
-blueclaw telegram --webhook https://your.host/telegram
 ```
 
-Commands: `/whoami` (returns your IDs, works even unauthorized — for onboarding), `/start`, `/reset` (clears history, keeps `CONTEXT.md`), `/forget` (wipes both).
-
-Inspect per-chat history from the host: `blueclaw history --chat <id>` or `blueclaw history --all-chats` (aggregates default workspace + every chat, labeled by source). Every `blueclaw trace *` reader also accepts `--chat <id>` and, where union makes sense (`list`, `stats`, `purge`, `ui`), `--all-chats`. `blueclaw trace ui --all-chats` opens the dashboard with a workspace dropdown and a `Source` column.
+Commands: `/whoami`, `/start`, `/reset` (clears history), `/forget` (wipes both). Inspect per-chat history from the host with `blueclaw history --chat <id>` or `--all-chats`.
 
 ### Skills — [docs/skills.md](docs/skills.md)
 
-Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) that the agent loads on demand. Built on the [Strands `AgentSkills`](https://strandsagents.com/) plugin and the [AgentSkills.io](https://agentskills.io) standard, so skills are portable between blueclaw and any other compliant runtime.
+Skills are directories containing a `SKILL.md` (YAML frontmatter + markdown body) that the agent loads on demand, built on the [AgentSkills.io](https://agentskills.io) standard. Install from a local path, git URL (with optional `#subdir`), or direct HTTPS to raw `SKILL.md`. Per-project skills under `<project>/.blueclaw/skills/` take precedence over user-global skills under `~/blueclaw/skills/`.
 
 ```bash
-blueclaw skill install ./my-skill                          # local directory
-blueclaw skill install https://github.com/u/repo.git       # git URL
-blueclaw skill install https://github.com/u/repo.git#sub   # monorepo subdir
-blueclaw skill install https://example.com/raw/SKILL.md    # single-file URL
+blueclaw skill install ./my-skill
+blueclaw skill install https://github.com/u/repo.git#sub
 blueclaw skill list
-blueclaw skill show my-skill
-blueclaw skill uninstall my-skill --yes
 ```
-
-User-global skills live under `~/blueclaw/skills/`; per-project skills live under `<project>/.blueclaw/skills/` and take precedence on name collision. Install confirms before copying and refuses non-interactive runs without `--yes`.
 
 ### Docker Sandbox — [docs/sandbox.md](docs/sandbox.md)
 
-Opt-in container isolation for the entire agent process. When `sandbox.mode: docker` is set in `blueclaw.yaml`, blueclaw transparently re-execs into a short-lived container with the workspace bind-mounted, read-only root FS, `no-new-privileges`, all capabilities dropped, and configurable CPU / memory / pid caps. TTY and signals pass through; the container is invisible unless it fails to start.
+Opt-in container isolation for the entire agent process. With `sandbox.mode: docker` in `blueclaw.yaml`, blueclaw transparently re-execs into a short-lived container with the workspace bind-mounted, read-only root FS, `no-new-privileges`, all capabilities dropped, and configurable CPU / memory / pid caps. TTY and signals pass through; it falls back to in-process when Docker is unavailable. See the docs for image builds, network modes, and secret composition.
 
 ```bash
-blueclaw sandbox build      # build the runtime image (once per release / dev SHA)
+blueclaw sandbox build      # build the runtime image
 blueclaw sandbox doctor     # diagnose docker + image state
 ```
-
-```yaml
-sandbox:
-  mode: docker            # "inprocess" (default) | "docker"
-  network: bridge         # "bridge" | "none" | "proxy" (reserved for v3)
-  cpu: 1.0
-  memory_mb: 1024
-  on_unavailable: error   # fail-loud by default; "fallback" degrades to in-process
-```
-
-Secrets and host env vars flow in through a layered composition: built-in allowlist → `~/blueclaw/.env` → `<project>/.env.docker` → `extra_env` in YAML. Dotenv files are added to `.gitignore` by `blueclaw init`.
 
 ## Model Support — [docs/models.md](docs/models.md)
 
@@ -184,12 +142,7 @@ blueclaw --model openai/gpt-4.1-mini       # OpenAI
 blueclaw --model litellm/gemini/gemini-2.0-flash  # Gemini via LiteLLM
 ```
 
-Set API keys in `.env`:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-```
+Set API keys in `.env` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
 
 ## Configuration
 
@@ -215,6 +168,8 @@ allowlist_domains:
   - docs.python.org
 ```
 
+Drop a `SOUL.md` into your workspace to define the agent's persona and communication style — separate from `CONTEXT.md` (factual memory). `blueclaw init` writes a default template; edits are picked up on the next turn.
+
 ## Architecture
 
 <p align="center">
@@ -224,19 +179,18 @@ allowlist_domains:
 | Module | Purpose |
 |---|---|
 | `cli.py` | Typer entrypoints, welcome banner, trace tooling |
-| `runner.py` | Unified agent runner. Single owner of agent construction, invocation, capture, and MCP cleanup. `runner_session` (long-lived context manager) for terminal and HTTP; `run_turn` (per-call convenience) for eval and Telegram. `runner_session.__exit__` enforces `cleanup_mcp_clients` so adapters can't forget. Direct `create_agent` outside the runner is forbidden by `tests/test_no_direct_create_agent.py` |
-| `session.py` | Config, model factory, agent factory (`create_agent`, called by the runner), chat loop (delegates to `runner_session`), background context updater. `print_run_summary` is print-only — persistence is the adapter's job |
-| `server.py` | HTTP API gateway (`blueclaw serve`) — `/message`, `/message/stream`, `/playground`, `/health`, `/api/traces`; bearer auth, CORS, per-conversation locks. Both endpoints route through `runner_session` |
-| `bridges/` | Messenger bridges. `core.py` holds platform-agnostic `Allowlist`, `ChatContext`, `BridgeRouter` (routes through `runner.run_turn`). `telegram.py` is the python-telegram-bot adapter (long-polling default, webhook opt-in). Each chat gets its own workspace under `~/blueclaw/chats/<chat_id>/` |
-| `workspace.py` | Sandbox enforcement, context/history/trace I/O; multi-workspace resolver for trace + history readers |
+| `runner.py` | Unified agent runner — single owner of agent construction, invocation, capture, and MCP cleanup (`runner_session`, `run_turn`) |
+| `session.py` | Config, model + agent factory (`create_agent`), chat loop, background context updater |
+| `server.py` | HTTP API gateway — `/message`, `/message/stream`, `/upload`, `/playground`, bearer auth, per-conversation locks |
+| `bridges/` | Messenger bridges — platform-agnostic router + python-telegram-bot adapter; per-chat workspaces |
+| `workspace.py` | Sandbox enforcement; context/history/trace I/O; multi-workspace resolver |
 | `observer.py` | Structured tool tracing + output truncation |
-| `context.py` | Observation masking and hybrid summarization for context management |
-| `skills.py` | Skill discovery: project + global scope resolution for the Strands `AgentSkills` plugin |
-| `lessons.py` | Extracts behavioral hints from past traces and injects into system prompt |
+| `context.py` | Observation masking and hybrid summarization |
+| `skills.py` | Skill discovery — project + global scope resolution |
+| `lessons.py` | Behavioral hints extracted from past traces, injected into the system prompt |
 | `models.py` | Pydantic models, trace schema, cost calculation, error classification |
-| `launcher.py` | Docker sandbox decision: subcommand routing, env composition, argv assembly, `execvp` into `docker run` |
-| `dotenv.py` | Minimal KEY=VALUE parser for `~/blueclaw/.env` and `<project>/.env.docker` |
-| `testing.py` | Test spec loading, eval orchestration (delegates to `runner.run_turn`), 12 assertions, TAP/JUnit formatters, stub replay |
+| `launcher.py` | Docker sandbox decision — env composition, argv assembly, `execvp` into `docker run` |
+| `testing.py` | Test spec loading, eval orchestration, assertions, TAP/JUnit formatters |
 | `tools/` | Web, shell, MCP wiring (factory pattern) |
 | `approval.py` | Shell command + domain allowlist hooks |
 
@@ -260,10 +214,10 @@ Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contr
 
 ## Links
 
-- [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — The story behind blueclaw's design: why we built structured tracing into the terminal instead of a hosted service
-- [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/) — Benchmarks behind blueclaw's `ObservationMaskingManager`: why replacing stale tool outputs with placeholders beats LLM summarization on cost and speed
-- [How I Debug AI Agents Like Code (Not Guesswork)](https://blog.jztan.com/debug-ai-agents-like-code/) — A walkthrough of blueclaw's 10 `trace` CLI commands: `trace list` → `show` → `timeline` → `diff` turns "re-run and guess" debugging into actual inspection in under a minute
-- [I Built CI for My AI Agent (It Catches What You Miss)](https://blog.jztan.com/i-built-ci-for-ai-agents/) — Why behavioral contracts beat LLM-as-a-judge for agent CI: blueclaw's 12 deterministic assertions plus Wilson-CI three-verdict gates caught four regressions (tool substitution, step bloat, cost creep, ordering violations) that spot-checks missed
+- [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — why we built structured tracing into the terminal instead of a hosted service
+- [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/) — the benchmarks behind blueclaw's `ObservationMaskingManager`
+- [How I Debug AI Agents Like Code (Not Guesswork)](https://blog.jztan.com/debug-ai-agents-like-code/) — a walkthrough of the 10 `trace` CLI commands
+- [I Built CI for My AI Agent (It Catches What You Miss)](https://blog.jztan.com/i-built-ci-for-ai-agents/) — why behavioral contracts beat LLM-as-a-judge for agent CI
 
 ## License
 

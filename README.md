@@ -212,12 +212,18 @@ black --check blueclaw/ tests/
 
 Bug reports and pull requests are welcome. See [docs/contributing.md](docs/contributing.md) for the full guide.
 
-## Links
+## The Building Blueclaw Series
 
-- [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/) — why we built structured tracing into the terminal instead of a hosted service
-- [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/) — the benchmarks behind blueclaw's `ObservationMaskingManager`
-- [How I Debug AI Agents Like Code (Not Guesswork)](https://blog.jztan.com/debug-ai-agents-like-code/) — a walkthrough of the 10 `trace` CLI commands
-- [I Built CI for My AI Agent (It Catches What You Miss)](https://blog.jztan.com/i-built-ci-for-ai-agents/) — why behavioral contracts beat LLM-as-a-judge for agent CI
+Every major feature in this README has a post behind it covering the design decisions, benchmarks, and failure modes that shaped it:
+
+1. [AI Agent Observability Without a Dashboard](https://blog.jztan.com/ai-agent-observability-without-dashboard/): why structured tracing lives in the terminal, not a hosted service
+2. [I Cut My AI Agent's Token Costs 21% Without Changing the Model](https://blog.jztan.com/how-i-cut-ai-agent-token-costs/): the benchmarks behind the `ObservationMaskingManager`
+3. [How I Debug AI Agents Like Code (Not Guesswork)](https://blog.jztan.com/debug-ai-agents-like-code/): a walkthrough of the 10 `trace` CLI commands
+4. [I Built CI for My AI Agent (It Catches What You Miss)](https://blog.jztan.com/i-built-ci-for-ai-agents/): why behavioral contracts beat LLM-as-a-judge for agent CI
+5. [How to Evaluate LLM Agents: 5 Patterns That Catch Failures](https://blog.jztan.com/how-to-evaluate-llm-agents/): the eval patterns behind `blueclaw test`
+6. [AI Agent Cloudflare 403: Two Libraries That Fix It and Cut Tokens 90%](https://blog.jztan.com/ai-agent-web-fetch-403-and-token-fix/): the curl_cffi + trafilatura fetch-extract pipeline behind the `http_request` tool
+
+New posts land roughly weekly at [blog.jztan.com](https://blog.jztan.com/).
 
 ## License
 

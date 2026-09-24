@@ -6,6 +6,7 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -143,7 +144,9 @@ def test_stop_kills_descendant_after_shell_exits(tmp_path):
         assert not thread.is_alive()
         assert "cancel" in result[0].lower()
         assert not (tmp_path / "late-side-effect").exists()
-        # A terminated child can be briefly a zombie until its parent reaps it.
+        deadline = time.monotonic() + 3
+        while _pid_running(pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert not _pid_running(pid)
     finally:
         control.request_stop("user")
@@ -157,6 +160,13 @@ def _pid_running(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    if sys.platform.startswith("linux"):
+        try:
+            # An orphaned child may remain as a zombie until PID 1 reaps it.
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1][0]
+        except FileNotFoundError:
+            return False
+        return state not in {"Z", "X"}
     return True
 
 

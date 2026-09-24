@@ -164,7 +164,8 @@ const log = $('#log');
 const cidInput = $('#cid');
 const cidStatus = $('#cidStatus');
 let totalTurns = 0, totalTokens = 0, totalCost = 0;
-let activeController = null;
+let costPartial = false;
+let activeRun = null;
 
 const attachments = $('#attachments');
 const fileInput = $('#fileInput');
@@ -248,6 +249,7 @@ $('#newConv').onclick = () => {
   setCid(uid());
   $('#log').innerHTML = "";
   totalTurns = totalTokens = totalCost = 0;
+  costPartial = false;
   refreshStats();
   appendSys("new conversation: " + cidInput.value);
 };
@@ -258,7 +260,7 @@ setCid("");
 function refreshStats() {
   $('#sTurns').textContent = totalTurns;
   $('#sTokens').textContent = totalTokens.toLocaleString();
-  $('#sCost').textContent = "$" + totalCost.toFixed(4);
+  $('#sCost').textContent = "$" + totalCost.toFixed(4) + (costPartial ? " (partial)" : "");
 }
 function append(role, text, meta) {
   const div = document.createElement('div');
@@ -280,6 +282,7 @@ function metaLine(d) {
   if (d.conversation_id) bits.push("conv " + d.conversation_id);
   if (typeof d.tokens === "number") bits.push(d.tokens.toLocaleString() + " tokens");
   if (typeof d.cost === "number") bits.push("$" + d.cost.toFixed(4));
+  if (d.usage_complete === false) bits.push("usage partial");
   return bits.join(" · ");
 }
 
@@ -290,10 +293,80 @@ $('#input').addEventListener('keydown', (e) => {
   }
 });
 
-$('#cancel').onclick = () => activeController && activeController.abort();
+function newRequestId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function requestStop(run) {
+  if (activeRun !== run || !run.pending || run.stopPending) return;
+  run.stopPending = true;
+  $('#cancel').disabled = true;
+  $('#cancel').textContent = 'Stopping…';
+  const deadline = performance.now() + 2000;
+  try {
+    while (activeRun === run && run.pending) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      let response;
+      try {
+        response = await fetch(
+          `${run.server}/requests/${encodeURIComponent(run.requestId)}/cancel`,
+          { method: 'POST', headers: run.headers, signal: controller.signal }
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      if (activeRun !== run || !run.pending) return;
+      if (response.status === 202 || response.status === 409) return;
+      if (response.status !== 404 || performance.now() >= deadline) {
+        throw new Error('Stop was not accepted; run may still be active.');
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } catch (error) {
+    if (activeRun === run && run.pending) {
+      append('system', error.message).classList.add('err');
+      run.stopPending = false;
+      $('#cancel').disabled = false;
+      $('#cancel').textContent = 'Stop';
+    }
+  }
+}
+
+$('#cancel').onclick = () => { if (activeRun) requestStop(activeRun); };
+
+function finishRun(run, payload, div) {
+  if (activeRun !== run || !run.pending) return;
+  run.pending = false;
+  run.terminalSeen = true;
+  const status = payload.status || 'success';
+  const label = status === 'cancelled' ? 'Stopped' : status === 'error' ? 'Failed' : 'Completed';
+  const meta = [label, metaLine(payload)].filter(Boolean).join(' · ');
+  if (div) {
+    div.classList.remove('streaming');
+    const m = document.createElement('div');
+    m.className = 'meta' + (status === 'error' ? ' err' : '');
+    m.textContent = meta + (payload.error ? ' · ' + payload.error : '');
+    div.appendChild(m);
+  } else if (payload.reply) {
+    append('bot', payload.reply, meta);
+  } else {
+    appendSys(meta);
+  }
+  totalTurns += 1;
+  totalTokens += payload.tokens || 0;
+  if (typeof payload.cost === 'number') totalCost += payload.cost;
+  if (payload.usage_complete === false || typeof payload.cost !== 'number') costPartial = true;
+  if (payload.run_id) $('#sRun').textContent = payload.run_id;
+  refreshStats();
+}
 
 $('#form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (activeRun && activeRun.pending) return;
   const text = $('#input').value.trim();
   if (!text) return;
   const cid = cidInput.value.trim() || undefined;
@@ -305,44 +378,56 @@ $('#form').addEventListener('submit', async (e) => {
   $('#input').value = "";
   $('#send').disabled = true;
   $('#cancel').disabled = false;
-  activeController = new AbortController();
-
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
+  const run = {
+    requestId: newRequestId(), server, headers, pending: true,
+    stopPending: false, terminalSeen: false
+  };
+  activeRun = run;
+
   const fileIds = pendingFiles.filter(p => p.status === 'ready').map(p => p.file_id);
-  const body = JSON.stringify({ message: text, conversation_id: cid, file_ids: fileIds });
+  const body = JSON.stringify({
+    message: text, conversation_id: cid, file_ids: fileIds, request_id: run.requestId
+  });
 
   try {
     if (useStream) {
-      await streamReq(server + "/message/stream", headers, body);
-      pendingFiles = [];
-      renderAttachments();
+      await streamReq(run, body);
     } else {
       const r = await fetch(server + "/message", {
-        method: "POST", headers, body, signal: activeController.signal
+        method: "POST", headers, body
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-      append('bot', j.reply || "(empty reply)", metaLine(j));
-      totalTurns += 1;
-      totalTokens += j.tokens || 0;
-      totalCost += j.cost || 0;
-      refreshStats();
+      if (!r.ok && !j.run_id) throw new Error(j.error || ("HTTP " + r.status));
+      finishRun(run, j);
+    }
+    if (run.terminalSeen) {
       pendingFiles = [];
       renderAttachments();
     }
   } catch (err) {
-    append('system', "error: " + err.message).classList.add('err');
+    if (activeRun === run && !run.terminalSeen) {
+      const message = useStream && !err.message.startsWith('HTTP ')
+        ? 'Connection lost; stop not confirmed.' : 'error: ' + err.message;
+      append('system', message).classList.add('err');
+    }
   } finally {
-    $('#send').disabled = false;
-    $('#cancel').disabled = true;
-    activeController = null;
-    $('#input').focus();
+    if (activeRun === run) {
+      run.pending = false;
+      $('#send').disabled = false;
+      $('#cancel').disabled = true;
+      $('#cancel').textContent = 'Stop';
+      activeRun = null;
+      $('#input').focus();
+    }
   }
 });
 
-async function streamReq(url, headers, body) {
-  const r = await fetch(url, { method: "POST", headers, body, signal: activeController.signal });
+async function streamReq(run, body) {
+  const r = await fetch(run.server + '/message/stream', {
+    method: 'POST', headers: run.headers, body
+  });
   if (!r.ok) {
     const t = await r.text();
     throw new Error("HTTP " + r.status + ": " + t);
@@ -372,22 +457,14 @@ async function streamReq(url, headers, body) {
         acc += payload.text || "";
         div.firstChild ? (div.childNodes[0].nodeValue = acc) : div.appendChild(document.createTextNode(acc));
         log.scrollTop = log.scrollHeight;
-      } else if (ev === "done") {
-        const m = document.createElement('div');
-        m.className = "meta"; m.textContent = metaLine(payload);
-        div.appendChild(m);
-        totalTurns += 1;
-        totalTokens += payload.tokens || 0;
-        totalCost += payload.cost || 0;
-        refreshStats();
-      } else if (ev === "error") {
-        const m = document.createElement('div');
-        m.className = "meta err"; m.textContent = "error: " + (payload.error || JSON.stringify(payload));
-        div.appendChild(m);
+      } else if (ev === 'done' || ev === 'stopped' || ev === 'error') {
+        finishRun(run, { ...payload, status: ev === 'stopped' ? 'cancelled' :
+          ev === 'error' ? 'error' : 'success' }, div);
       }
     }
   }
   div.classList.remove('streaming');
+  if (!run.terminalSeen) throw new Error('connection ended without terminal event');
 }
 </script>
 </body>

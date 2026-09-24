@@ -349,6 +349,8 @@ def finalize(
             response_text=response_text,
             messages=list(getattr(ctx.agent, "messages", [])),
         )
+        if capture_errors:
+            trace.capture_path = None
 
     return RunOutcome(
         result=result,
@@ -422,6 +424,8 @@ def finalize_error(
             response_text=response_text,
             messages=list(getattr(ctx.agent, "messages", [])),
         )
+        if capture_errors:
+            trace.capture_path = None
 
     return RunOutcome(
         result=None,
@@ -473,6 +477,8 @@ def finalize_unstarted(
             if capture_path is not None
             else []
         )
+        if errors:
+            trace.capture_path = None
         if bus is not None:
             bus.emit({"type": "run.terminal", "status": "cancelled", "run_id": run_id})
     return RunOutcome(

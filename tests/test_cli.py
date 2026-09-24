@@ -412,6 +412,21 @@ class TestTraceCommands:
             assert "2847" in result.output
             assert "$0.0042" in result.output
 
+    def test_trace_show_marks_cancelled_usage_partial(self, tmp_path):
+        ws_path = tmp_path / "workspace"
+        trace = _write_test_trace(ws_path)
+        trace.status = "cancelled"
+        trace.termination_reason = "user"
+        trace.usage_complete = False
+        trace.total_cost = None
+        Workspace(ws_path).write_trace(trace)
+        with patch("blueclaw.cli.DEFAULT_WORKSPACE", ws_path):
+            result = runner.invoke(app, ["trace", "show", trace.run_id])
+        assert result.exit_code == 0
+        assert "cancelled" in result.output
+        assert "partial" in result.output.lower()
+        assert "free" not in result.output.lower()
+
 
 class TestTraceExplain:
     def test_explain_command_exists(self):

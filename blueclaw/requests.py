@@ -17,6 +17,7 @@ class ActiveRequest:
     task: asyncio.Task | None = None
     admitted: bool = False
     streaming: bool = False
+    capture_errors: list[dict] = field(default_factory=list)
 
     async def publish(self, event: dict) -> None:
         if self.detached.is_set():

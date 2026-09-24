@@ -334,6 +334,40 @@ def test_cleanup_attempts_all_clients_and_close_is_idempotent(fake_session):
     second.stop.assert_called_once()
 
 
+def test_failed_capture_does_not_publish_a_capture_link(fake_session, tmp_path):
+    config, workspace = fake_session
+    agent = _fake_agent_factory()
+    now = datetime.now(timezone.utc)
+    capture = tmp_path / "blocked" / "turn-001"
+    with (
+        patch("blueclaw.runner.create_agent", return_value=agent),
+        patch(
+            "blueclaw.runner._write_capture_artifacts",
+            return_value=[
+                {
+                    "stage": "response.txt",
+                    "error": "disk full",
+                }
+            ],
+        ),
+    ):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            outcome = finalize(
+                ctx,
+                _fake_result(),
+                goal="g",
+                source="api",
+                conversation_id="c",
+                start_time=now,
+                end_time=now,
+                config=config,
+                capture_path=capture,
+                workspace_root=tmp_path,
+            )
+    assert outcome.capture_errors
+    assert outcome.trace.capture_path is None
+
+
 def test_cleanup_failure_overrides_cancelled_status(fake_session):
     config, workspace = fake_session
     agent = _fake_agent_factory()

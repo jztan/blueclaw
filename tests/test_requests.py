@@ -27,3 +27,20 @@ async def test_registry_rejects_duplicate_without_replacing_owner():
     assert registry.get("r") is first
     registry.finish("r")
     assert registry.get("r") is None
+
+
+@pytest.mark.asyncio
+async def test_shutdown_signals_and_joins_owned_tasks():
+    registry = RequestRegistry()
+    active = registry.register("r")
+    finished = asyncio.Event()
+
+    async def owned_run():
+        while not active.cancellation.event.is_set():
+            await asyncio.sleep(0.001)
+        finished.set()
+
+    active.task = asyncio.create_task(owned_run())
+    await asyncio.wait_for(registry.shutdown(), 1)
+    assert finished.is_set()
+    assert active.detached.is_set()

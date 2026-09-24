@@ -48,6 +48,31 @@ def _make_trace(
     )
 
 
+def test_cancelled_trace_usage_survives_serialization_and_aggregation(tmp_path):
+    from blueclaw.web import (
+        _aggregate_conversations,
+        _serialize_trace_summary,
+        _serialize_turn_summary,
+    )
+
+    cancelled = _make_trace(status="cancelled", cost=None).model_copy(
+        update={
+            "conversation_id": "conv",
+            "termination_reason": "user",
+            "usage_complete": False,
+        }
+    )
+    reread = RunTrace.from_json(cancelled.to_json())
+    assert reread.status == "cancelled"
+    assert reread.total_cost is None
+    assert reread.usage_complete is False
+    assert _serialize_trace_summary(reread)["usage_complete"] is False
+    assert _serialize_turn_summary(reread, tmp_path)["usage_complete"] is False
+    agg = _aggregate_conversations([reread])
+    assert agg["conv"]["usage_complete"] is False
+    assert agg["conv"]["total_tokens"] == 1840
+
+
 @pytest.fixture
 def web_client(tmp_path):
     from starlette.testclient import TestClient
@@ -94,6 +119,20 @@ class TestIndex:
 
 
 class TestListTraces:
+    def test_cancelled_usage_in_trace_and_conversation_api(self, web_client):
+        client, ws = web_client
+        trace = _make_trace(status="cancelled", cost=None).model_copy(
+            update={"conversation_id": "conv", "usage_complete": False}
+        )
+        ws.write_trace(trace)
+        listed = client.get("/api/traces").json()["traces"][0]
+        assert listed["status"] == "cancelled"
+        assert listed["usage_complete"] is False
+        assert listed["total_cost"] is None
+        conversation = client.get("/api/conversations/conv").json()
+        assert conversation["usage_complete"] is False
+        assert conversation["turns"][0]["usage_complete"] is False
+
     def test_list_traces_json(self, web_client):
         client, ws = web_client
         ws.write_trace(_make_trace("20260320-143022"))

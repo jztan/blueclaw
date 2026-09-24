@@ -243,6 +243,24 @@ def create_server_app(
             usage_complete=trace.usage_complete,
         ).model_dump() | {"request_id": request_id}
 
+    def _capture_path(cid: str | None, active: ActiveRequest) -> Path:
+        key = cid or "request-" + active.request_id
+        try:
+            return next_capture_path(workspace.root, key)
+        except OSError as exc:
+            active.capture_errors.append(
+                {"stage": "allocate", "error": f"{type(exc).__name__}: {exc}"}
+            )
+            logger.warning("turn capture allocation failed: %s", exc)
+            return (
+                workspace.root
+                / ".blueclaw"
+                / "conversations"
+                / key
+                / "turns"
+                / ("request-" + active.request_id)
+            )
+
     async def _run_request(req, prompt, active: ActiveRequest):
         cid = req.conversation_id
         start_time = datetime.now(timezone.utc)
@@ -258,9 +276,7 @@ def create_server_app(
                 held_slot = await _acquire_or_stop(semaphore, active)
             if active.cancellation.event.is_set() or not held_slot:
                 reason = active.cancellation.begin_finalization() or "user"
-                capture = next_capture_path(
-                    workspace.root, "request-" + active.request_id
-                )
+                capture = _capture_path(None, active)
                 outcome = finalize_unstarted(
                     goal=req.message,
                     source="api",
@@ -272,14 +288,15 @@ def create_server_app(
                     workspace_root=workspace.root,
                     termination_reason=reason,
                 )
+                if active.capture_errors:
+                    outcome.trace.capture_path = None
                 workspace.write_trace(outcome.trace)
                 workspace.append_history(outcome.record)
+                outcome.capture_errors.extend(active.capture_errors)
                 return outcome
 
             active.admitted = True
-            capture = next_capture_path(
-                workspace.root, cid or "request-" + active.request_id
-            )
+            capture = _capture_path(cid, active)
             session_manager = (
                 FileSessionManager(
                     session_id=cid,
@@ -375,8 +392,11 @@ def create_server_app(
                             termination_reason=reason,
                             usage_complete=(reason is None),
                         )
+                    if active.capture_errors:
+                        outcome.trace.capture_path = None
                     workspace.write_trace(outcome.trace)
                     workspace.append_history(outcome.record)
+                    outcome.capture_errors.extend(active.capture_errors)
                     if bus is not None:
                         bus.emit(
                             {

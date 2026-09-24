@@ -569,6 +569,15 @@ class TestRunTraceContextFields:
 
 
 class TestMessageRequest:
+    @pytest.mark.parametrize("request_id", ["", "bad.id", "é", "x" * 65])
+    def test_request_id_rejects_unsafe_values(self, request_id):
+        with pytest.raises(ValidationError, match="request_id"):
+            MessageRequest(message="hi", request_id=request_id)
+
+    def test_request_id_accepts_ascii_safe_value(self):
+        req = MessageRequest(message="hi", request_id="run_123-AB")
+        assert req.request_id == "run_123-AB"
+
     def test_message_required(self):
         with pytest.raises(ValidationError):
             MessageRequest()

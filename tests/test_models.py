@@ -59,6 +59,20 @@ class TestSessionConfigDefaults:
 
 
 class TestRunRecord:
+    def test_old_record_defaults_to_complete_success(self):
+        old = json.dumps(
+            {
+                "ts": "2026-03-14T12:00:00Z",
+                "goal": "old",
+                "tools": [],
+                "tokens": 4,
+            }
+        )
+        record = RunRecord.from_jsonl(old)
+        assert record.status == "success"
+        assert record.usage_complete is True
+        assert record.termination_reason is None
+
     def test_run_record_creation(self):
         ts = datetime(2026, 3, 14, 12, 0, 0, tzinfo=timezone.utc)
         rec = RunRecord(

@@ -35,20 +35,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def cleanup_mcp_clients(observer) -> None:
+def cleanup_mcp_clients(observer) -> list[dict]:
     """Close any MCPClient tools."""
     import warnings
 
+    failures: list[dict] = []
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        for client in getattr(observer, "mcp_clients", []):
+        for index, client in enumerate(getattr(observer, "mcp_clients", [])):
             try:
                 if hasattr(client, "stop"):
                     client.stop(None, None, None)
                 elif hasattr(client, "close"):
                     client.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                failures.append(
+                    {
+                        "stage": "mcp_cleanup",
+                        "client": index,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+    return failures
 
 
 def extract_text(value: Any) -> str:

@@ -10,7 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from blueclaw.models import SessionConfig
-from blueclaw.runner import RunOutcome, _write_capture_artifacts, runner_session
+from blueclaw.runner import (
+    RunOutcome,
+    _write_capture_artifacts,
+    finalize,
+    finalize_error,
+    runner_session,
+)
 from blueclaw.workspace import Workspace
 
 
@@ -273,14 +279,129 @@ def test_finalize_error_populates_error_and_skips_trace(fake_session, tmp_path: 
             )
 
     assert outcome.error is err
-    assert outcome.trace is None
-    assert outcome.record is None
+    assert outcome.trace.status == "error"
+    assert outcome.record.status == "error"
+    assert outcome.trace.usage_complete is False
     assert outcome.response_text == ""
     # Capture still happened against agent.messages at failure point.
     assert (capture_path / "response.txt").read_text() == ""
     assert json.loads((capture_path / "messages.json").read_text()) == [
         {"role": "user", "content": "boom"}
     ]
+
+
+def test_error_capture_preserves_only_current_partial(fake_session):
+    config, workspace = fake_session
+    agent = _fake_agent_factory()
+    agent.messages = [{"role": "assistant", "content": [{"text": "OLD"}]}]
+    now = datetime.now(timezone.utc)
+    capture = workspace.root / ".blueclaw" / "partial"
+    with patch("blueclaw.runner.create_agent", return_value=agent):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            outcome = finalize_error(
+                ctx,
+                RuntimeError("failed"),
+                goal="new",
+                source="api",
+                conversation_id="c",
+                start_time=now,
+                end_time=now,
+                config=config,
+                capture_path=capture,
+                workspace_root=workspace.root,
+                response_text="NEW partial",
+            )
+    assert (capture / "response.txt").read_text() == "NEW partial"
+    assert outcome.response_text == "NEW partial"
+    assert outcome.trace.status == "error"
+    assert not outcome.trace.usage_complete
+    assert outcome.record.cost is None
+
+
+def test_cleanup_attempts_all_clients_and_close_is_idempotent(fake_session):
+    config, workspace = fake_session
+    agent = _fake_agent_factory()
+    first = MagicMock()
+    first.stop.side_effect = RuntimeError("close failed")
+    second = MagicMock()
+    with patch("blueclaw.runner.create_agent", return_value=agent):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            ctx.observer.mcp_clients = [first, second]
+            errors = ctx.close()
+            assert errors[0]["stage"] == "mcp_cleanup"
+            assert ctx.close() == errors
+    first.stop.assert_called_once()
+    second.stop.assert_called_once()
+
+
+def test_cleanup_failure_overrides_cancelled_status(fake_session):
+    config, workspace = fake_session
+    agent = _fake_agent_factory()
+    agent.messages = []
+    agent_result = _fake_result()
+    agent_result.stop_reason = "cancelled"
+    now = datetime.now(timezone.utc)
+    with patch("blueclaw.runner.create_agent", return_value=agent):
+        with runner_session(config, workspace, model=MagicMock()) as ctx:
+            client = MagicMock()
+            client.stop.side_effect = RuntimeError("cleanup failed")
+            ctx.observer.mcp_clients = [client]
+            ctx.close()
+            outcome = finalize(
+                ctx,
+                agent_result,
+                goal="g",
+                source="api",
+                conversation_id="c",
+                start_time=now,
+                end_time=now,
+                config=config,
+                response_text="partial",
+            )
+    assert outcome.trace.status == "error"
+    assert outcome.trace.termination_reason == "cleanup_failed"
+    assert outcome.trace.original_termination_reason == "user"
+    assert outcome.record.status == "error"
+    assert outcome.cleanup_errors
+
+
+def test_unstarted_cancel_creates_empty_capture_and_record(fake_session):
+    from blueclaw.runner import finalize_unstarted
+
+    config, workspace = fake_session
+    now = datetime.now(timezone.utc)
+    capture = (
+        workspace.root / ".blueclaw" / "conversations" / "r" / "turns" / "turn-001"
+    )
+    outcome = finalize_unstarted(
+        goal="g",
+        source="api",
+        conversation_id="c",
+        start_time=now,
+        end_time=now,
+        config=config,
+        capture_path=capture,
+        workspace_root=workspace.root,
+        termination_reason="user",
+    )
+    assert outcome.trace.status == "cancelled"
+    assert outcome.trace.usage_complete
+    assert outcome.record.tokens == 0
+    assert (capture / "response.txt").read_text() == ""
+    assert json.loads((capture / "messages.json").read_text()) == []
+    assert (capture / "events.jsonl").exists()
+
+
+def test_bus_capture_mkdir_failure_is_best_effort(fake_session):
+    from blueclaw.runner import bus_for_turn
+
+    config, workspace = fake_session
+    del config
+    blocker = workspace.root / "blocker"
+    blocker.write_text("not a directory")
+    observer = MagicMock()
+    with bus_for_turn(observer, blocker / "capture") as bus:
+        assert bus is None
 
 
 # ---------------------------------------------------------------------------
@@ -339,8 +460,8 @@ def test_run_turn_catches_agent_exception_and_attempts_capture(
         )
 
     assert outcome.error is err
-    assert outcome.trace is None
-    assert outcome.record is None
+    assert outcome.trace.status == "error"
+    assert outcome.record.status == "error"
     # Capture still attempted.
     assert (capture_path / "messages.json").exists()
     # Cleanup still ran.

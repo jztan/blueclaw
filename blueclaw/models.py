@@ -162,6 +162,10 @@ class RunRecord(BaseModel):
     tokens: int
     cost: float | None = None
     conversation_id: str | None = None
+    status: str = "success"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
 
     def to_jsonl(self) -> str:
         """Serialize to a single-line JSON string."""
@@ -204,6 +208,10 @@ class MessageResponse(BaseModel):
     conversation_id: str | None
     tokens: int
     cost: float | None
+    status: str = "success"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
 
 
 class TelegramBridgeConfig(BaseModel):
@@ -293,7 +301,10 @@ class RunTrace(BaseModel):
     steps: list[TraceStep]
     total_tokens: int
     total_cost: float | None = None
-    status: str  # "success" | "error"
+    status: str  # "success" | "error" | "cancelled"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
     context_masked_chars: int | None = None
     context_strategy: str | None = None
     source: str = "terminal"  # "terminal" | "api" | "eval" | "telegram"

@@ -187,6 +187,14 @@ class MessageRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     file_ids: list[str] = []
+    request_id: str | None = None
+
+    @field_validator("request_id")
+    @classmethod
+    def validate_request_id(cls, v: str | None) -> str | None:
+        if v is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", v):
+            raise ValueError("request_id must be 1-64 ASCII letters, digits, _ or -")
+        return v
 
     @field_validator("conversation_id")
     @classmethod

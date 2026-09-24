@@ -170,7 +170,8 @@ class RunnerCtx:
         """Close MCP clients once and retain every cleanup failure."""
         if not self._closed:
             self._closed = True
-            self.cleanup_errors = cleanup_mcp_clients(self.observer) or []
+            result = cleanup_mcp_clients(self.observer)
+            self.cleanup_errors = result if isinstance(result, list) else []
         return self.cleanup_errors
 
 

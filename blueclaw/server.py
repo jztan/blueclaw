@@ -11,10 +11,10 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
@@ -29,7 +29,6 @@ from blueclaw.models import (
     MessageResponse,
     SessionConfig,
     UploadResponse,
-    calculate_cost,
 )
 from blueclaw.uploads import (
     MAX_UPLOAD_BYTES,
@@ -39,15 +38,17 @@ from blueclaw.uploads import (
 )
 from blueclaw.session import (
     BackgroundContextUpdater,
-    extract_text,
 )
 from blueclaw.runner import (
     bus_for_turn,
     finalize,
+    finalize_error,
+    finalize_unstarted,
     next_capture_path,
     runner_session,
     validate_session_id,
 )
+from blueclaw.requests import ActiveRequest, RequestRegistry
 from blueclaw.workspace import Workspace, WorkspaceError
 from strands.session.file_session_manager import FileSessionManager
 
@@ -121,44 +122,19 @@ async def _parse_request(
         req = MessageRequest(**json.loads(body))
     except ValidationError as exc:
         # Pydantic echoes the rejected input_value in str(exc). For
-        # conversation_id failures that's a path-traversal leak, so collapse
+        # identifier failures that can contain sensitive input, so collapse
         # to a generic message instead of forwarding the validation detail.
         for err in exc.errors():
-            if "conversation_id" in err.get("loc", ()):
+            for field in ("conversation_id", "request_id"):
+                if field not in err.get("loc", ()):
+                    continue
                 return None, JSONResponse(
-                    {"error": "invalid conversation_id"}, status_code=400
+                    {"error": f"invalid {field}"}, status_code=400
                 )
         return None, JSONResponse({"error": str(exc)}, status_code=400)
     except (json.JSONDecodeError, TypeError) as exc:
         return None, JSONResponse({"error": str(exc)}, status_code=400)
     return req, None
-
-
-def _build_response_payload(
-    result: Any,
-    req: MessageRequest,
-    config: SessionConfig,
-    run_id: str,
-) -> dict:
-    """Extract MessageResponse payload from an AgentResult."""
-    usage = (
-        result.metrics.accumulated_usage
-        if isinstance(result.metrics.accumulated_usage, dict)
-        else {}
-    )
-    return MessageResponse(
-        reply=extract_text(result.message),
-        run_id=run_id,
-        conversation_id=req.conversation_id,
-        tokens=usage.get("totalTokens", 0),
-        cost=calculate_cost(
-            config.model_id,
-            usage.get("inputTokens", 0),
-            usage.get("outputTokens", 0),
-            usage.get("cacheReadInputTokens", 0),
-            usage.get("cacheWriteInputTokens", 0),
-        ),
-    ).model_dump()
 
 
 class _LockRegistry:
@@ -195,6 +171,7 @@ def create_server_app(
 
     semaphore = asyncio.Semaphore(config.max_concurrent_runs)
     conv_locks = _LockRegistry()
+    requests = RequestRegistry()
     upload_store = UploadStore(workspace.root)
 
     # Per-turn CONTEXT.md updater. trigger() is no-op if a previous update is
@@ -206,6 +183,7 @@ def create_server_app(
     @contextlib.asynccontextmanager
     async def lifespan(_app):
         yield
+        await requests.shutdown()
         if context_updater is None:
             return
         try:
@@ -219,28 +197,89 @@ def create_server_app(
     async def playground(request: Request) -> HTMLResponse:
         return HTMLResponse(_PLAYGROUND_HTML)
 
-    async def handle_message(request: Request) -> JSONResponse:
+    async def _prepare_message(request: Request):
         req, err = await _parse_request(request)
         if err is not None:
-            return err
-        try:
-            cid = req.conversation_id
-            if cid is not None:
-                try:
-                    validate_session_id(cid)
-                except ValueError as exc:
-                    logger.info("rejected conversation_id: %s", exc)
-                    return JSONResponse(
-                        {"error": "invalid conversation_id"}, status_code=400
-                    )
-            records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
-            if err_resp is not None:
-                return err_resp
+            return None, None, err
+        cid = req.conversation_id
+        if cid is not None:
             try:
-                prompt = build_agent_input(records, req.message)
-            except UploadError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
-            conv_lock = await conv_locks.get(cid) if cid else None
+                validate_session_id(cid)
+            except ValueError:
+                return (
+                    None,
+                    None,
+                    JSONResponse({"error": "invalid conversation_id"}, status_code=400),
+                )
+        records, err = _resolve_attachments(upload_store, cid, req.file_ids)
+        if err is not None:
+            return None, None, err
+        try:
+            prompt = build_agent_input(records, req.message)
+        except UploadError as exc:
+            return None, None, JSONResponse({"error": str(exc)}, status_code=400)
+        return req, prompt, None
+
+    async def _acquire_or_stop(lock, active: ActiveRequest) -> bool:
+        while not active.cancellation.event.is_set():
+            try:
+                await asyncio.wait_for(lock.acquire(), timeout=0.05)
+                return True
+            except asyncio.TimeoutError:
+                continue
+        return False
+
+    def _payload(outcome, req, request_id: str) -> dict:
+        trace = outcome.trace
+        return MessageResponse(
+            reply=outcome.response_text,
+            run_id=trace.run_id,
+            conversation_id=req.conversation_id,
+            tokens=trace.total_tokens,
+            cost=trace.total_cost,
+            status=trace.status,
+            termination_reason=trace.termination_reason,
+            original_termination_reason=trace.original_termination_reason,
+            usage_complete=trace.usage_complete,
+        ).model_dump() | {"request_id": request_id}
+
+    async def _run_request(req, prompt, active: ActiveRequest):
+        cid = req.conversation_id
+        start_time = datetime.now(timezone.utc)
+        conv_lock = await conv_locks.get(cid) if cid else None
+        held_lock = False
+        held_slot = False
+        try:
+            if conv_lock is not None:
+                held_lock = await _acquire_or_stop(conv_lock, active)
+            if (
+                conv_lock is None or held_lock
+            ) and not active.cancellation.event.is_set():
+                held_slot = await _acquire_or_stop(semaphore, active)
+            if active.cancellation.event.is_set() or not held_slot:
+                reason = active.cancellation.begin_finalization() or "user"
+                capture = next_capture_path(
+                    workspace.root, "request-" + active.request_id
+                )
+                outcome = finalize_unstarted(
+                    goal=req.message,
+                    source="api",
+                    conversation_id=cid,
+                    start_time=start_time,
+                    end_time=datetime.now(timezone.utc),
+                    config=config,
+                    capture_path=capture,
+                    workspace_root=workspace.root,
+                    termination_reason=reason,
+                )
+                workspace.write_trace(outcome.trace)
+                workspace.append_history(outcome.record)
+                return outcome
+
+            active.admitted = True
+            capture = next_capture_path(
+                workspace.root, cid or "request-" + active.request_id
+            )
             session_manager = (
                 FileSessionManager(
                     session_id=cid,
@@ -249,220 +288,238 @@ def create_server_app(
                 if cid
                 else None
             )
+            with runner_session(
+                config,
+                workspace,
+                model,
+                session_manager=session_manager,
+                channel="api",
+                callback_handler=None,
+                scripted=True,
+                cancellation=active.cancellation,
+            ) as ctx:
+                with bus_for_turn(ctx.observer, capture, cid=cid) as bus:
+                    chunks = []
+                    result = None
+                    error = None
 
-            async def _run() -> JSONResponse:
-                async with semaphore:
-                    # Both endpoints use runner_session directly (not run_turn) to
-                    # keep trigger(agent) inside the agent-alive scope — it must
-                    # precede cleanup_mcp_clients (runner_session.__exit__),
-                    # which is enforced structurally by this `with` block. See
-                    # docs/superpowers/specs/2026-05-17-http-runner-migration-design.md.
-                    with runner_session(
-                        config,
-                        workspace,
-                        model,
-                        session_manager=session_manager,
-                        channel="api",
-                        callback_handler=None,
-                        scripted=True,
-                    ) as ctx:
-                        capture_path = (
-                            next_capture_path(workspace.root, cid) if cid else None
-                        )
-                        start_time = datetime.now(timezone.utc)
-                        with bus_for_turn(ctx.observer, capture_path, cid=cid):
-                            try:
-                                result = await asyncio.wait_for(
-                                    asyncio.to_thread(ctx.agent, prompt),
-                                    timeout=_TIMEOUT,
-                                )
-                            except asyncio.TimeoutError:
-                                return JSONResponse(
-                                    {"error": "agent timed out"}, status_code=504
-                                )
-                            end_time = datetime.now(timezone.utc)
-                            outcome = finalize(
-                                ctx,
-                                result,
-                                goal=req.message,
-                                source="api",
-                                conversation_id=cid,
-                                start_time=start_time,
-                                end_time=end_time,
-                                config=config,
-                                capture_path=capture_path,
-                                workspace_root=workspace.root,
-                            )
+                    async def timeout_after():
+                        await asyncio.sleep(_TIMEOUT)
+                        active.cancellation.request_stop("timeout")
+
+                    timer = asyncio.create_task(timeout_after())
+                    try:
+                        async for event in ctx.agent.stream_async(prompt):
+                            if not isinstance(event, dict):
+                                continue
+                            chunk = event.get("data")
+                            if chunk:
+                                chunks.append(chunk)
+                                if active.streaming:
+                                    await active.publish(
+                                        {"type": "delta", "text": chunk}
+                                    )
+                            if event.get("result") is not None:
+                                result = event["result"]
+                    except Exception as exc:
+                        error = exc
+                    finally:
+                        timer.cancel()
+                        await asyncio.gather(timer, return_exceptions=True)
+
+                    reason = active.cancellation.begin_finalization()
+                    if result is None and error is None:
+                        error = RuntimeError("agent did not return a result")
+                    if result is not None and reason is None and error is None:
                         if context_updater is not None:
                             try:
                                 context_updater.trigger(ctx.agent)
                             except Exception as exc:
                                 logger.debug("context update trigger failed: %s", exc)
-                        # WorkspaceError here propagates to the outer except
-                        # WorkspaceError in handle_message — same 500 shape.
-                        workspace.write_trace(outcome.trace)
-                        workspace.append_history(outcome.record)
-                        return JSONResponse(
-                            _build_response_payload(
-                                outcome.result, req, config, outcome.trace.run_id
-                            )
+                    await asyncio.to_thread(ctx.close)
+                    end_time = datetime.now(timezone.utc)
+                    partial = "".join(chunks)
+                    if error is not None:
+                        outcome = finalize_error(
+                            ctx,
+                            error,
+                            goal=req.message,
+                            source="api",
+                            conversation_id=cid,
+                            start_time=start_time,
+                            end_time=end_time,
+                            config=config,
+                            capture_path=capture,
+                            workspace_root=workspace.root,
+                            response_text=partial,
                         )
+                    else:
+                        status = None
+                        if reason == "timeout":
+                            status = "error"
+                        elif reason is not None:
+                            status = "cancelled"
+                        outcome = finalize(
+                            ctx,
+                            result,
+                            goal=req.message,
+                            source="api",
+                            conversation_id=cid,
+                            start_time=start_time,
+                            end_time=end_time,
+                            config=config,
+                            capture_path=capture,
+                            workspace_root=workspace.root,
+                            response_text=partial if reason is not None else None,
+                            status=status,
+                            termination_reason=reason,
+                            usage_complete=(reason is None),
+                        )
+                    workspace.write_trace(outcome.trace)
+                    workspace.append_history(outcome.record)
+                    if bus is not None:
+                        bus.emit(
+                            {
+                                "type": "run.terminal",
+                                "status": outcome.trace.status,
+                                "run_id": outcome.trace.run_id,
+                            }
+                        )
+                    return outcome
+        finally:
+            if held_slot:
+                semaphore.release()
+            if held_lock:
+                conv_lock.release()
+            requests.finish(active.request_id)
 
-            if conv_lock is not None:
-                async with conv_lock:
-                    return await _run()
-            return await _run()
-        except WorkspaceError as exc:
-            return JSONResponse({"error": f"workspace error: {exc}"}, status_code=500)
-        except Exception as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
-
-    async def handle_message_stream(request: Request):
-        req, err = await _parse_request(request)
-        if err is not None:
-            return err
-
-        cid = req.conversation_id
-        if cid is not None:
-            try:
-                validate_session_id(cid)
-            except ValueError as exc:
-                logger.info("rejected conversation_id (stream): %s", exc)
-                return JSONResponse(
-                    {"error": "invalid conversation_id"}, status_code=400
-                )
-        records, err_resp = _resolve_attachments(upload_store, cid, req.file_ids)
-        if err_resp is not None:
-            return err_resp
+    def _start_request(req, prompt, streaming: bool):
+        request_id = req.request_id or secrets.token_hex(16)
         try:
-            prompt = build_agent_input(records, req.message)
-        except UploadError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
-        conv_lock = await conv_locks.get(cid) if cid else None
-        session_manager = (
-            FileSessionManager(
-                session_id=cid,
-                storage_dir=str(workspace.conversation_dir(cid)),
+            active = requests.register(request_id)
+        except ValueError:
+            return None, JSONResponse(
+                {"error": "duplicate active request_id"}, status_code=409
             )
-            if cid
-            else None
+        active.streaming = streaming
+        active.task = asyncio.create_task(_run_request(req, prompt, active))
+        return active, None
+
+    async def cancel_request(request: Request) -> JSONResponse:
+        if not _authenticate(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        request_id = request.path_params["request_id"]
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", request_id):
+            return JSONResponse({"error": "invalid request_id"}, status_code=400)
+        active = requests.get(request_id)
+        if active is None:
+            return JSONResponse({"error": "request not active"}, status_code=404)
+        if not active.cancellation.request_stop("user"):
+            return JSONResponse({"error": "already_finishing"}, status_code=409)
+        return JSONResponse(
+            {"request_id": request_id, "status": "stopping"}, status_code=202
         )
 
-        async def event_stream():
+    async def handle_message(request: Request) -> JSONResponse:
+        req, prompt, err = await _prepare_message(request)
+        if err is not None:
+            return err
+        active, err = _start_request(req, prompt, streaming=False)
+        if err is not None:
+            return err
+        request_id = active.request_id
+
+        async def watch_disconnect():
+            while not active.task.done():
+                if await request.is_disconnected():
+                    active.cancellation.request_stop("disconnect")
+                    return
+                await asyncio.sleep(0.1)
+
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            outcome = await asyncio.shield(active.task)
+        except asyncio.CancelledError:
+            active.cancellation.request_stop("disconnect")
+            await asyncio.shield(active.task)
+            raise
+        except Exception as exc:
+            message = (
+                f"workspace error: {exc}"
+                if isinstance(exc, WorkspaceError)
+                else str(exc)
+            )
+            return JSONResponse(
+                {"error": message, "request_id": request_id},
+                status_code=500,
+                headers={"X-Blueclaw-Request-ID": request_id},
+            )
+        finally:
+            watcher.cancel()
+            await asyncio.gather(watcher, return_exceptions=True)
+        payload = _payload(outcome, req, request_id)
+        if outcome.trace.termination_reason == "timeout":
+            code = 504
+            payload["error"] = "agent timed out"
+        elif outcome.trace.status == "error":
+            code = 500
+            payload["error"] = str(outcome.error or "agent run failed")
+        else:
+            code = 200
+        return JSONResponse(
+            payload,
+            status_code=code,
+            headers={"X-Blueclaw-Request-ID": request_id},
+        )
+
+    async def handle_message_stream(request: Request):
+        req, prompt, err = await _prepare_message(request)
+        if err is not None:
+            return err
+        active, err = _start_request(req, prompt, streaming=True)
+        if err is not None:
+            return err
+        request_id = active.request_id
+
+        async def events():
+            yield _sse("started", {"request_id": request_id})
             try:
-
-                async def _run():
-                    async with semaphore:
-                        # Both endpoints use runner_session directly (not
-                        # run_turn) to keep trigger(agent) inside the
-                        # agent-alive scope — it must precede
-                        # cleanup_mcp_clients (runner_session.__exit__),
-                        # which is enforced structurally by this `with`
-                        # block. stream_async stays adapter-driven (the
-                        # runner spec's documented streaming carve-out).
-                        with runner_session(
-                            config,
-                            workspace,
-                            model,
-                            session_manager=session_manager,
-                            channel="api",
-                            callback_handler=None,
-                            scripted=True,
-                        ) as ctx:
-                            capture_path = (
-                                next_capture_path(workspace.root, cid) if cid else None
-                            )
-                            start_time = datetime.now(timezone.utc)
-                            final_result: Any = None
-                            with bus_for_turn(ctx.observer, capture_path, cid=cid):
-                                try:
-                                    async with asyncio.timeout(_TIMEOUT):
-                                        async for event in ctx.agent.stream_async(
-                                            prompt
-                                        ):
-                                            # stream_async is typed
-                                            # AsyncIterator[Any]; isinstance fence
-                                            # protects against future SDK changes.
-                                            chunk = (
-                                                event.get("data")
-                                                if isinstance(event, dict)
-                                                else None
-                                            )
-                                            if chunk:
-                                                yield _sse("delta", {"text": chunk})
-                                            if (
-                                                isinstance(event, dict)
-                                                and event.get("result") is not None
-                                            ):
-                                                final_result = event["result"]
-                                except asyncio.TimeoutError:
-                                    yield _sse("error", {"error": "agent timed out"})
-                                    return
-
-                                if final_result is None:
-                                    # Backlog item 7: surface this via finalize_error
-                                    # + capture once a partial-record path exists.
-                                    yield _sse(
-                                        "error",
-                                        {"error": "agent did not return a result"},
-                                    )
-                                    return
-
-                                end_time = datetime.now(timezone.utc)
-                                outcome = finalize(
-                                    ctx,
-                                    final_result,
-                                    goal=req.message,
-                                    source="api",
-                                    conversation_id=cid,
-                                    start_time=start_time,
-                                    end_time=end_time,
-                                    config=config,
-                                    capture_path=capture_path,
-                                    workspace_root=workspace.root,
-                                )
-                            if context_updater is not None:
-                                try:
-                                    context_updater.trigger(ctx.agent)
-                                except Exception as exc:
-                                    logger.debug(
-                                        "context update trigger failed: %s", exc
-                                    )
-                            try:
-                                workspace.write_trace(outcome.trace)
-                                workspace.append_history(outcome.record)
-                            except WorkspaceError as exc:
-                                # Inner catch is preserved on the streaming
-                                # path so the SSE error event is emitted
-                                # BEFORE the stream closes (ordering matters
-                                # for clients parsing event boundaries).
-                                yield _sse(
-                                    "error",
-                                    {"error": f"workspace error: {exc}"},
-                                )
-                                return
-
-                            yield _sse(
-                                "done",
-                                _build_response_payload(
-                                    outcome.result,
-                                    req,
-                                    config,
-                                    outcome.trace.run_id,
-                                ),
-                            )
-
-                if conv_lock is not None:
-                    async with conv_lock:
-                        async for evt in _run():
-                            yield evt
+                while not active.task.done() or not active.queue.empty():
+                    try:
+                        event = await asyncio.wait_for(active.queue.get(), 0.05)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield _sse(event["type"], {"text": event["text"]})
+                outcome = await asyncio.shield(active.task)
+                payload = _payload(outcome, req, request_id)
+                if outcome.trace.status == "cancelled":
+                    yield _sse("stopped", payload)
+                elif outcome.trace.status == "error":
+                    payload["error"] = (
+                        "agent timed out"
+                        if outcome.trace.termination_reason == "timeout"
+                        else str(outcome.error or "agent run failed")
+                    )
+                    yield _sse("error", payload)
                 else:
-                    async for evt in _run():
-                        yield evt
+                    yield _sse("done", payload)
             except Exception as exc:
-                yield _sse("error", {"error": str(exc)})
+                message = (
+                    f"workspace error: {exc}"
+                    if isinstance(exc, WorkspaceError)
+                    else str(exc)
+                )
+                yield _sse("error", {"error": message, "request_id": request_id})
+            finally:
+                active.detached.set()
+                if not active.task.done():
+                    active.cancellation.request_stop("disconnect")
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"X-Blueclaw-Request-ID": request_id},
+        )
 
     async def handle_upload(request: Request) -> JSONResponse:
         if not _authenticate(request):
@@ -511,6 +568,7 @@ def create_server_app(
             Route("/playground", playground, methods=["GET"]),
             Route("/message", handle_message, methods=["POST"]),
             Route("/message/stream", handle_message_stream, methods=["POST"]),
+            Route("/requests/{request_id}/cancel", cancel_request, methods=["POST"]),
             Route("/upload", handle_upload, methods=["POST"]),
         ],
         lifespan=lifespan,
@@ -521,4 +579,5 @@ def create_server_app(
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Blueclaw-Request-ID"],
     )

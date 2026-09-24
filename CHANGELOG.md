@@ -2,6 +2,25 @@
 
 All notable changes to blueclaw will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- HTTP requests may include a `request_id`; `POST /requests/{request_id}/cancel`
+  requests cooperative Stop for an active run. Streaming and non-streaming
+  playground runs now show Stopping until the original response confirms
+  Stopped, Failed, or Completed. The request ID is also returned in the
+  response header and streaming start event.
+- Cancelled and failed runs retain partial response and message captures,
+  and traces distinguish incomplete usage from known totals. The trace
+  dashboard and CLI show cancelled runs and partial usage explicitly.
+- Shell commands launched by the agent use an owned process group so Stop
+  can terminate and reap the command and its descendants on POSIX systems.
+
+### Notes
+- Stop is cooperative at SDK checkpoints. A stalled model provider or tool
+  may delay the terminal acknowledgement; Stop does not reverse side effects
+  that already occurred.
+
 ## [3.0.0] - 2026-05-19
 ### Added
 #### Trace UI: conversation-first observability + live streaming

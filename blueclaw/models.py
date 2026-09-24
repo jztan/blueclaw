@@ -162,6 +162,10 @@ class RunRecord(BaseModel):
     tokens: int
     cost: float | None = None
     conversation_id: str | None = None
+    status: str = "success"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
 
     def to_jsonl(self) -> str:
         """Serialize to a single-line JSON string."""
@@ -183,6 +187,14 @@ class MessageRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     file_ids: list[str] = []
+    request_id: str | None = None
+
+    @field_validator("request_id")
+    @classmethod
+    def validate_request_id(cls, v: str | None) -> str | None:
+        if v is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", v):
+            raise ValueError("request_id must be 1-64 ASCII letters, digits, _ or -")
+        return v
 
     @field_validator("conversation_id")
     @classmethod
@@ -204,6 +216,10 @@ class MessageResponse(BaseModel):
     conversation_id: str | None
     tokens: int
     cost: float | None
+    status: str = "success"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
 
 
 class TelegramBridgeConfig(BaseModel):
@@ -293,7 +309,10 @@ class RunTrace(BaseModel):
     steps: list[TraceStep]
     total_tokens: int
     total_cost: float | None = None
-    status: str  # "success" | "error"
+    status: str  # "success" | "error" | "cancelled"
+    termination_reason: str | None = None
+    original_termination_reason: str | None = None
+    usage_complete: bool = True
     context_masked_chars: int | None = None
     context_strategy: str | None = None
     source: str = "terminal"  # "terminal" | "api" | "eval" | "telegram"

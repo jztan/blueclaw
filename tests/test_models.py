@@ -59,6 +59,20 @@ class TestSessionConfigDefaults:
 
 
 class TestRunRecord:
+    def test_old_record_defaults_to_complete_success(self):
+        old = json.dumps(
+            {
+                "ts": "2026-03-14T12:00:00Z",
+                "goal": "old",
+                "tools": [],
+                "tokens": 4,
+            }
+        )
+        record = RunRecord.from_jsonl(old)
+        assert record.status == "success"
+        assert record.usage_complete is True
+        assert record.termination_reason is None
+
     def test_run_record_creation(self):
         ts = datetime(2026, 3, 14, 12, 0, 0, tzinfo=timezone.utc)
         rec = RunRecord(
@@ -555,6 +569,15 @@ class TestRunTraceContextFields:
 
 
 class TestMessageRequest:
+    @pytest.mark.parametrize("request_id", ["", "bad.id", "é", "x" * 65])
+    def test_request_id_rejects_unsafe_values(self, request_id):
+        with pytest.raises(ValidationError, match="request_id"):
+            MessageRequest(message="hi", request_id=request_id)
+
+    def test_request_id_accepts_ascii_safe_value(self):
+        req = MessageRequest(message="hi", request_id="run_123-AB")
+        assert req.request_id == "run_123-AB"
+
     def test_message_required(self):
         with pytest.raises(ValidationError):
             MessageRequest()

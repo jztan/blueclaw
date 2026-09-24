@@ -12,16 +12,15 @@ under ~/blueclaw/test-runs/ and does not need workspace-relative paths.
 The runner module itself is exempt because its function signatures
 legitimately default these to None.
 
-The regex is intentionally noisy — a stray mention of either string in a
-docstring, comment, or string literal in any of the three adapter files
-will trip these tests. Same pattern as test_no_direct_create_agent.py:
-false positives are cheap to fix (reword the comment) and catching the
-real regression is the point.
+The capture-path guard checks call keywords through the syntax tree, so
+clearing a broken trace link does not look like passing None into the runner.
+The workspace-root guard remains a source scan.
 """
 
 from __future__ import annotations
 
 import re
+import ast
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -32,7 +31,6 @@ ADAPTER_FILES = (
     "blueclaw/bridges/core.py",
 )
 
-CAPTURE_NONE_PATTERN = re.compile(r"capture_path\s*=\s*None")
 WORKSPACE_ROOT_PATTERN = re.compile(r"workspace_root\s*=")
 
 
@@ -40,9 +38,15 @@ def test_adapters_pass_non_none_capture_path():
     violators: list[tuple[str, int, str]] = []
     for rel in ADAPTER_FILES:
         path = REPO_ROOT / rel
-        for lineno, line in enumerate(path.read_text().splitlines(), start=1):
-            if CAPTURE_NONE_PATTERN.search(line):
-                violators.append((rel, lineno, line.strip()))
+        source = path.read_text()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "capture_path" and isinstance(kw.value, ast.Constant):
+                    if kw.value.value is None:
+                        line = source.splitlines()[kw.value.lineno - 1].strip()
+                        violators.append((rel, kw.value.lineno, line))
 
     assert not violators, (
         "Adapter passes capture_path=None to the runner. "

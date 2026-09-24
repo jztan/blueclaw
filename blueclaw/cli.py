@@ -832,8 +832,14 @@ def trace_list(
     show_label = chat is not None or all_chats
     for key, t in rows:
         goal = t.goal[:50] + "..." if len(t.goal) > 50 else t.goal
-        cost = f"${t.total_cost:.4f}" if t.total_cost is not None else "n/a"
-        style = "red" if t.status == "error" else ""
+        cost = f"${t.total_cost:.4f}" if t.total_cost is not None else "unknown"
+        if not t.usage_complete:
+            cost += " (partial)"
+        style = (
+            "red"
+            if t.status == "error"
+            else "yellow" if t.status == "cancelled" else ""
+        )
         prefix = f"[cyan]{key}[/cyan] " if show_label else ""
         console.print(
             f"{prefix}[dim]{t.run_id}[/dim]  {t.status:<7}  "
@@ -890,10 +896,11 @@ def trace_show(
     console.print(table)
 
     total_dur = sum(s.duration_ms for s in trace.steps)
-    cost = f"${trace.total_cost:.4f}" if trace.total_cost is not None else "n/a"
+    cost = f"${trace.total_cost:.4f}" if trace.total_cost is not None else "unknown"
+    usage_note = " (partial usage)" if not trace.usage_complete else ""
     console.print(
         f"\nTotal: {len(trace.steps)} steps \u00b7 {total_dur}ms "
-        f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}"
+        f"\u00b7 {trace.total_tokens} tokens \u00b7 {cost}{usage_note}"
     )
 
 

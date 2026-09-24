@@ -25,6 +25,7 @@ from typing import Any, Iterator
 
 from rich.console import Console
 
+from blueclaw.cancellation import CancellationControl
 from blueclaw.models import RunRecord, RunTrace, SessionConfig
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
@@ -161,6 +162,17 @@ class RunnerCtx:
 
     observer: ObserverHooks
     agent: Any  # strands.Agent — typed loosely to avoid a hard import here
+    cancellation: CancellationControl | None = None
+    cleanup_errors: list[dict] = field(default_factory=list)
+    _closed: bool = False
+
+    def close(self) -> list[dict]:
+        """Close MCP clients once and retain every cleanup failure."""
+        if not self._closed:
+            self._closed = True
+            result = cleanup_mcp_clients(self.observer)
+            self.cleanup_errors = result if isinstance(result, list) else []
+        return self.cleanup_errors
 
 
 @dataclass
@@ -191,10 +203,75 @@ class RunOutcome:
     record: RunRecord | None
     capture_errors: list[dict] = field(default_factory=list)
     error: Exception | None = None
+    cleanup_errors: list[dict] = field(default_factory=list)
 
 
 def _mint_run_id(start_time: datetime) -> str:
     return start_time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+
+
+def _status_after_cleanup(
+    status: str, reason: str | None, cleanup_errors: list[dict]
+) -> tuple[str, str | None, str | None]:
+    if cleanup_errors:
+        return "error", "cleanup_failed", reason
+    return status, reason, None
+
+
+def _observed_usage(agent) -> dict:
+    """Return only reported SDK usage; missing metrics are not estimated."""
+    metrics = getattr(agent, "event_loop_metrics", None)
+    usage = getattr(metrics, "accumulated_usage", None)
+    return usage if isinstance(usage, dict) else {}
+
+
+def _partial_trace_and_record(
+    *,
+    observer,
+    agent,
+    goal: str,
+    source: str,
+    conversation_id: str | None,
+    start_time: datetime,
+    end_time: datetime,
+    config: SessionConfig,
+    run_id: str,
+    status: str,
+    reason: str | None,
+    original_reason: str | None,
+    usage_complete: bool,
+) -> tuple[RunTrace, RunRecord]:
+    usage = _observed_usage(agent)
+    tokens = usage.get("totalTokens", 0)
+    trace = RunTrace(
+        run_id=run_id,
+        goal=goal,
+        start_time=start_time,
+        end_time=end_time,
+        model_id=config.model_id,
+        steps=list(observer.trace_steps),
+        total_tokens=tokens,
+        total_cost=None,
+        status=status,
+        termination_reason=reason,
+        original_termination_reason=original_reason,
+        usage_complete=usage_complete,
+        source=source,
+        conversation_id=conversation_id,
+    )
+    record = RunRecord(
+        ts=end_time,
+        goal=goal,
+        tools=list(observer.tools_called),
+        tokens=tokens,
+        cost=None,
+        conversation_id=conversation_id,
+        status=status,
+        termination_reason=reason,
+        original_termination_reason=original_reason,
+        usage_complete=usage_complete,
+    )
+    return trace, record
 
 
 def finalize(
@@ -210,6 +287,10 @@ def finalize(
     capture_path: Path | None = None,
     workspace_root: Path | None = None,
     run_id: str | None = None,
+    status: str | None = None,
+    termination_reason: str | None = None,
+    response_text: str | None = None,
+    usage_complete: bool = True,
 ) -> RunOutcome:
     """Build trace + record from a completed agent run, optionally write capture.
 
@@ -219,9 +300,10 @@ def finalize(
     if run_id is None:
         run_id = _mint_run_id(start_time)
 
-    response_text = (
-        extract_text(result.message) if getattr(result, "message", None) else ""
-    )
+    if response_text is None:
+        response_text = (
+            extract_text(result.message) if getattr(result, "message", None) else ""
+        )
     trace, record = build_trace_and_record(
         result,
         goal,
@@ -233,6 +315,27 @@ def finalize(
         source=source,
         conversation_id=conversation_id,
     )
+    if status is None:
+        status = (
+            "cancelled"
+            if getattr(result, "stop_reason", None) == "cancelled"
+            else "success"
+        )
+    if status == "cancelled" and termination_reason is None:
+        termination_reason = "user"
+    status, reason, original_reason = _status_after_cleanup(
+        status, termination_reason, ctx.cleanup_errors
+    )
+    for item in (trace, record):
+        item.status = status
+        item.termination_reason = reason
+        item.original_termination_reason = original_reason
+        item.usage_complete = usage_complete and status == "success"
+        if not item.usage_complete:
+            if isinstance(item, RunTrace):
+                item.total_cost = None
+            else:
+                item.cost = None
 
     if capture_path is not None and workspace_root is not None:
         # Pure path arithmetic — ValueError if capture_path is not under
@@ -246,6 +349,8 @@ def finalize(
             response_text=response_text,
             messages=list(getattr(ctx.agent, "messages", [])),
         )
+        if capture_errors:
+            trace.capture_path = None
 
     return RunOutcome(
         result=result,
@@ -255,6 +360,7 @@ def finalize(
         record=record,
         capture_errors=capture_errors,
         error=None,
+        cleanup_errors=list(ctx.cleanup_errors),
     )
 
 
@@ -271,6 +377,9 @@ def finalize_error(
     capture_path: Path | None = None,
     workspace_root: Path | None = None,
     run_id: str | None = None,
+    response_text: str = "",
+    status: str = "error",
+    termination_reason: str = "exception",
 ) -> RunOutcome:
     """Build a RunOutcome when the adapter caught the exception itself.
 
@@ -278,41 +387,107 @@ def finalize_error(
     (e.g. terminal's "print and continue the loop"). Without this path,
     those adapters silently skip capture on every agent error.
 
-    Behavior: trace=None, record=None, response_text="". Capture is still
-    attempted against ctx.agent.messages (whatever the agent accumulated
-    before raising).
-
-    start_time mints the default run_id. end_time is unused but accepted
-    for signature symmetry with finalize — adapters that branch on
-    success vs error don't have to construct a different argument shape.
+    Capture current-turn text supplied by the adapter, plus available SDK
+    messages. Usage remains partial because a final AgentResult is absent.
     """
-    del end_time  # accepted for signature symmetry; reserved for partial records later
     if run_id is None:
         run_id = _mint_run_id(start_time)
-    del run_id  # not surfaced yet (no record); reserved for partial records later
+    status, reason, original_reason = _status_after_cleanup(
+        status, termination_reason, ctx.cleanup_errors
+    )
+    trace, record = _partial_trace_and_record(
+        observer=ctx.observer,
+        agent=ctx.agent,
+        goal=goal,
+        source=source,
+        conversation_id=conversation_id,
+        start_time=start_time,
+        end_time=end_time,
+        config=config,
+        run_id=run_id,
+        status=status,
+        reason=reason,
+        original_reason=original_reason,
+        usage_complete=False,
+    )
 
     if capture_path is not None and workspace_root is not None:
         # Symmetry with finalize: validate the relationship even though no
         # trace exists yet to carry the relativized path. Surfaces adapter
         # bugs (capture outside workspace) consistently across success/error.
-        capture_path.relative_to(workspace_root)
+        trace.capture_path = str(capture_path.relative_to(workspace_root))
 
     capture_errors: list[dict] = []
     if capture_path is not None:
         capture_errors = _write_capture_artifacts(
             capture_path,
-            response_text="",
+            response_text=response_text,
             messages=list(getattr(ctx.agent, "messages", [])),
         )
+        if capture_errors:
+            trace.capture_path = None
 
     return RunOutcome(
         result=None,
         agent=ctx.agent,
-        response_text="",
-        trace=None,
-        record=None,
+        response_text=response_text,
+        trace=trace,
+        record=record,
         capture_errors=capture_errors,
         error=error,
+        cleanup_errors=list(ctx.cleanup_errors),
+    )
+
+
+def finalize_unstarted(
+    *,
+    goal: str,
+    source: str,
+    conversation_id: str | None,
+    start_time: datetime,
+    end_time: datetime,
+    config: SessionConfig,
+    capture_path: Path | None,
+    workspace_root: Path,
+    termination_reason: str,
+) -> RunOutcome:
+    """Record a request stopped before agent construction or admission."""
+    observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
+    run_id = _mint_run_id(start_time)
+    trace, record = _partial_trace_and_record(
+        observer=observer,
+        agent=None,
+        goal=goal,
+        source=source,
+        conversation_id=conversation_id,
+        start_time=start_time,
+        end_time=end_time,
+        config=config,
+        run_id=run_id,
+        status="cancelled",
+        reason=termination_reason,
+        original_reason=None,
+        usage_complete=True,
+    )
+    if capture_path is not None:
+        trace.capture_path = str(capture_path.relative_to(workspace_root))
+    with bus_for_turn(observer, capture_path, cid=conversation_id) as bus:
+        errors = (
+            _write_capture_artifacts(capture_path, response_text="", messages=[])
+            if capture_path is not None
+            else []
+        )
+        if errors:
+            trace.capture_path = None
+        if bus is not None:
+            bus.emit({"type": "run.terminal", "status": "cancelled", "run_id": run_id})
+    return RunOutcome(
+        result=None,
+        agent=None,
+        response_text="",
+        trace=trace,
+        record=record,
+        capture_errors=errors,
     )
 
 
@@ -350,8 +525,8 @@ def bus_for_turn(observer, capture_path: Path | None, *, cid: str | None = None)
 
     from blueclaw.events import EventBus
 
-    capture_path.mkdir(parents=True, exist_ok=True)
     try:
+        capture_path.mkdir(parents=True, exist_ok=True)
         bus = EventBus(capture_path / "events.jsonl", cid=cid)
     except OSError:
         # Disk-full or permission error: fall back to no-bus mode so the turn
@@ -387,6 +562,7 @@ def runner_session(
     scripted: bool = True,
     observer_console: Console | None = None,
     observer_quiet: bool = True,
+    cancellation: CancellationControl | None = None,
 ) -> Iterator[RunnerCtx]:
     """The only sanctioned way to construct an agent in BlueClaw.
 
@@ -400,7 +576,11 @@ def runner_session(
     """
     if observer_console is None:
         observer_console = Console(file=StringIO())
-    observer = ObserverHooks(console=observer_console, quiet=observer_quiet)
+    if cancellation is None:
+        cancellation = CancellationControl()
+    observer = ObserverHooks(
+        console=observer_console, quiet=observer_quiet, cancellation=cancellation
+    )
 
     create_agent_kwargs = dict(
         config=config,
@@ -410,16 +590,18 @@ def runner_session(
         scripted=scripted,
         session_manager=session_manager,
         channel=channel,
+        cancellation=cancellation,
     )
     if callback_handler is not _UNSET:
         create_agent_kwargs["callback_handler"] = callback_handler
 
     agent = create_agent(**create_agent_kwargs)
-    ctx = RunnerCtx(observer=observer, agent=agent)
+    cancellation.attach(agent)
+    ctx = RunnerCtx(observer=observer, agent=agent, cancellation=cancellation)
     try:
         yield ctx
     finally:
-        cleanup_mcp_clients(observer)
+        ctx.close()
 
 
 def run_turn(

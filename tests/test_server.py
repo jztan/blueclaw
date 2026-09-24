@@ -62,6 +62,20 @@ def _fake_build_trace_and_record(
     return trace, record
 
 
+def _stream_result(result):
+    async def stream(_prompt):
+        yield {"result": result}
+
+    return stream
+
+
+def _stream_callable(func):
+    async def stream(prompt):
+        yield {"result": func(prompt)}
+
+    return stream
+
+
 # --- Fixtures ---
 
 
@@ -93,6 +107,11 @@ def client(server_config, server_workspace, mock_agent_result):
         patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
     ):
         mock_ca.return_value.return_value = mock_agent_result
+
+        async def fake_stream(_prompt):
+            yield {"result": mock_agent_result}
+
+        mock_ca.return_value.stream_async = fake_stream
         app = create_server_app(server_config, server_workspace, model=MagicMock())
         yield TestClient(app)
 
@@ -104,6 +123,11 @@ def integration_client(server_config, server_workspace, mock_agent_result):
         patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
     ):
         mock_ca.return_value.return_value = mock_agent_result
+
+        async def fake_stream(_prompt):
+            yield {"result": mock_agent_result}
+
+        mock_ca.return_value.stream_async = fake_stream
         app = create_server_app(server_config, server_workspace, model=MagicMock())
         yield TestClient(app)
 
@@ -146,7 +170,7 @@ class TestPlayground:
 class TestMessageSuccess:
     def test_post_message_200(self, client):
         r = client.post("/message", json={"message": "hello"})
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
 
     def test_reply_is_string(self, client):
         data = client.post("/message", json={"message": "hello"}).json()
@@ -263,9 +287,24 @@ class TestAuthentication:
 
 class TestErrorPaths:
     def test_timeout_returns_504(self, client):
-        with patch(
-            "blueclaw.server.asyncio.wait_for",
-            side_effect=asyncio.TimeoutError(),
+        agent = MagicMock()
+
+        async def slow_stream(_prompt):
+            await asyncio.sleep(0.05)
+            result = MagicMock()
+            result.stop_reason = "cancelled"
+            result.message = {"role": "assistant", "content": [{"text": "partial"}]}
+            result.metrics.accumulated_usage = {
+                "inputTokens": 1,
+                "outputTokens": 0,
+                "totalTokens": 1,
+            }
+            yield {"result": result}
+
+        agent.stream_async = slow_stream
+        with (
+            patch("blueclaw.runner.create_agent", return_value=agent),
+            patch("blueclaw.server._TIMEOUT", 0.01),
         ):
             r = client.post("/message", json={"message": "hi"})
         assert r.status_code == 504
@@ -395,10 +434,10 @@ class TestStreaming:
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/event-stream")
         events = _parse_sse(r.text)
-        assert [name for name, _ in events] == ["delta", "delta", "done"]
-        assert events[0][1] == {"text": "Hello"}
-        assert events[1][1] == {"text": " world"}
-        done = events[2][1]
+        assert [name for name, _ in events] == ["started", "delta", "delta", "done"]
+        assert events[1][1] == {"text": "Hello"}
+        assert events[2][1] == {"text": " world"}
+        done = events[3][1]
         assert done["reply"] == "The answer is 42."
         assert done["tokens"] == 150
         assert "run_id" in done
@@ -554,6 +593,11 @@ class TestConcurrencyCap:
             return mock_agent_result
 
         agent = MagicMock(side_effect=blocking_call)
+
+        async def blocked_stream(message):
+            yield {"result": await asyncio.to_thread(blocking_call, message)}
+
+        agent.stream_async = blocked_stream
 
         async def run() -> int:
             with (
@@ -767,6 +811,7 @@ class TestStatefulMessage:
             patch("blueclaw.server.FileSessionManager") as mock_fsm,
         ):
             mock_ca.return_value.return_value = mock_agent_result
+            mock_ca.return_value.stream_async = _stream_result(mock_agent_result)
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 r = tc.post("/message", json={"message": "hi", "conversation_id": "c1"})
@@ -795,6 +840,7 @@ class TestStatefulMessage:
             patch("blueclaw.server.FileSessionManager") as mock_fsm,
         ):
             mock_ca.return_value.return_value = mock_agent_result
+            mock_ca.return_value.stream_async = _stream_result(mock_agent_result)
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 r = tc.post("/message", json={"message": "hi"})
@@ -819,6 +865,7 @@ class TestStatefulMessage:
             patch("blueclaw.server.FileSessionManager"),
         ):
             mock_ca.return_value.return_value = mock_agent_result
+            mock_ca.return_value.stream_async = _stream_result(mock_agent_result)
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             with TestClient(app) as tc:
                 tc.post("/message", json={"message": "hi", "conversation_id": "cX"})
@@ -840,6 +887,11 @@ class TestStatefulConcurrency:
             return mock_agent_result
 
         agent = MagicMock(side_effect=slow_agent)
+
+        async def stream(message):
+            yield {"result": await asyncio.to_thread(slow_agent, message)}
+
+        agent.stream_async = stream
 
         async def run():
             with (
@@ -891,6 +943,11 @@ class TestStatefulConcurrency:
             return mock_agent_result
 
         agent = MagicMock(side_effect=slow_agent)
+
+        async def stream(message):
+            yield {"result": await asyncio.to_thread(slow_agent, message)}
+
+        agent.stream_async = stream
 
         async def run():
             with (
@@ -1004,6 +1061,7 @@ class TestUpload:
             patch.dict(os.environ, {"BLUECLAW_API_KEY": "secret"}),
         ):
             mock_ca.return_value.return_value = mock_agent_result
+            mock_ca.return_value.stream_async = _stream_result(mock_agent_result)
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
 
@@ -1046,6 +1104,7 @@ class TestMessageAttachments:
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
+            fake_agent_callable.stream_async = _stream_callable(fake_agent_callable)
             mock_ca.return_value = fake_agent_callable
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
@@ -1127,6 +1186,7 @@ class TestMessageAttachments:
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
+            fake_agent_callable.stream_async = _stream_callable(fake_agent_callable)
             mock_ca.return_value = fake_agent_callable
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)
@@ -1182,6 +1242,7 @@ class TestMessageAttachments:
             patch.object(server_workspace, "append_history"),
             patch.dict(os.environ, {"BLUECLAW_API_KEY": ""}),
         ):
+            fake_agent_callable.stream_async = _stream_callable(fake_agent_callable)
             mock_ca.return_value = fake_agent_callable
             app = create_server_app(server_config, server_workspace, model=MagicMock())
             tc = TestClient(app)

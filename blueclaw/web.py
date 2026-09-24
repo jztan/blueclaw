@@ -92,6 +92,7 @@ def _serialize_trace_summary(
         "steps": len(t.steps),
         "total_tokens": t.total_tokens,
         "total_cost": t.total_cost,
+        "usage_complete": t.usage_complete,
         "duration_s": round(elapsed, 1),
         "start_time": t.start_time.isoformat(),
         "context_strategy": t.context_strategy,
@@ -133,6 +134,7 @@ def _serialize_turn_summary(trace: RunTrace, workspace_root: Path) -> dict:
         "duration_s": round(elapsed, 1),
         "tokens": trace.total_tokens,
         "cost": trace.total_cost,
+        "usage_complete": trace.usage_complete,
         "capture_path": trace.capture_path,
         "has_events_jsonl": has_events,
     }
@@ -160,6 +162,7 @@ def _aggregate_conversations(traces: list[RunTrace]) -> dict[str, dict]:
                 "total_tokens": 0,
                 "total_cost": 0.0,
                 "turns_with_unknown_cost": 0,
+                "usage_complete": True,
                 "model_ids": [],
                 "status_counts": {},
             }
@@ -172,6 +175,7 @@ def _aggregate_conversations(traces: list[RunTrace]) -> dict[str, dict]:
             # keep source from the most recent turn
             agg["source"] = t.source
         agg["total_tokens"] += t.total_tokens
+        agg["usage_complete"] = agg["usage_complete"] and t.usage_complete
         if t.total_cost is None:
             agg["turns_with_unknown_cost"] += 1
         else:
@@ -639,6 +643,7 @@ def create_app(
                 "total_tokens": agg["total_tokens"],
                 "total_cost": round(agg["total_cost"], 6),
                 "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                "usage_complete": agg["usage_complete"],
                 "model_ids": sorted(agg["model_ids"]),
                 "status_counts": agg["status_counts"],
                 "turns": turn_dicts,
@@ -685,6 +690,7 @@ def create_app(
                     "total_tokens": agg["total_tokens"],
                     "total_cost": round(agg["total_cost"], 6),
                     "turns_with_unknown_cost": agg["turns_with_unknown_cost"],
+                    "usage_complete": agg["usage_complete"],
                     "model_ids": sorted(agg["model_ids"]),
                     "status_counts": agg["status_counts"],
                     "_source": agg["_source"],

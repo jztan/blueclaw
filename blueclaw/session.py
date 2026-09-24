@@ -35,20 +35,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def cleanup_mcp_clients(observer) -> None:
+def cleanup_mcp_clients(observer) -> list[dict]:
     """Close any MCPClient tools."""
     import warnings
 
+    failures: list[dict] = []
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        for client in getattr(observer, "mcp_clients", []):
+        for index, client in enumerate(getattr(observer, "mcp_clients", [])):
             try:
                 if hasattr(client, "stop"):
                     client.stop(None, None, None)
                 elif hasattr(client, "close"):
                     client.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                failures.append(
+                    {
+                        "stage": "mcp_cleanup",
+                        "client": index,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+    return failures
 
 
 def extract_text(value: Any) -> str:
@@ -262,9 +270,13 @@ def build_model(config: SessionConfig):
         raise ValueError(f"Unknown provider: {config.provider}")
 
 
-def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> list:
+def load_tools(
+    config: SessionConfig, workspace: Workspace | None = None, cancellation=None
+) -> list:
     """Load tools based on config."""
-    return get_tools(config.tools, config, workspace=workspace)
+    return get_tools(
+        config.tools, config, workspace=workspace, cancellation=cancellation
+    )
 
 
 def _resolve_skill_paths() -> list:
@@ -501,9 +513,10 @@ def create_agent(
     callback_handler=_UNSET,
     session_manager=None,
     channel: str = "terminal",
+    cancellation=None,
 ) -> Agent:
     """Construct and return a Strands Agent."""
-    tools = load_tools(config, workspace=workspace)
+    tools = load_tools(config, workspace=workspace, cancellation=cancellation)
     mcp_clients = get_mcp_servers(config)
     tools.extend(mcp_clients)
 

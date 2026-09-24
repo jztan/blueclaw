@@ -97,10 +97,12 @@ class ObserverHooks(HookProvider):
         console: Console,
         quiet: bool = False,
         bus: "EventBus | None" = None,
+        cancellation=None,
     ) -> None:
         self.console = console
         self.quiet = quiet
         self.bus = bus  # settable per turn by adapters
+        self.cancellation = cancellation
         self._cancelled = False
         self._last_esc = 0.0
         self.tools_called: list[str] = []
@@ -169,6 +171,9 @@ class ObserverHooks(HookProvider):
     # --- Hook callbacks ---
 
     def before_tool(self, event: BeforeToolCallEvent) -> None:
+        if self.cancellation is not None and self.cancellation.event.is_set():
+            event.cancel_tool = "Cancelled by user."
+            return
         tool_use = event.tool_use
         tool_id = tool_use["toolUseId"]
         tool_name = tool_use["name"]

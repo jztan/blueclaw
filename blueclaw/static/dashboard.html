@@ -321,6 +321,7 @@ code, .mono {
 
 .status-badge.success { background: rgba(34,197,94,0.1); color: var(--green); }
 .status-badge.error { background: rgba(239,68,68,0.1); color: var(--red); }
+.status-badge.cancelled { background: rgba(202,138,4,0.12); color: var(--yellow); }
 
 .checkbox-cell { width: 36px; text-align: center; }
 .checkbox-cell input[type="checkbox"] { cursor: pointer; }
@@ -395,6 +396,7 @@ code, .mono {
 
 .detail-header .status-icon.success { background: rgba(34,197,94,0.12); color: var(--green); }
 .detail-header .status-icon.error { background: rgba(239,68,68,0.12); color: var(--red); }
+.detail-header .status-icon.cancelled { background: rgba(202,138,4,0.12); color: var(--yellow); }
 
 .detail-header .info { flex: 1; }
 .detail-header .goal-text { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
@@ -892,6 +894,7 @@ code, .mono {
 
 .turn-card-head .turn-status.success { color: var(--green); }
 .turn-card-head .turn-status.error { color: var(--red); }
+.turn-card-head .turn-status.cancelled { color: var(--yellow); }
 .turn-card-head .turn-status.unknown { color: var(--text-3); }
 
 .turn-card-head .turn-caret {
@@ -1296,6 +1299,7 @@ code, .mono {
           <span class="chip active" data-filter="all">All</span>
           <span class="chip" data-filter="success">Success</span>
           <span class="chip" data-filter="error">Error</span>
+          <span class="chip" data-filter="cancelled">Stopped</span>
           <span class="chip" data-filter="7d">Last 7d</span>
         </div>
       </div>
@@ -1552,6 +1556,16 @@ code, .mono {
     return '$' + v.toFixed(4);
   }
 
+  var statusPresentation = {
+    success: { css: 'success', label: 'Completed', icon: '✓' },
+    error: { css: 'error', label: 'Failed', icon: '✕' },
+    cancelled: { css: 'cancelled', label: 'Stopped', icon: '■' }
+  };
+  function presentStatus(status) {
+    return statusPresentation[status] || { css: 'unknown', label: 'Unknown', icon: '?' };
+  }
+  function usageNote(complete) { return complete === false ? ' (partial)' : ''; }
+
   function formatDuration(s) {
     if (s == null) return '--';
     if (s < 1) return (s * 1000).toFixed(0) + 'ms';
@@ -1660,6 +1674,7 @@ code, .mono {
       // Status filter
       if (currentFilter === 'success' && t.status !== 'success') return false;
       if (currentFilter === 'error' && t.status !== 'error') return false;
+      if (currentFilter === 'cancelled' && t.status !== 'cancelled') return false;
       if (currentFilter === '7d' && !isWithin7Days(t.start_time)) return false;
 
       // Search filter
@@ -1686,10 +1701,10 @@ code, .mono {
 
     var html = '';
     filtered.forEach(function(t) {
-      var isError = t.status === 'error';
-      var rowClass = isError ? 'error-row' : '';
-      var statusClass = isError ? 'error' : 'success';
-      var statusLabel = isError ? 'Error' : 'Success';
+      var presentation = presentStatus(t.status);
+      var rowClass = t.status === 'error' ? 'error-row' : '';
+      var statusClass = presentation.css;
+      var statusLabel = presentation.label;
       var checked = selectedRunIds.has(t.run_id) ? 'checked' : '';
 
       html += '<tr class="' + rowClass + '" data-run-id="' + escapeHtml(t.run_id) + '">';
@@ -1701,8 +1716,8 @@ code, .mono {
       html += '<td class="goal-cell" title="' + escapeHtml(t.goal) + '">' + escapeHtml(truncate(t.goal, 50)) + '</td>';
       html += '<td><span class="pill">' + escapeHtml(t.model_id || '--') + '</span></td>';
       html += '<td>' + (t.steps != null ? t.steps : '--') + '</td>';
-      html += '<td>' + formatTokens(t.total_tokens) + '</td>';
-      html += '<td class="cost-cell">' + formatCost(t.total_cost) + '</td>';
+      html += '<td>' + formatTokens(t.total_tokens) + usageNote(t.usage_complete) + '</td>';
+      html += '<td class="cost-cell">' + formatCost(t.total_cost) + usageNote(t.usage_complete) + '</td>';
       html += '<td class="duration-cell">' + formatDuration(t.duration_s) + '</td>';
       html += '<td><span class="status-badge ' + statusClass + '">' + statusLabel + '</span></td>';
       html += '<td>' + renderCaptureCell(t) + '</td>';
@@ -1762,11 +1777,9 @@ code, .mono {
 
   // ─── Render Detail ───
   function renderDetail(trace) {
-    var isError = trace.status === 'error';
-    var statusClass = isError ? 'error' : 'success';
-    var statusIcon = isError
-      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
-      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    var presentation = presentStatus(trace.status);
+    var statusClass = presentation.css;
+    var statusIcon = presentation.icon;
 
     var steps = trace.steps || [];
     var traceStartMs = steps.length > 0 && steps[0].start_time ? new Date(steps[0].start_time).getTime() : 0;
@@ -1790,6 +1803,7 @@ code, .mono {
     h += '<div class="detail-meta">';
     h += '<span class="mono">' + escapeHtml(trace.run_id || '') + '</span>';
     h += '<span class="pill">' + escapeHtml(trace.model_id || '--') + '</span>';
+    h += '<span class="status-badge ' + statusClass + '">' + presentation.label + '</span>';
     if (trace.context_strategy) {
       h += '<span>Context: ' + escapeHtml(trace.context_strategy) + '</span>';
     }
@@ -1798,8 +1812,8 @@ code, .mono {
     // Metric cards
     h += '<div class="metric-cards">';
     h += '<div class="metric-card"><div class="label">Steps</div><div class="value blue">' + (trace.steps ? trace.steps.length : (trace.steps_count || '--')) + '</div></div>';
-    h += '<div class="metric-card"><div class="label">Tokens</div><div class="value">' + formatTokens(trace.total_tokens) + '</div></div>';
-    h += '<div class="metric-card"><div class="label">Cost</div><div class="value yellow">' + formatCost(trace.total_cost) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Tokens</div><div class="value">' + formatTokens(trace.total_tokens) + usageNote(trace.usage_complete) + '</div></div>';
+    h += '<div class="metric-card"><div class="label">Cost</div><div class="value yellow">' + formatCost(trace.total_cost) + usageNote(trace.usage_complete) + '</div></div>';
     h += '<div class="metric-card"><div class="label">Wall Time</div><div class="value">' + formatDuration(trace.duration_s) + '</div></div>';
     h += '<div class="metric-card"><div class="label">Overhead</div><div class="value">' + overheadPct.toFixed(1) + '%</div></div>';
     h += '</div>';
@@ -1907,7 +1921,7 @@ code, .mono {
     if (conv.turns_with_unknown_cost > 0) {
       s += ' (' + conv.turns_with_unknown_cost + ' unknown)';
     }
-    return s;
+    return s + usageNote(conv.usage_complete);
   }
 
   function convSortValue(conv, col) {
@@ -2204,6 +2218,7 @@ code, .mono {
         costStr += ' (' + data.turns_with_unknown_cost + ' unknown)';
       }
     }
+    costStr += usageNote(data.usage_complete);
 
     var firstSeen = data.first_turn_at ? relativeTime(data.first_turn_at) : '--';
     var lastActive = data.last_turn_at ? relativeTime(data.last_turn_at) : '--';
@@ -2219,7 +2234,7 @@ code, .mono {
     html += '</div>';
     html += '<div class="conv-detail-meta">';
     html += '<span>' + (data.turn_count || 0) + ' turns</span>';
-    html += '<span>' + formatTokens(data.total_tokens) + ' tokens</span>';
+    html += '<span>' + formatTokens(data.total_tokens) + ' tokens' + usageNote(data.usage_complete) + '</span>';
     html += '<span class="cost-cell">' + escapeHtml(costStr) + '</span>';
     html += '<span title="' + escapeHtml(data.first_turn_at || '') + '">first seen ' + firstSeen + '</span>';
     html += '<span title="' + escapeHtml(data.last_turn_at || '') + '">last active ' + lastActive + '</span>';
@@ -2233,10 +2248,11 @@ code, .mono {
       var n = turn.turn_n || turn.n || '?';
       var ts = turn.start_time ? new Date(turn.start_time).toLocaleString() : '--';
       var model = turn.model_id || '--';
-      var tokens = turn.total_tokens != null ? formatTokens(turn.total_tokens) + ' tok' : '';
+      var tokens = turn.tokens != null ? formatTokens(turn.tokens) + ' tok' + usageNote(turn.usage_complete) : '';
       var status = turn.status || 'unknown';
-      var statusClass = (status === 'success' || status === 'ok') ? 'success' : (status === 'error' ? 'error' : 'unknown');
-      var statusLabel = statusClass === 'success' ? 'success' : (statusClass === 'error' ? 'error' : status);
+      var presentation = presentStatus(status);
+      var statusClass = presentation.css;
+      var statusLabel = presentation.label;
       var expanded = autoExpand;
       var cardId = 'turn-card-' + escapeHtml(String(n));
 

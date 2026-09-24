@@ -11,24 +11,26 @@ from blueclaw.tools.shell import make_shell_command
 from blueclaw.tools.web import make_http_request, make_web_search
 
 TOOL_REGISTRY: dict[str, Callable] = {
-    "web": lambda config, workspace: [
+    "web": lambda config, workspace, cancellation: [
         make_web_search(),
         make_http_request(
             config.allowlist_domains, extract_main=config.http_extract_main
         ),
     ],
-    "shell": lambda config, workspace: [make_shell_command(workspace)],
+    "shell": lambda config, workspace, cancellation: [
+        make_shell_command(workspace, cancellation=cancellation)
+    ],
 }
 
 
 def get_tools(
-    names: list[str], config: SessionConfig, workspace=None
+    names: list[str], config: SessionConfig, workspace=None, cancellation=None
 ) -> list[Callable]:
     """Create configured tool instances based on names and config."""
     tools = []
     for name in names:
         if name in TOOL_REGISTRY:
-            tools.extend(TOOL_REGISTRY[name](config, workspace))
+            tools.extend(TOOL_REGISTRY[name](config, workspace, cancellation))
         elif name.startswith("mcp:"):
             continue  # MCP tools handled separately
         elif name == "pdf":

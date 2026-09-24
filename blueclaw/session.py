@@ -262,9 +262,13 @@ def build_model(config: SessionConfig):
         raise ValueError(f"Unknown provider: {config.provider}")
 
 
-def load_tools(config: SessionConfig, workspace: Workspace | None = None) -> list:
+def load_tools(
+    config: SessionConfig, workspace: Workspace | None = None, cancellation=None
+) -> list:
     """Load tools based on config."""
-    return get_tools(config.tools, config, workspace=workspace)
+    return get_tools(
+        config.tools, config, workspace=workspace, cancellation=cancellation
+    )
 
 
 def _resolve_skill_paths() -> list:
@@ -501,9 +505,10 @@ def create_agent(
     callback_handler=_UNSET,
     session_manager=None,
     channel: str = "terminal",
+    cancellation=None,
 ) -> Agent:
     """Construct and return a Strands Agent."""
-    tools = load_tools(config, workspace=workspace)
+    tools = load_tools(config, workspace=workspace, cancellation=cancellation)
     mcp_clients = get_mcp_servers(config)
     tools.extend(mcp_clients)
 

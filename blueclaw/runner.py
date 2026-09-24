@@ -25,6 +25,7 @@ from typing import Any, Iterator
 
 from rich.console import Console
 
+from blueclaw.cancellation import CancellationControl
 from blueclaw.models import RunRecord, RunTrace, SessionConfig
 from blueclaw.observer import ObserverHooks
 from blueclaw.session import (
@@ -161,6 +162,7 @@ class RunnerCtx:
 
     observer: ObserverHooks
     agent: Any  # strands.Agent — typed loosely to avoid a hard import here
+    cancellation: CancellationControl | None = None
 
 
 @dataclass
@@ -387,6 +389,7 @@ def runner_session(
     scripted: bool = True,
     observer_console: Console | None = None,
     observer_quiet: bool = True,
+    cancellation: CancellationControl | None = None,
 ) -> Iterator[RunnerCtx]:
     """The only sanctioned way to construct an agent in BlueClaw.
 
@@ -400,7 +403,11 @@ def runner_session(
     """
     if observer_console is None:
         observer_console = Console(file=StringIO())
-    observer = ObserverHooks(console=observer_console, quiet=observer_quiet)
+    if cancellation is None:
+        cancellation = CancellationControl()
+    observer = ObserverHooks(
+        console=observer_console, quiet=observer_quiet, cancellation=cancellation
+    )
 
     create_agent_kwargs = dict(
         config=config,
@@ -410,12 +417,14 @@ def runner_session(
         scripted=scripted,
         session_manager=session_manager,
         channel=channel,
+        cancellation=cancellation,
     )
     if callback_handler is not _UNSET:
         create_agent_kwargs["callback_handler"] = callback_handler
 
     agent = create_agent(**create_agent_kwargs)
-    ctx = RunnerCtx(observer=observer, agent=agent)
+    cancellation.attach(agent)
+    ctx = RunnerCtx(observer=observer, agent=agent, cancellation=cancellation)
     try:
         yield ctx
     finally:

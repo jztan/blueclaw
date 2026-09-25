@@ -24,6 +24,10 @@ All notable changes to blueclaw will be documented in this file.
   may delay the terminal acknowledgement; Stop does not reverse side effects
   that already occurred.
 
+### Fixed
+- Raw event rows in the trace dashboard now preserve their JSON when expanded;
+  double quotes are escaped in the `data-raw` HTML attribute.
+
 ## [3.0.0] - 2026-05-19
 ### Added
 #### Trace UI: conversation-first observability + live streaming

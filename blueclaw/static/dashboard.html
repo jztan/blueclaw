@@ -1592,6 +1592,10 @@ code, .mono {
     return div.innerHTML;
   }
 
+  function escapeHtmlAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function renderCaptureCell(row) {
     if (row.captures_pruned === true) {
       return '<span class="capture-pruned" title="' + escapeHtml(row.capture_path || '') + '">captures pruned</span>';
@@ -2728,7 +2732,7 @@ code, .mono {
             var ev = null;
             try { ev = JSON.parse(line); } catch(e) {}
             if (!ev) {
-              html += '<div class="bc-events-row" data-raw="' + escapeHtml(line) + '">';
+              html += '<div class="bc-events-row" data-raw="' + escapeHtmlAttr(line) + '">';
               html += '<span class="ev-seq">' + (idx + 1) + '</span>';
               html += '<span class="ev-ts"></span>';
               html += '<span class="ev-type ev-type-default">?</span>';
@@ -2816,7 +2820,7 @@ code, .mono {
             }
 
             var paddingLeft = indent * 14;
-            html += '<div class="bc-events-row" data-raw="' + escapeHtml(JSON.stringify(ev)) + '"' +
+            html += '<div class="bc-events-row" data-raw="' + escapeHtmlAttr(JSON.stringify(ev)) + '"' +
                     (paddingLeft > 0 ? ' style="padding-left:' + (8 + paddingLeft) + 'px"' : '') + '>';
             html += '<span class="ev-seq">' + escapeHtml(String(evSeq)) + '</span>';
             html += '<span class="ev-ts">' + escapeHtml(evTs) + '</span>';

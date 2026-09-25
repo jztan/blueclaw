@@ -167,6 +167,33 @@ class ToolOutputStore:
             raise ArtifactUnavailableError("artifact is unavailable")
         return resolved
 
+    def _canonical_reference(self, artifact_ref: str) -> str:
+        try:
+            self._reference_parts(artifact_ref)
+            return artifact_ref
+        except ArtifactReferenceError:
+            if (
+                not isinstance(artifact_ref, str)
+                or _ARTIFACT_ID_RE.fullmatch(artifact_ref) is None
+            ):
+                raise
+
+        pattern = f".blueclaw/conversations/*/turns/turn-*/tool-outputs/{artifact_ref}"
+        matches = []
+        for candidate in self.workspace_root.glob(pattern):
+            reference = candidate.relative_to(self.workspace_root).as_posix()
+            try:
+                self._artifact_path(reference)
+            except (ArtifactReferenceError, ArtifactUnavailableError):
+                continue
+            matches.append(reference)
+
+        if not matches:
+            raise ArtifactUnavailableError("artifact is unavailable")
+        if len(matches) != 1:
+            raise ArtifactReferenceError("ambiguous artifact reference")
+        return matches[0]
+
     def search(self, artifact_ref: str, query: str) -> str:
         """Return bounded literal-search snippets with their source reference."""
         if not isinstance(query, str) or not query.strip():
@@ -174,6 +201,7 @@ class ToolOutputStore:
         if len(query) > MAX_QUERY_CHARS:
             raise InvalidSearchQueryError(f"query exceeds {MAX_QUERY_CHARS} characters")
 
+        artifact_ref = self._canonical_reference(artifact_ref)
         artifact_path = self._artifact_path(artifact_ref)
         try:
             text = artifact_path.read_text(encoding="utf-8")

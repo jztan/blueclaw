@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from rich.console import Console
@@ -87,7 +88,10 @@ class RecoveryModel(Model):
             events = _model_tool_call_events(
                 "retrieve-1",
                 "retrieve_tool_output",
-                {"artifact_ref": refs[0], "query": "RECOVERY-FACT-731"},
+                {
+                    "artifact_ref": Path(refs[0]).name,
+                    "query": "RECOVERY-FACT-731",
+                },
             )
         elif call == 3:
             result_texts = [

@@ -20,8 +20,9 @@ def make_retrieve_output(workspace: Workspace):
     def retrieve_tool_output(artifact_ref: str, query: str) -> str:
         """Search a saved large tool result for a literal string.
 
-        Use the artifact reference shown in a truncated tool result. Returns
-        bounded matching snippets and the reference for follow-up searches.
+        Use the artifact reference or its filename shown in a truncated tool
+        result. Returns bounded matching snippets and the canonical reference
+        for follow-up searches.
         """
         try:
             return store.search(artifact_ref, query)

@@ -230,7 +230,9 @@ class TestRetrieveOutput:
         )
         tool = make_retrieve_output(Workspace(tmp_path))
 
-        result = tool(artifact_ref=reference, query="RECOVERED-81")
+        result = tool(
+            artifact_ref=reference.rsplit("/", maxsplit=1)[-1], query="RECOVERED-81"
+        )
 
         assert "RECOVERED-81" in result
         assert reference in result

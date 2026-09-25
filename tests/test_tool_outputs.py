@@ -83,6 +83,37 @@ def test_search_is_case_insensitive_and_returns_reference_provenance(tmp_path):
     assert reference in result
 
 
+def test_search_resolves_artifact_filename_only(tmp_path):
+    store, reference = _store_with_artifact(
+        tmp_path, "The recovered token is 51436abc84a2edb5."
+    )
+
+    result = store.search(Path(reference).name, "51436abc84a2edb5")
+
+    assert "51436abc84a2edb5" in result
+    assert reference in result
+
+
+def test_search_rejects_ambiguous_artifact_filename(tmp_path, monkeypatch):
+    store = ToolOutputStore(tmp_path)
+    references = []
+    monkeypatch.setattr("blueclaw.tool_outputs.secrets.token_hex", lambda _: "a" * 32)
+    for conversation_id in ("case-a", "case-b"):
+        capture = (
+            tmp_path
+            / ".blueclaw"
+            / "conversations"
+            / conversation_id
+            / "turns"
+            / "turn-001"
+        )
+        capture.mkdir(parents=True)
+        references.append(store.save(capture, "same file name in a different turn"))
+
+    with pytest.raises(ArtifactReferenceError):
+        store.search(Path(references[0]).name, "different")
+
+
 def test_search_treats_regex_metacharacters_literally(tmp_path):
     store, reference = _store_with_artifact(tmp_path, "literal a.*b only")
 

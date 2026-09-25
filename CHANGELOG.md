@@ -15,6 +15,9 @@ All notable changes to blueclaw will be documented in this file.
   dashboard and CLI show cancelled runs and partial usage explicitly.
 - Shell commands launched by the agent use an owned process group so Stop
   can terminate and reap the command and its descendants on POSIX systems.
+- Large successful tool outputs are saved in per-turn capture artifacts
+  before preview truncation. The `retrieve_tool_output` tool searches saved
+  outputs for bounded snippets, and references survive context masking.
 
 ### Notes
 - Stop is cooperative at SDK checkpoints. A stalled model provider or tool

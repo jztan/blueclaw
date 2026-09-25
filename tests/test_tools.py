@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from blueclaw.models import SessionConfig
+from blueclaw.tool_outputs import ToolOutputStore
 from blueclaw.tools import get_mcp_servers, get_tools
+from blueclaw.tools.retrieve_output import make_retrieve_output
 from blueclaw.tools.web import make_http_request, make_web_search
 from blueclaw.workspace import Workspace
 
@@ -202,8 +204,83 @@ class TestGetTools:
         ws = Workspace(tmp_path)
         config = SessionConfig(tools=["shell"])
         tools = get_tools(["shell"], config, workspace=ws)
-        assert len(tools) == 1
-        assert callable(tools[0])
+        assert len(tools) == 2
+        assert all(callable(item) for item in tools)
+        assert {item.tool_name for item in tools} == {
+            "shell_command",
+            "retrieve_tool_output",
+        }
+
+
+class TestRetrieveOutput:
+    def test_retrieve_output_is_a_named_tool(self, tmp_path):
+        tool = make_retrieve_output(Workspace(tmp_path))
+
+        assert callable(tool)
+        assert tool.__doc__
+        assert tool.tool_name == "retrieve_tool_output"
+
+    def test_retrieve_output_searches_saved_artifact(self, tmp_path):
+        capture = (
+            tmp_path / ".blueclaw" / "conversations" / "case-a" / "turns" / "turn-001"
+        )
+        capture.mkdir(parents=True)
+        reference = ToolOutputStore(tmp_path).save(
+            capture, "The answer is RECOVERED-81."
+        )
+        tool = make_retrieve_output(Workspace(tmp_path))
+
+        result = tool(
+            artifact_ref=reference.rsplit("/", maxsplit=1)[-1], query="RECOVERED-81"
+        )
+
+        assert "RECOVERED-81" in result
+        assert reference in result
+
+    def test_retrieve_output_sanitizes_invalid_reference(self, tmp_path):
+        tool = make_retrieve_output(Workspace(tmp_path))
+
+        result = tool(artifact_ref="/private/secret-output.txt", query="secret")
+
+        assert "invalid" in result.lower()
+        assert "/private/secret-output.txt" not in result
+
+    def test_retrieve_output_reports_missing_artifact(self, tmp_path):
+        capture = (
+            tmp_path / ".blueclaw" / "conversations" / "case-a" / "turns" / "turn-001"
+        )
+        capture.mkdir(parents=True)
+        reference = ToolOutputStore(tmp_path).save(capture, "temporary")
+        (tmp_path / reference).unlink()
+        tool = make_retrieve_output(Workspace(tmp_path))
+
+        result = tool(artifact_ref=reference, query="temporary")
+
+        assert "unavailable" in result.lower()
+
+    def test_retrieve_output_reports_invalid_query(self, tmp_path):
+        capture = (
+            tmp_path / ".blueclaw" / "conversations" / "case-a" / "turns" / "turn-001"
+        )
+        capture.mkdir(parents=True)
+        reference = ToolOutputStore(tmp_path).save(capture, "temporary")
+        tool = make_retrieve_output(Workspace(tmp_path))
+
+        result = tool(artifact_ref=reference, query="")
+
+        assert "query" in result.lower()
+        assert "invalid" in result.lower()
+
+    def test_get_tools_adds_retrieval_when_workspace_available(self, tmp_path):
+        config = SessionConfig(tools=[])
+        tools = get_tools([], config, workspace=Workspace(tmp_path))
+
+        assert [item.tool_name for item in tools] == ["retrieve_tool_output"]
+
+    def test_get_tools_omits_retrieval_without_workspace(self):
+        config = SessionConfig(tools=[])
+
+        assert get_tools([], config, workspace=None) == []
 
     def test_get_tools_unknown_still_raises(self):
         config = SessionConfig()

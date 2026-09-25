@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, Mock, patch
 
 from blueclaw.context import ObservationMaskingManager
+from blueclaw.tool_outputs import extract_artifact_refs
 
 # --- Helpers ---
 
@@ -190,6 +191,56 @@ class TestObservationMasking:
         # toolResult2 (index 6) is for the cutoff turn — must NOT be masked
         tr = agent.messages[6]["content"][0]["toolResult"]
         assert not tr["content"][0]["text"].startswith("[output omitted")
+
+    def test_mask_retains_every_artifact_reference(self):
+        mgr = ObservationMaskingManager(mask_after=1)
+        agent = MagicMock()
+        base = ".blueclaw/conversations/c1/turns/turn-001/tool-outputs/"
+        first = base + "a" * 32 + ".txt"
+        second = base + "b" * 32 + ".txt"
+        malformed = base + "not-hex.txt"
+        agent.messages = [
+            _make_user_text("start"),
+            _make_tool_use("old"),
+            _make_tool_result(
+                "old",
+                f"output [blueclaw artifact: {first}] "
+                f"[blueclaw artifact: {second}] "
+                f"[blueclaw artifact: {malformed}]",
+            ),
+            _make_tool_use("recent"),
+            _make_tool_result("recent", "recent output"),
+        ]
+
+        mgr.apply_management(agent)
+        masked = agent.messages[2]["content"][0]["toolResult"]["content"][0]["text"]
+        snapshot = masked
+        mgr.apply_management(agent)
+
+        assert first in masked
+        assert second in masked
+        assert malformed not in masked
+        assert extract_artifact_refs(masked) == [first, second]
+        assert (
+            agent.messages[2]["content"][0]["toolResult"]["content"][0]["text"]
+            == snapshot
+        )
+
+    def test_mask_without_artifact_keeps_existing_placeholder(self):
+        mgr = ObservationMaskingManager(mask_after=1)
+        agent = MagicMock()
+        agent.messages = [
+            _make_user_text("start"),
+            _make_tool_use("old"),
+            _make_tool_result("old", "plain result"),
+            _make_tool_use("recent"),
+            _make_tool_result("recent", "recent output"),
+        ]
+
+        mgr.apply_management(agent)
+
+        masked = agent.messages[2]["content"][0]["toolResult"]["content"][0]["text"]
+        assert masked == "[output omitted -- 12 chars]"
 
 
 # --- reduce_context ---

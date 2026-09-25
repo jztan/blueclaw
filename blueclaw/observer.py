@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+import logging
 import select
 import sys
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from rich.console import Console
 from strands.hooks import (
@@ -21,6 +22,7 @@ from strands.hooks import (
 )
 
 from blueclaw.models import TraceStep
+from blueclaw.tool_outputs import ArtifactReferenceError, ToolOutputStore
 
 if TYPE_CHECKING:
     from blueclaw.events import EventBus
@@ -32,20 +34,24 @@ INPUT_SUMMARY_MAX = 200
 
 ESC_SEQ_TIMEOUT = 0.05  # 50ms — standard Esc vs escape-sequence threshold
 ESC_ESC_WINDOW = 1.0  # seconds between two Esc presses
+logger = logging.getLogger(__name__)
 
 
-def truncate_tool_result(result: dict) -> dict:
+def truncate_tool_result(
+    result: dict,
+    save_output: Callable[[str], str | None] | None = None,
+) -> dict:
     """Truncate text content entries that exceed the limit."""
     content = result.get("content", [])
     for entry in content:
         if "text" in entry and len(entry["text"]) > TRUNCATION_LIMIT:
             text = entry["text"]
             removed = len(text) - HEAD_SIZE - TAIL_SIZE
-            entry["text"] = (
-                text[:HEAD_SIZE]
-                + f"\n... [truncated {removed} chars] ...\n"
-                + text[-TAIL_SIZE:]
-            )
+            reference = save_output(text) if save_output is not None else None
+            marker = f"\n... [truncated {removed} chars] ...\n"
+            if reference is not None:
+                marker += f"[blueclaw artifact: {reference}]\n"
+            entry["text"] = text[:HEAD_SIZE] + marker + text[-TAIL_SIZE:]
     return result
 
 
@@ -98,11 +104,14 @@ class ObserverHooks(HookProvider):
         quiet: bool = False,
         bus: "EventBus | None" = None,
         cancellation=None,
+        output_store: ToolOutputStore | None = None,
     ) -> None:
         self.console = console
         self.quiet = quiet
         self.bus = bus  # settable per turn by adapters
         self.cancellation = cancellation
+        self.output_store = output_store
+        self.capture_path = None
         self._cancelled = False
         self._last_esc = 0.0
         self.tools_called: list[str] = []
@@ -247,7 +256,12 @@ class ObserverHooks(HookProvider):
                 self.console.print(f"  \u2713 {tool_name} {elapsed:.1f}s")
             # Truncate tool result content
             if event.result:
-                truncate_tool_result(event.result)
+                save_output = (
+                    self._save_tool_output
+                    if self.output_store is not None and self.capture_path is not None
+                    else None
+                )
+                truncate_tool_result(event.result, save_output=save_output)
 
         if self.bus is not None:
             self.bus.emit(
@@ -276,6 +290,16 @@ class ObserverHooks(HookProvider):
         )
         self.trace_steps.append(step)
         self.tools_called.append(tool_name)
+
+    def _save_tool_output(self, text: str) -> str | None:
+        """Persist a successful oversized result when this turn has a capture."""
+        if self.output_store is None or self.capture_path is None:
+            return None
+        try:
+            return self.output_store.save(self.capture_path, text)
+        except (ArtifactReferenceError, OSError, UnicodeError) as exc:
+            logger.warning("Failed to persist oversized tool output: %s", exc)
+            return None
 
     def before_model(self, event: BeforeModelCallEvent) -> None:
         """Emit model.before event with agent context snapshot."""

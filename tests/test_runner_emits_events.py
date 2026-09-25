@@ -120,6 +120,72 @@ def test_run_turn_masking_manager_bus_is_attached(tmp_path: Path) -> None:
     assert observer.conversation_manager.bus is None
 
 
+def test_bus_for_turn_binds_and_restores_capture_path(tmp_path: Path) -> None:
+    from blueclaw.runner import bus_for_turn
+    from blueclaw.observer import ObserverHooks
+
+    observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
+    prior = tmp_path / "prior"
+    observer.capture_path = prior
+    capture_a = tmp_path / "capture-a"
+    capture_b = tmp_path / "capture-b"
+
+    with bus_for_turn(observer, capture_a):
+        assert observer.capture_path == capture_a
+    assert observer.capture_path == prior
+
+    with bus_for_turn(observer, capture_b):
+        assert observer.capture_path == capture_b
+    assert observer.capture_path == prior
+
+    with bus_for_turn(observer, None):
+        assert observer.capture_path is None
+    assert observer.capture_path == prior
+
+
+def test_bus_for_turn_binds_capture_even_if_event_bus_setup_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from blueclaw import events
+    from blueclaw.runner import bus_for_turn
+    from blueclaw.observer import ObserverHooks
+
+    observer = ObserverHooks(console=Console(file=StringIO()), quiet=True)
+    capture = tmp_path / "capture"
+    monkeypatch.setattr(events, "EventBus", lambda *args, **kwargs: _raise_oserror())
+
+    with bus_for_turn(observer, capture) as bus:
+        assert bus is None
+        assert observer.capture_path == capture
+
+    assert observer.capture_path is None
+
+
+def test_runner_session_binds_workspace_output_store(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from blueclaw.models import SessionConfig
+    from blueclaw import runner as runner_mod
+    from blueclaw.runner import runner_session
+    from blueclaw.tool_outputs import ToolOutputStore
+    from blueclaw.workspace import Workspace
+
+    workspace = Workspace(tmp_path)
+    monkeypatch.setattr(runner_mod, "create_agent", lambda **kwargs: MagicMock())
+
+    with runner_session(
+        SessionConfig(model_provider="anthropic", model_id="test"),
+        workspace,
+        model=MagicMock(),
+    ) as ctx:
+        assert isinstance(ctx.observer.output_store, ToolOutputStore)
+        assert ctx.observer.output_store.workspace_root == workspace.root.resolve()
+
+
+def _raise_oserror():
+    raise OSError("events unavailable")
+
+
 def test_run_turn_survives_unwritable_events_path(tmp_path: Path, monkeypatch) -> None:
     """If events.jsonl can't be written (read-only file), the turn still completes."""
     from blueclaw.models import SessionConfig

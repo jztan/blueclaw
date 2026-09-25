@@ -34,6 +34,7 @@ from blueclaw.session import (
     create_agent,
     extract_text,
 )
+from blueclaw.tool_outputs import ToolOutputStore
 from blueclaw.workspace import Workspace
 
 logger = logging.getLogger(__name__)
@@ -502,13 +503,14 @@ def _bus_targets(observer) -> list:
 
 @contextmanager
 def bus_for_turn(observer, capture_path: Path | None, *, cid: str | None = None):
-    """Create an EventBus for a single turn and attach it to every bus-aware
-    component reachable from the observer.
+    """Bind per-turn capture state and attach an EventBus when available.
 
-    capture_path may be None when an adapter has no capture wiring; in
-    that case we yield None and every component's emit guard no-ops. This
-    is the single chokepoint for per-turn bus lifecycle — adapters call
-    this rather than constructing EventBus directly.
+    The observer's active capture path is bound for the entire context,
+    including when EventBus creation fails. A missing capture path disables
+    both artifact persistence and event emission for that turn.
+
+    This is the single chokepoint for per-turn bus and capture lifecycle;
+    adapters call this rather than constructing EventBus directly.
 
     cid, when provided, is forwarded to EventBus so it can opportunistically
     connect to a running LiveBroker and forward events in real time.
@@ -519,32 +521,47 @@ def bus_for_turn(observer, capture_path: Path | None, *, cid: str | None = None)
     manager is reachable via `observer.conversation_manager`, which
     session.py sets after construction.
     """
-    if capture_path is None or observer is None:
+    if observer is None:
         yield None
         return
 
-    from blueclaw.events import EventBus
+    has_capture_attr = hasattr(observer, "capture_path")
+    previous_capture_path = getattr(observer, "capture_path", None)
+    if has_capture_attr:
+        observer.capture_path = capture_path
 
     try:
-        capture_path.mkdir(parents=True, exist_ok=True)
-        bus = EventBus(capture_path / "events.jsonl", cid=cid)
-    except OSError:
-        # Disk-full or permission error: fall back to no-bus mode so the turn
-        # still completes.  Observability is degraded but the agent is not broken.
-        yield None
-        return
+        if capture_path is None:
+            yield None
+            return
 
-    targets = _bus_targets(observer)
-    prev_buses: list[tuple[Any, Any]] = [(t, getattr(t, "bus", None)) for t in targets]
-    for t in targets:
-        t.bus = bus
+        from blueclaw.events import EventBus
 
-    try:
-        yield bus
+        try:
+            capture_path.mkdir(parents=True, exist_ok=True)
+            bus = EventBus(capture_path / "events.jsonl", cid=cid)
+        except OSError:
+            # Disk-full or permission error: keep the capture binding so
+            # artifact persistence can make its own best-effort attempt.
+            yield None
+            return
+
+        targets = _bus_targets(observer)
+        prev_buses: list[tuple[Any, Any]] = [
+            (t, getattr(t, "bus", None)) for t in targets
+        ]
+        for t in targets:
+            t.bus = bus
+
+        try:
+            yield bus
+        finally:
+            for t, prev in prev_buses:
+                t.bus = prev
+            bus.close()
     finally:
-        for t, prev in prev_buses:
-            t.bus = prev
-        bus.close()
+        if has_capture_attr:
+            observer.capture_path = previous_capture_path
 
 
 _UNSET = object()
@@ -579,7 +596,10 @@ def runner_session(
     if cancellation is None:
         cancellation = CancellationControl()
     observer = ObserverHooks(
-        console=observer_console, quiet=observer_quiet, cancellation=cancellation
+        console=observer_console,
+        quiet=observer_quiet,
+        cancellation=cancellation,
+        output_store=ToolOutputStore(workspace.root),
     )
 
     create_agent_kwargs = dict(

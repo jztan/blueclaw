@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from blueclaw.models import SessionConfig
 from blueclaw.tools.shell import make_shell_command
 from blueclaw.tools.web import make_http_request, make_web_search
+from blueclaw.tools.retrieve_output import make_retrieve_output
 
 TOOL_REGISTRY: dict[str, Callable] = {
     "web": lambda config, workspace, cancellation: [
@@ -37,6 +38,8 @@ def get_tools(
             continue  # Handled via MCP server
         else:
             raise ValueError(f"Unknown tool: {name}")
+    if workspace is not None:
+        tools.append(make_retrieve_output(workspace))
     return tools
 
 

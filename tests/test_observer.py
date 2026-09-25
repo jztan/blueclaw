@@ -15,6 +15,7 @@ from blueclaw.observer import (
     _summarize_output,
     truncate_tool_result,
 )
+from blueclaw.tool_outputs import ToolOutputStore, extract_artifact_refs
 
 # --- Construction ---
 
@@ -223,6 +224,117 @@ class TestTruncation:
         assert truncated["content"][1] == {"image": "base64data"}
         # Short text unchanged
         assert truncated["content"][2]["text"] == "short"
+
+
+class TestRecoverableToolOutput:
+    @staticmethod
+    def _capture_path(tmp_path):
+        capture = (
+            tmp_path / ".blueclaw" / "conversations" / "case-a" / "turns" / "turn-001"
+        )
+        capture.mkdir(parents=True)
+        return capture
+
+    def test_after_tool_saves_full_text_and_adds_reference(
+        self, tmp_path, mock_after_event
+    ):
+        capture = self._capture_path(tmp_path)
+        store = ToolOutputStore(tmp_path)
+        observer = ObserverHooks(console=Console(file=StringIO()), output_store=store)
+        observer.capture_path = capture
+        original = "x" * 8_000 + "MIDDLE-FACT" + "y" * 8_000
+        mock_after_event.result = {"content": [{"text": original}]}
+
+        observer.after_tool(mock_after_event)
+
+        preview = mock_after_event.result["content"][0]["text"]
+        references = extract_artifact_refs(preview)
+        assert len(references) == 1
+        reference = references[0]
+        assert "MIDDLE-FACT" not in preview
+        assert (tmp_path / reference).read_text(encoding="utf-8") == original
+        assert reference in preview
+
+    def test_after_tool_saves_each_oversized_text_entry(
+        self, tmp_path, mock_after_event
+    ):
+        capture = self._capture_path(tmp_path)
+        observer = ObserverHooks(
+            console=Console(file=StringIO()),
+            output_store=ToolOutputStore(tmp_path),
+        )
+        observer.capture_path = capture
+        first = "a" * 13_000
+        second = "b" * 14_000
+        mock_after_event.result = {
+            "content": [
+                {"text": first},
+                {"image": "base64"},
+                {"text": "short"},
+                {"text": second},
+            ]
+        }
+
+        observer.after_tool(mock_after_event)
+
+        content = mock_after_event.result["content"]
+        refs = extract_artifact_refs(
+            "\n".join(item.get("text", "") for item in content)
+        )
+        assert len(refs) == 2
+        assert {(tmp_path / ref).read_text(encoding="utf-8") for ref in refs} == {
+            first,
+            second,
+        }
+        assert content[1] == {"image": "base64"}
+        assert content[2]["text"] == "short"
+
+    def test_after_tool_without_capture_truncates_without_reference(
+        self, tmp_path, mock_after_event
+    ):
+        observer = ObserverHooks(
+            console=Console(file=StringIO()),
+            output_store=ToolOutputStore(tmp_path),
+        )
+        mock_after_event.result = {"content": [{"text": "z" * 20_000}]}
+
+        observer.after_tool(mock_after_event)
+
+        text = mock_after_event.result["content"][0]["text"]
+        assert "truncated" in text
+        assert extract_artifact_refs(text) == []
+
+    def test_after_tool_persistence_failure_omits_reference(
+        self, tmp_path, mock_after_event, monkeypatch
+    ):
+        capture = self._capture_path(tmp_path)
+        store = ToolOutputStore(tmp_path)
+        monkeypatch.setattr(store, "save", Mock(side_effect=OSError("disk full")))
+        observer = ObserverHooks(console=Console(file=StringIO()), output_store=store)
+        observer.capture_path = capture
+        mock_after_event.result = {"content": [{"text": "z" * 20_000}]}
+
+        observer.after_tool(mock_after_event)
+
+        text = mock_after_event.result["content"][0]["text"]
+        assert "truncated" in text
+        assert extract_artifact_refs(text) == []
+
+    def test_after_tool_exception_keeps_existing_result_behavior(
+        self, tmp_path, mock_after_event
+    ):
+        capture = self._capture_path(tmp_path)
+        store = ToolOutputStore(tmp_path)
+        observer = ObserverHooks(console=Console(file=StringIO()), output_store=store)
+        observer.capture_path = capture
+        original = "z" * 20_000
+        mock_after_event.result = {"content": [{"text": original}]}
+        mock_after_event.exception = RuntimeError("tool failed")
+
+        observer.after_tool(mock_after_event)
+
+        assert mock_after_event.result["content"][0]["text"] == original
+        assert list((capture / "tool-outputs").glob("*.txt")) == []
 
 
 # --- Accumulator ---

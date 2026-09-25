@@ -11,6 +11,8 @@ from strands.agent.conversation_manager import (
 )
 from strands.hooks import BeforeModelCallEvent, HookRegistry
 
+from blueclaw.tool_outputs import extract_artifact_refs
+
 if TYPE_CHECKING:
     from strands.agent.agent import Agent
 
@@ -121,7 +123,16 @@ class ObservationMaskingManager(ConversationManager):
             ):
                 continue
             self._masked_chars += total
-            tr["content"] = [{"text": MASK_PLACEHOLDER.format(n=total)}]
+            placeholder = MASK_PLACEHOLDER.format(n=total)
+            artifact_refs = extract_artifact_refs(
+                "\n".join(item.get("text", "") for item in items)
+            )
+            if artifact_refs:
+                refs = " ".join(
+                    f"[blueclaw artifact: {reference}]" for reference in artifact_refs
+                )
+                placeholder = f"{placeholder}; saved outputs: {refs}"
+            tr["content"] = [{"text": placeholder}]
             masked_count += 1
         return masked_count
 
